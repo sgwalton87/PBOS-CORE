@@ -1,0 +1,35 @@
+id: PBOS-PIPELINE
+
+name: Compiler Pipeline
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+pipeline:
+
+  - Discovery
+
+  - Discovery Intelligence
+
+  - COIR
+
+  - Mission
+
+  - Planning
+
+  - Engineering
+
+  - Deployment
+
+  - Runtime

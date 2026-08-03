@@ -1,0 +1,34 @@
+id: PBOS-BOOT
+
+name: PBOS Boot System
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Initialize the PBOS runtime and establish the constitutional execution
+  environment before compiler stages execute.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Boot Context
+
+consumer:
+
+  - CLI
+  - Compiler Pipeline
+
+certification:
+
+  required: true

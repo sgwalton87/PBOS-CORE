@@ -1,0 +1,33 @@
+id: PBOS-COMPILER
+
+name: PBOS Compiler
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Coordinate constitutional compiler behavior and provide the engineering
+  framework used by all compiler stages.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Compiler Results
+
+consumer:
+
+  - Compiler Pipeline
+
+certification:
+
+  required: true

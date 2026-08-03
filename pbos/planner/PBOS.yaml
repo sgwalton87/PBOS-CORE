@@ -1,0 +1,33 @@
+id: PBOS-PLANNER
+
+name: PBOS Planning Engine
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Produce deterministic execution plans from certified organizational
+  representations.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Execution Plan
+
+consumer:
+
+  - Engineering Compiler
+
+certification:
+
+  required: true

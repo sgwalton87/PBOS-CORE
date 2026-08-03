@@ -1,0 +1,31 @@
+id: PBOS-COIR
+
+name: Canonical Organizational Intermediate Representation
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+compiler:
+
+  input:
+
+    - PIR
+
+  output:
+
+    - COIR
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+certification:
+
+  required: true

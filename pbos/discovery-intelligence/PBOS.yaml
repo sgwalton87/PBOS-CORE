@@ -1,0 +1,55 @@
+id: PBOS-DI
+
+name: Discovery Intelligence Engine
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Produce a governed organizational understanding from
+  verified organizational evidence.
+
+pipeline:
+
+  - evidence
+
+  - normalization
+
+  - validation
+
+  - fusion
+
+  - confidence
+
+  - knowledge_graph
+
+  - understanding
+
+  - reporting
+
+outputs:
+
+  - Organizational Understanding
+
+  - Knowledge Graph
+
+  - Discovery Report
+
+consumer:
+
+  - COIR Compiler
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+certification:
+
+  required: true

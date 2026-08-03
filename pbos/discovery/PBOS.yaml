@@ -1,0 +1,33 @@
+id: PBOS-DISCOVERY
+
+name: PBOS Discovery Engine
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Discover organizational knowledge through interviews, documents,
+  repositories, and approved evidence sources.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Discovery Evidence
+
+consumer:
+
+  - Discovery Intelligence
+
+certification:
+
+  required: true

@@ -1,0 +1,33 @@
+id: PBOS-ACQUISITION
+
+name: PBOS Acquisition Engine
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Acquire, normalize, and validate organizational evidence from approved
+  acquisition sources.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Evidence
+
+consumer:
+
+  - Discovery Intelligence
+
+certification:
+
+  required: true
