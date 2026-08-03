@@ -1,0 +1,58 @@
+---
+id: PBOS-OS-000
+title: Operating System Compiler Engine
+version: 1.0.0
+status: Canonical
+classification: Constitutional
+owner: PBOS Genesis
+layer: Operating System Compiler
+parent:
+  - PBOS-CIP-005B
+---
+
+name: Operating System Engine
+
+purpose:
+
+  Establish the governed subsystem responsible for transforming
+  organizational models into executable operating systems.
+
+responsibilities:
+
+  - Operating system generation
+  - Mission architecture
+  - Role operating models
+  - Workflow execution models
+  - Capability orchestration
+  - Operating lineage preservation
+
+inputs:
+
+  - Organization artifacts
+  - Organization models
+  - Capability structures
+  - Role structures
+
+outputs:
+
+  - Operating system models
+  - Mission systems
+  - Role systems
+  - Workflow systems
+  - OS artifacts
+
+principles:
+
+  - Purpose precedes execution
+  - Missions require measurable objectives
+  - Roles require accountability
+  - Systems require governance
+  - Automation requires human authority
+
+dependencies:
+
+  - PBOS Organization Engine
+  - PBOS Knowledge Engine
+  - PBOS Compiler Pipeline
+  - PBOS Compiler Artifact Model
+
