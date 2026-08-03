@@ -59,3 +59,31 @@ deterministic constitutional semantic representation capable of supporting
 organizational reasoning, engineering, governance, validation,
 certification, and autonomous evolution.
 
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Constitutional Discovery Integration
+
+The Constitutional Knowledge Graph is a living semantic representation of
+organizational understanding.
+
+Knowledge may originate from:
+
+• Constitutional Discovery
+
+• Imported organizational artifacts
+
+• Repository engineering
+
+• Runtime observations
+
+• Validation evidence
+
+• Certification evidence
+
+• Organizational evolution
+
+The Knowledge Graph continuously expands organizational understanding while
+preserving constitutional authority, semantic integrity, provenance, and
+engineering traceability.
+

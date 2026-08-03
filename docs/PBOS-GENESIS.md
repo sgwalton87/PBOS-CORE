@@ -1,7 +1,7 @@
 ---
 title: PBOS Genesis
-subtitle: Constitutional Organization Engineering Operating System
-version: 1.0.0
+subtitle: Constitutional Organization Discovery, Engineering, and Evolution Operating System
+version: 1.1.0
 status: Canonical
 classification: Constitutional
 owner: PBOS Core
@@ -10,39 +10,42 @@ last_updated: 2026-08-03
 
 # PBOS Genesis
 
-> "Transforming founder intent into living organizations through
-> constitutional engineering."
+> "PBOS Genesis discovers, models, certifies, engineers, and continuously
+> evolves organizations through constitutional autonomous engineering."
 
 ═══════════════════════════════════════════════════════════════════════════════
 
 ## Executive Summary
 
-PBOS Genesis is a Constitutional Organization Engineering Operating System.
+PBOS Genesis is a Constitutional Organization Discovery, Engineering, and
+Evolution Operating System.
 
-Unlike traditional software engineering platforms, PBOS Genesis is designed to
-engineer entire organizations—not merely software.
+PBOS Genesis does not assume organizations possess complete documentation,
+architecture, specifications, or engineering artifacts.
 
-Software becomes one artifact produced by constitutional engineering.
+Instead, PBOS Genesis discovers organizational knowledge through guided
+constitutional discovery, constructs a governed Organization Genome and
+Constitutional Knowledge Graph, certifies organizational readiness, and then
+autonomously engineers organizational platforms within constitutional
+boundaries.
 
-The organization itself becomes the product.
+Software is an artifact.
 
-PBOS Genesis transforms founder vision into deterministic organizational
-execution through governed planning, engineering, validation, certification,
-and release.
+The organization is the product.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## Constitutional Hierarchy
+## Constitutional Lifecycle
 
 Founder
 
 ↓
 
-Vision
+Constitutional Discovery
 
 ↓
 
-Constitution
+Organization Constitution
 
 ↓
 
@@ -51,6 +54,10 @@ Organization Genome
 ↓
 
 Constitutional Knowledge Graph
+
+↓
+
+Certification Package
 
 ↓
 
@@ -78,15 +85,23 @@ Release
 
 ↓
 
-Living Organization
+Continuous Organizational Evolution
+
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## Constitutional Volumes
+## Constitutional Domains
+
+PBOS Genesis is organized into constitutional domains.
+
+Each domain governs a distinct aspect of organizational engineering while
+remaining subordinate to the Constitution.
+
+Current Constitutional Domains
 
 PBS-BOOT
 
-Boot Architecture
+Boot
 
 PBS-CON
 
@@ -95,6 +110,10 @@ Constitution
 PBS-VSN
 
 Vision
+
+PBS-DSC
+
+Constitutional Discovery
 
 PBS-CHR
 
@@ -148,85 +167,40 @@ PBS-KG
 
 Constitutional Knowledge Graph
 
-═══════════════════════════════════════════════════════════════════════════════
-
-## Constitutional Pipeline
-
-Founder Intent
-
-↓
-
-Organization Genome
-
-↓
-
-Knowledge Graph
-
-↓
-
-Mission Planning
-
-↓
-
-Engineering Planning
-
-↓
-
-Implementation Planning
-
-↓
-
-Execution
-
-↓
-
-Validation
-
-↓
-
-Certification
-
-↓
-
-Release
-
-↓
-
-Continuous Organizational Evolution
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## Constitutional Principles
+## Constitutional Discovery
 
-• Constitution before implementation.
+Constitutional Discovery is the governed front door of PBOS Genesis.
 
-• Organization before technology.
+Organizations are not required to possess complete specifications,
+architecture, engineering documentation, or technical artifacts before
+beginning their PBOS Genesis journey.
 
-• Identity before engineering.
+PBOS Genesis progressively discovers organizational knowledge through guided
+conversation, imported evidence, repository analysis, and constitutional
+reasoning.
 
-• Evidence before intelligence.
+The outputs of Constitutional Discovery become governed constitutional
+artifacts including the Organization Constitution, Organization Genome,
+Constitutional Knowledge Graph, Discovery Package, and Certification Package.
 
-• Validation before certification.
+Only certified organizational understanding may enter autonomous engineering.
 
-• Certification before release.
-
-• Governance before automation.
-
-• Founder intent remains the highest engineering authority.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-## Current Milestone
+## Constitutional Mission
 
-PBOS Genesis Constitutional Core v1.0
+PBOS Genesis exists to discover, model, certify, engineer, and continuously
+evolve organizations while preserving founder intent, constitutional
+governance, organizational identity, and engineering trust.
 
-Status
+Every autonomous engineering decision shall remain traceable to constitutional
+authority.
 
-COMPLETE
+Every generated artifact shall remain explainable.
 
-The Constitutional Core establishes the complete constitutional foundation
-required for autonomous organization engineering.
-
-Future milestones build implementation capability upon this foundation without
-altering constitutional authority.
+Every organizational evolution shall preserve constitutional lineage.
 

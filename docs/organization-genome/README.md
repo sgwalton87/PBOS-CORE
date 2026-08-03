@@ -59,3 +59,22 @@ The Organization Genome Volume is complete when every organization can be
 represented, engineered, regenerated, governed, and evolved through one
 constitutional organizational model.
 
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## Constitutional Discovery
+
+The Organization Genome may be produced through Constitutional Discovery,
+imported from existing organizational artifacts, or synthesized from verified
+organizational evidence.
+
+Organizations are not required to possess complete documentation before using
+PBOS Genesis.
+
+PBOS Genesis shall progressively discover, validate, and certify
+organizational identity until a complete constitutional Organization Genome
+has been established.
+
+Discovery preserves founder intent while transforming organizational
+knowledge into governed constitutional artifacts.
+
