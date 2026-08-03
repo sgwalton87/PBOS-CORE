@@ -29,6 +29,10 @@ import { OrganizationRuntime }
 import { OperatingSystemRuntime }
     from "../../os-engine";
 
+import { ExecutionRuntime }
+    from "../../execution-engine";
+
+
 export class CompilerContext {
 
 
@@ -43,11 +47,17 @@ export class CompilerContext {
     readonly knowledgeRuntime =
         new KnowledgeRuntime();
 
+
     readonly organizationRuntime =
         new OrganizationRuntime();
 
+
     readonly operatingSystemRuntime =
         new OperatingSystemRuntime();
+
+
+    readonly executionRuntime =
+        new ExecutionRuntime();
 
 
     private readonly artifactRegistry =
