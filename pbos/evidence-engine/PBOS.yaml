@@ -1,0 +1,57 @@
+---
+id: PBOS-EVIDENCE-000
+title: Evidence Intelligence Compiler
+version: 1.0.0
+status: Canonical
+classification: Constitutional
+owner: PBOS Genesis
+layer: Compiler Intelligence
+parent:
+  - PBOS-CIP-002B
+---
+
+name: Evidence Engine
+
+purpose:
+
+  Establish the governed system responsible for acquiring,
+  validating, normalizing, scoring, and preserving evidence
+  used throughout the PBOS Genesis compiler pipeline.
+
+responsibilities:
+
+  - Evidence acquisition
+  - Evidence normalization
+  - Evidence validation
+  - Evidence provenance
+  - Evidence lineage
+  - Evidence reporting
+
+inputs:
+
+  - Discovery requests
+  - Source material
+  - User-provided information
+  - External information sources
+
+outputs:
+
+  - Evidence records
+  - Evidence artifacts
+  - Confidence metadata
+  - Provenance records
+
+principles:
+
+  - Evidence before inference
+  - Provenance before trust
+  - Validation before compilation
+  - Human agency preservation
+  - Deterministic transformation
+
+dependencies:
+
+  - PBOS Compiler Pipeline
+  - PBOS Compiler Artifact Model
+  - Discovery Intelligence Compiler
+

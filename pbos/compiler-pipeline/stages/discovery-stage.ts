@@ -1,28 +1,25 @@
-import { randomUUID }
+import { randomUUID } from "crypto";
 
-from "crypto";
+import { EvidenceSource }
+    from "../../evidence-engine";
 
 import { CompilerContext }
-
-from "../context/compiler-context";
+    from "../context/compiler-context";
 
 import { PipelineStage }
-
-from "./pipeline-stage";
+    from "./pipeline-stage";
 
 import {
-
     EvidenceArtifact,
-
     SessionArtifact
-
 }
+    from "../../compiler-artifacts";
 
-from "../../compiler-artifacts";
 
 export class DiscoveryStage
 
-implements PipelineStage {
+    implements PipelineStage {
+
 
     readonly id = "discover";
 
@@ -30,11 +27,13 @@ implements PipelineStage {
 
     readonly order = 2;
 
+
     async execute(
 
         context: CompilerContext
 
     ): Promise<void> {
+
 
         const session =
 
@@ -43,6 +42,7 @@ implements PipelineStage {
                 "SESSION"
 
             );
+
 
         if (!session) {
 
@@ -54,35 +54,167 @@ implements PipelineStage {
 
         }
 
-        const artifact: EvidenceArtifact = {
 
-            id: randomUUID(),
+        const source: EvidenceSource = {
 
-            artifactType: "EVIDENCE",
 
-            schemaVersion: "1.0.0",
+            id:
 
-            compilerVersion: "1.0.0",
+                "discovery-source",
 
-            producedBy: "DiscoveryStage",
 
-            producedAt: new Date(),
+            type:
 
-            sessionId: session.sessionId,
+                "DOCUMENT",
 
-            lineageId: randomUUID(),
 
-            metadata: {},
+            name:
 
-            source: "interactive",
+                "Discovery Input",
 
-            confidence: 1.0,
 
-            evidenceType: "DISCOVERY",
+            description:
 
-            content: {}
+                "Primary discovery evidence source",
+
+
+            verified:
+
+                true,
+
+
+            metadata: {}
 
         };
+
+
+        const collected =
+
+            context.evidenceRuntime
+
+                .process({
+
+                    id:
+
+                        randomUUID(),
+
+
+                    type:
+
+                        "DOCUMENT",
+
+
+                    status:
+
+                        "COLLECTED",
+
+
+                    source,
+
+
+                    payload: {
+
+                        sessionId:
+
+                            session.sessionId,
+
+
+                        discovery:
+
+                            "Initial discovery evidence"
+
+                    },
+
+
+                    collectedAt:
+
+                        new Date(),
+
+
+                    confidence:
+
+                        0,
+
+
+                    metadata: {}
+
+                });
+
+
+
+        const artifact: EvidenceArtifact = {
+
+
+            id:
+
+                randomUUID(),
+
+
+            artifactType:
+
+                "EVIDENCE",
+
+
+            schemaVersion:
+
+                "1.0.0",
+
+
+            compilerVersion:
+
+                "1.0.0",
+
+
+            producedBy:
+
+                "DiscoveryStage",
+
+
+            producedAt:
+
+                new Date(),
+
+
+            sessionId:
+
+                session.sessionId,
+
+
+            lineageId:
+
+                randomUUID(),
+
+
+            metadata: {
+
+                validated:
+
+                    collected.valid
+
+            },
+
+
+            source:
+
+                "evidence-engine",
+
+
+            confidence:
+
+                collected.confidence,
+
+
+            evidenceType:
+
+                "DISCOVERY",
+
+
+            content:
+
+                collected.evidence.payload
+
+        };
+
 
         context.registerArtifact(
 
