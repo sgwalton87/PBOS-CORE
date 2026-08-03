@@ -27,3 +27,5 @@ export * from "./reporting/artifact-report";
 export * from "./organization/organization-artifact";
 
 export * from "./organization/organization-artifact";
+
+export * from "./operating-system/operating-system-artifact";
