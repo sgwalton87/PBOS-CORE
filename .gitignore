@@ -1,0 +1,17 @@
+node_modules/
+.venv/
+
+.env
+.env.local
+
+.DS_Store
+
+dist/
+build/
+coverage/
+
+*.log
+*.tsbuildinfo
+
+.vscode/*
+!.vscode/settings.json
