@@ -1,0 +1,56 @@
+id: PBS-CMD-DSC
+
+name: Discover Command
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Command
+
+owner: PBOS Core
+
+purpose: >
+  Launch Constitutional Discovery and produce a certified
+  Discovery Report suitable for Organizational Compilation.
+
+entrypoint:
+
+  command: pbos discover
+
+inputs:
+
+  - Founder Interview
+
+  - Organizational Documents
+
+  - Existing Software
+
+  - Hybrid Discovery
+
+outputs:
+
+  - Discovery Session
+
+  - Runtime Context
+
+  - Discovery Report
+
+  - COIR
+
+consumed_by:
+
+  - PBS-ORG
+
+  - PBS-PLN
+
+certification:
+
+  required: true
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+

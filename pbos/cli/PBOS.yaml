@@ -1,0 +1,43 @@
+id: PBOS-CLI
+
+name: PBOS Command Line Interface
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Constitutional entrypoint into the Organizational
+  Engineering Compiler.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+boot:
+
+  required: true
+
+commands:
+
+  - discover
+
+  - compile
+
+  - engineer
+
+  - runtime
+
+  - deploy
+
+  - certify
+
+certification:
+
+  required: true

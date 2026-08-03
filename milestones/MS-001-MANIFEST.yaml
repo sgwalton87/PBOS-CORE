@@ -1,0 +1,44 @@
+id: MS-001
+
+title: Constitutional Foundation
+
+status: Certified
+
+version: 1.0.0
+
+completed:
+
+  - Acquisition
+
+  - Discovery
+
+  - Organization
+
+  - Compiler
+
+  - Planner
+
+  - Engine Template
+
+standards:
+
+  - PESS-001
+
+  - PESS-002
+
+  - PESS-003
+
+  - PESS-004
+
+  - PESS-005
+
+next:
+
+  - PBOS-GATEWAY-001
+
+  - Discovery Runtime Execution
+
+  - COIR Generation
+
+  - Mission Planning
+

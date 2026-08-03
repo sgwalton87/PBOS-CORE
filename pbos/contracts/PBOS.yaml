@@ -1,0 +1,41 @@
+id: PCCS
+
+name: Constitutional Contract System
+
+classification: Constitutional
+
+version: 1.0.0
+
+status: Canonical
+
+owner: PBOS Genesis
+
+purpose: >
+  Defines constitutional engineering contracts inherited
+  by every executable PBOS subsystem.
+
+contracts:
+
+  - ConstitutionalContract
+
+  - CommandContract
+
+  - RuntimeContract
+
+  - CompilerContract
+
+  - EngineContract
+
+  - AdapterContract
+
+  - CertificationContract
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+certification:
+
+  required: true
