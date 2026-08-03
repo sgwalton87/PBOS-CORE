@@ -25,3 +25,5 @@ export * from "./lineage/artifact-lineage";
 export * from "./reporting/artifact-report";
 
 export * from "./organization/organization-artifact";
+
+export * from "./organization/organization-artifact";
