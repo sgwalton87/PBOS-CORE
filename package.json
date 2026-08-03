@@ -1,4 +1,24 @@
 {
+  "name": "pbos-core",
+  "version": "1.0.0",
+  "private": true,
+  "description": "",
+  "type": "commonjs",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "dotenv": "^17.4.2",
     "openai": "^7.3.0",
@@ -6,22 +26,9 @@
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.5",
-    "typescript": "^7.0.2"
-  },
-  "name": "pbos-core",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "private": "true"
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.10"
+  }
 }

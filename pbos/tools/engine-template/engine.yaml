@@ -1,0 +1,50 @@
+id: PBS-ENGINE-TEMPLATE
+
+name: Constitutional Engine Template
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Engine
+
+owner: PBOS Core
+
+standard: PESS-001
+
+purpose: >
+  Canonical implementation template for every Constitutional Engine
+  within PBOS Genesis.
+
+inputs: []
+
+outputs: []
+
+dependencies: []
+
+capabilities: []
+
+guarantees:
+
+  - deterministic
+
+  - explainable
+
+  - traceable
+
+  - certifiable
+
+  - fail_closed
+
+certification:
+
+  required: true
+
+lineage:
+
+  preserve: true
+
+authority:
+
+  constitutional: true
+

@@ -1,0 +1,35 @@
+id: PBS-PLN-WORK-PACKAGE-GENERATOR
+
+name: Constitutional Work Package Generator
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Engine
+
+owner: PBOS Core
+
+domain: PBS-PLN
+
+purpose: >
+  Compile Constitutional Missions into executable
+  implementation work packages.
+
+inputs:
+  - Mission
+  - Constitutional Evidence
+  - Acceptance Criteria
+
+outputs:
+  - Work Package
+  - Implementation Contract
+
+guarantees:
+  - deterministic
+  - explainable
+  - traceable
+  - certifiable
+
+certification:
+  required: true

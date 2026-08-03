@@ -1,0 +1,45 @@
+id: PBS-DSC
+
+name: Discovery Gateway
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Domain
+
+owner: PBOS Core
+
+purpose: >
+  Acquire constitutional understanding of an organization
+  before engineering begins.
+
+execution_modes:
+
+  - GREENFIELD
+
+  - BROWNFIELD
+
+  - HYBRID
+
+  - INTERNAL_EVOLUTION
+
+produces:
+
+  - Discovery Session
+
+  - Constitutional Evidence
+
+  - Organizational Understanding
+
+consumed_by:
+
+  - Organization Compiler
+
+  - Mission Planner
+
+  - Compiler Kernel
+
+certification:
+
+  required: true

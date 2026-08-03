@@ -1,0 +1,37 @@
+id: PBS-PLN-MISSION-GENERATOR
+
+name: Constitutional Mission Generator
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Engine
+
+owner: PBOS Core
+
+domain: PBS-PLN
+
+purpose: >
+  Compile verified organizational capability gaps into
+  constitutionally governed engineering missions.
+
+inputs:
+  - Canonical Organization Model
+  - Constitutional Evidence
+  - Organizational Capabilities
+  - Repository State
+
+outputs:
+  - Mission Queue
+  - Mission Graph
+  - Planning Evidence
+
+guarantees:
+  - deterministic
+  - explainable
+  - traceable
+  - fail_closed
+
+certification:
+  required: true

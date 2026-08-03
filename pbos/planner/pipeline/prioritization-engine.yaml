@@ -1,0 +1,35 @@
+id: PBS-PLN-PRIORITIZATION-ENGINE
+
+name: Constitutional Prioritization Engine
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Engine
+
+owner: PBOS Core
+
+domain: PBS-PLN
+
+purpose: >
+  Determine the single highest-priority
+  eligible engineering mission.
+
+inputs:
+  - Mission Graph
+  - Dependency Graph
+  - Constitutional Evidence
+
+outputs:
+  - Prioritized Mission Queue
+  - Selected Mission
+
+guarantees:
+  - deterministic
+  - explainable
+  - repeatable
+  - fail_closed
+
+certification:
+  required: true

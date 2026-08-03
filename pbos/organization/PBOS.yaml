@@ -1,0 +1,43 @@
+id: PBS-ORG
+
+name: Organization Compiler
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Domain
+
+owner: PBOS Core
+
+purpose: >
+  Transform Constitutional Discovery into the Canonical
+  Organization Intermediate Representation.
+
+inputs:
+
+  - Discovery Report
+
+  - Constitutional Evidence
+
+outputs:
+
+  - Canonical Organization Model
+
+  - Organization Genome
+
+  - Knowledge Graph
+
+  - Capability Graph
+
+consumed_by:
+
+  - PBS-PLN
+
+  - PBS-CMP
+
+  - PBS-VAL
+
+certification:
+
+  required: true

@@ -1,0 +1,34 @@
+id: PBS-PLN-DEPENDENCY-PLANNER
+
+name: Constitutional Dependency Planner
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional Engine
+
+owner: PBOS Core
+
+domain: PBS-PLN
+
+purpose: >
+  Determine the constitutional execution order
+  of engineering missions.
+
+inputs:
+  - Mission Graph
+  - Repository State
+
+outputs:
+  - Dependency Graph
+  - Eligible Missions
+  - Blocked Missions
+
+guarantees:
+  - deterministic
+  - explainable
+  - fail_closed
+
+certification:
+  required: true
