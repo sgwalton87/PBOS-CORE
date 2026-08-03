@@ -1,0 +1,53 @@
+---
+id: PBOS-GOVERNANCE-000
+title: Governance Authority Runtime
+version: 1.0.0
+status: Canonical
+classification: Constitutional
+owner: PBOS Genesis
+layer: Governance Control Plane
+parent:
+  - PBOS-CIP-008B
+---
+
+name: Governance Engine
+
+purpose:
+
+  Establish the constitutional authority layer responsible
+  for governing evolution, approvals, policies, and controlled
+  system changes.
+
+responsibilities:
+
+  - Authority management
+  - Change evaluation
+  - Approval decisions
+  - Policy enforcement
+  - Governance lineage
+
+inputs:
+
+  - Evolution artifacts
+  - Change proposals
+  - Runtime outcomes
+
+outputs:
+
+  - Governance decisions
+  - Approval records
+  - Policy evaluations
+
+principles:
+
+  - Authority precedes change
+  - Evolution requires governance
+  - Decisions require lineage
+  - Changes require accountability
+
+dependencies:
+
+  - PBOS Evolution Engine
+  - PBOS Execution Runtime
+  - PBOS Artifact System
+
