@@ -1,0 +1,37 @@
+graph: Engineering Graph
+
+root:
+
+  - PBS-ENG-000
+
+nodes:
+
+  - PBS-ENG-000
+  - PBS-ENG-001
+  - PBS-ENG-002
+  - PBS-ENG-003
+  - PBS-ENG-004
+  - PBS-ENG-005
+  - PBS-ENG-006
+  - PBS-ENG-007
+  - PBS-ENG-008
+  - PBS-ENG-009
+
+edges:
+
+  - engineers
+  - implements
+  - coordinates
+  - validates
+  - evolves
+  - governs
+  - produces
+
+exports:
+
+  - Engineering Graph
+  - Engineering Services
+  - Execution Plans
+  - Engineering Standards
+  - Engineering Intelligence
+

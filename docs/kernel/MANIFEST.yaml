@@ -1,0 +1,44 @@
+id: PBS-KRN
+
+title: Constitutional Kernel
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Kernel
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Kernel Graph
+
+artifacts:
+
+  - PBS-KRN-000
+  - PBS-KRN-001
+  - PBS-KRN-002
+  - PBS-KRN-003
+  - PBS-KRN-004
+  - PBS-KRN-005
+  - PBS-KRN-006
+  - PBS-KRN-007
+  - PBS-KRN-008
+  - PBS-KRN-009
+
+dependencies:
+
+  - PBS-SYS-009
+  - PBS-BOT-009
+
+produces:
+
+  - Kernel Services
+  - Execution State
+  - Security Services
+  - Event Services
+  - Observability Services
+

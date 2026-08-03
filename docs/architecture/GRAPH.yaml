@@ -1,0 +1,37 @@
+graph: Architecture Graph
+
+root:
+
+  - PBS-ARC-000
+
+nodes:
+
+  - PBS-ARC-000
+  - PBS-ARC-001
+  - PBS-ARC-002
+  - PBS-ARC-003
+  - PBS-ARC-004
+  - PBS-ARC-005
+  - PBS-ARC-006
+  - PBS-ARC-007
+  - PBS-ARC-008
+  - PBS-ARC-009
+
+edges:
+
+  - contains
+  - depends_on
+  - organizes
+  - structures
+  - relates
+  - evolves
+  - composes
+
+exports:
+
+  - Architecture Graph
+  - Domain Model
+  - Component Model
+  - Relationship Model
+  - Engineering Structure
+

@@ -1,0 +1,45 @@
+id: PBS-ENG
+
+title: PBOS Engineering
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Engineering
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Engineering Graph
+
+artifacts:
+
+  - PBS-ENG-000
+  - PBS-ENG-001
+  - PBS-ENG-002
+  - PBS-ENG-003
+  - PBS-ENG-004
+  - PBS-ENG-005
+  - PBS-ENG-006
+  - PBS-ENG-007
+  - PBS-ENG-008
+  - PBS-ENG-009
+
+dependencies:
+
+  - PBS-CON-000
+  - PBS-ARC-009
+
+produces:
+
+  - Engineering Graph
+  - Engineering Services
+  - Engineering Standards
+  - Execution Plans
+  - Engineering Intelligence
+  - Implementation Contracts
+

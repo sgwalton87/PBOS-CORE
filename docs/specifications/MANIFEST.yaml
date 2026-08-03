@@ -1,0 +1,46 @@
+id: PBS-SPC
+
+title: PBOS Engineering Specifications
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Specification
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Specification Graph
+
+artifacts:
+
+  - PBS-SPC-000
+  - PBS-SPC-001
+  - PBS-SPC-002
+  - PBS-SPC-003
+  - PBS-SPC-004
+  - PBS-SPC-005
+  - PBS-SPC-006
+  - PBS-SPC-007
+  - PBS-SPC-008
+  - PBS-SPC-009
+
+dependencies:
+
+  - PBS-CON-000
+  - PBS-VSN-009
+  - PBS-CHR-009
+
+produces:
+
+  - Engineering Specifications
+  - Mission Specifications
+  - Repository Specifications
+  - Dependency Specifications
+  - Validation Specifications
+  - Constitutional Engineering Language
+

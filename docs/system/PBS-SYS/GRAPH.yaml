@@ -1,0 +1,42 @@
+graph: PBOS System Graph
+
+root:
+
+  - PBS-SYS-000
+
+nodes:
+
+  - PBS-SYS-000
+  - PBS-SYS-001
+  - PBS-SYS-002
+  - PBS-SYS-003
+  - PBS-SYS-004
+  - PBS-SYS-005
+  - PBS-SYS-006
+  - PBS-SYS-007
+  - PBS-SYS-008
+  - PBS-SYS-009
+
+edges:
+
+  - inherits
+  - depends_on
+  - governs
+  - produces
+  - validates
+  - compiles
+  - executes
+  - evolves
+
+exports:
+
+  - Volume Architecture
+  - Artifact Architecture
+  - Knowledge Graph
+  - Compilation Architecture
+  - Execution Architecture
+  - Repository Architecture
+  - Evolution Architecture
+  - Extensibility Architecture
+  - PBOS Meta-Architecture
+

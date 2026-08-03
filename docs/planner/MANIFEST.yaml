@@ -1,0 +1,44 @@
+id: PBS-PLN
+
+title: PBOS Planner
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Planner
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Planner Graph
+
+artifacts:
+
+  - PBS-PLN-000
+  - PBS-PLN-001
+  - PBS-PLN-002
+  - PBS-PLN-003
+  - PBS-PLN-004
+  - PBS-PLN-005
+  - PBS-PLN-006
+  - PBS-PLN-007
+  - PBS-PLN-008
+  - PBS-PLN-009
+
+dependencies:
+
+  - PBS-RUN-009
+
+produces:
+
+  - Mission Graph
+  - Engineering Plans
+  - Dependency Graphs
+  - Execution Plans
+  - Planning Intelligence
+  - Adaptive Planning
+

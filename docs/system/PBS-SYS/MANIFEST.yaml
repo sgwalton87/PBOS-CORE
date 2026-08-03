@@ -1,0 +1,47 @@
+id: PBS-SYS
+
+title: PBOS System
+
+version: 1.0.0
+
+status: Canonical
+
+classification: System
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: PBOS System Graph
+
+artifacts:
+
+  - PBS-SYS-000
+  - PBS-SYS-001
+  - PBS-SYS-002
+  - PBS-SYS-003
+  - PBS-SYS-004
+  - PBS-SYS-005
+  - PBS-SYS-006
+  - PBS-SYS-007
+  - PBS-SYS-008
+  - PBS-SYS-009
+
+dependencies:
+
+  - PBS-CON-000
+
+produces:
+
+  - Canonical Volume Model
+  - Canonical Artifact Model
+  - Canonical Graph Model
+  - Compilation Model
+  - Execution Model
+  - Repository Model
+  - Evolution Model
+  - Extensibility Model
+  - PBOS Meta-Architecture
+

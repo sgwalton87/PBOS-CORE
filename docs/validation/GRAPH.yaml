@@ -1,0 +1,37 @@
+graph: Validation Graph
+
+root:
+
+  - PBS-VAL-000
+
+nodes:
+
+  - PBS-VAL-000
+  - PBS-VAL-001
+  - PBS-VAL-002
+  - PBS-VAL-003
+  - PBS-VAL-004
+  - PBS-VAL-005
+  - PBS-VAL-006
+  - PBS-VAL-007
+  - PBS-VAL-008
+  - PBS-VAL-009
+
+edges:
+
+  - validates
+  - verifies
+  - governs
+  - coordinates
+  - observes
+  - optimizes
+  - adapts
+
+exports:
+
+  - Validation Reports
+  - Validation Evidence
+  - Validation Intelligence
+  - Validation Policies
+  - Validation Governance
+

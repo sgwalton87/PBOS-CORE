@@ -1,0 +1,56 @@
+version: 1.0.0
+
+volume:
+  id: PBS-BOT
+  title: PBOS Boot Architecture
+
+boot_order:
+
+  - configuration
+
+  - discovery
+
+  - manifests
+
+  - graphs
+
+  - constitution
+
+  - vision
+
+  - charter
+
+  - specifications
+
+  - architecture
+
+  - engineering
+
+  - kernel
+
+  - runtime
+
+  - planner
+
+  - validation
+
+  - certification
+
+  - ready
+
+boot_mode:
+
+  deterministic: true
+
+  fail_closed: true
+
+  constitutional: true
+
+supports:
+
+  graph_loading: true
+
+  autonomous_engineering: true
+
+  constitutional_reasoning: true
+

@@ -1,0 +1,45 @@
+id: PBS-ARC
+
+title: PBOS Architecture
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Architecture
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Architecture Graph
+
+artifacts:
+
+  - PBS-ARC-000
+  - PBS-ARC-001
+  - PBS-ARC-002
+  - PBS-ARC-003
+  - PBS-ARC-004
+  - PBS-ARC-005
+  - PBS-ARC-006
+  - PBS-ARC-007
+  - PBS-ARC-008
+  - PBS-ARC-009
+
+dependencies:
+
+  - PBS-CON-000
+  - PBS-SPC-009
+
+produces:
+
+  - Architecture Graph
+  - Domain Architecture
+  - Component Architecture
+  - Relationship Architecture
+  - Architectural Patterns
+  - Structural Engineering Model
+

@@ -1,0 +1,44 @@
+id: PBS-RUN
+
+title: PBOS Runtime
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Runtime
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Runtime Graph
+
+artifacts:
+
+  - PBS-RUN-000
+  - PBS-RUN-001
+  - PBS-RUN-002
+  - PBS-RUN-003
+  - PBS-RUN-004
+  - PBS-RUN-005
+  - PBS-RUN-006
+  - PBS-RUN-007
+  - PBS-RUN-008
+  - PBS-RUN-009
+
+dependencies:
+
+  - PBS-KRN-009
+
+produces:
+
+  - Runtime Sessions
+  - Runtime Context
+  - Runtime Services
+  - Engineering Evidence
+  - Operational Intelligence
+  - Adaptive Runtime
+

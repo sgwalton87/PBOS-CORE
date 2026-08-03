@@ -1,0 +1,36 @@
+graph: Vision Graph
+
+root:
+
+  - PBS-VSN-000
+
+nodes:
+
+  - PBS-VSN-000
+  - PBS-VSN-001
+  - PBS-VSN-002
+  - PBS-VSN-003
+  - PBS-VSN-004
+  - PBS-VSN-005
+  - PBS-VSN-006
+  - PBS-VSN-007
+  - PBS-VSN-008
+  - PBS-VSN-009
+
+edges:
+
+  - inspires
+  - aligns
+  - guides
+  - informs
+  - evolves
+  - supports
+
+exports:
+
+  - Vision Framework
+  - Strategic Direction
+  - Organizational Future
+  - Engineering Vision
+  - Innovation Model
+

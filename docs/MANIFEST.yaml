@@ -1,0 +1,62 @@
+id: PBOS
+
+title: PBOS Genesis
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Root
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+boot_order:
+
+  - PBS-SYS
+  - PBS-BOT
+  - PBS-CON
+  - PBS-VSN
+  - PBS-CHR
+  - PBS-ORG
+  - PBS-SPC
+  - PBS-ARC
+  - PBS-ENG
+  - PBS-KRN
+  - PBS-RUN
+  - PBS-PLN
+  - PBS-CMP
+  - PBS-VAL
+  - PBS-CER
+  - PBS-REL
+
+volumes:
+
+  - docs/system/PBS-SYS
+  - docs/boot
+  - docs/constitution
+  - docs/vision
+  - docs/charter
+  - docs/organization
+  - docs/specifications
+  - docs/architecture
+  - docs/engineering
+  - docs/kernel
+  - docs/runtime
+  - docs/planner
+  - docs/compiler
+  - docs/validation
+  - docs/certification
+  - docs/release
+
+graph:
+
+  PBOS Root Graph
+
+entrypoint:
+
+  docs/INDEX.md
+

@@ -1,0 +1,46 @@
+id: PBS-ORG
+
+title: Constitutional Organization Genome
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Organization Genome
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Organization Genome Graph
+
+artifacts:
+
+  - PBS-ORG-000
+  - PBS-ORG-001
+  - PBS-ORG-002
+  - PBS-ORG-003
+  - PBS-ORG-004
+  - PBS-ORG-005
+  - PBS-ORG-006
+  - PBS-ORG-007
+  - PBS-ORG-008
+  - PBS-ORG-009
+
+dependencies:
+
+  - PBS-REL-009
+
+produces:
+
+  - Organization Identity
+  - Constitutional Knowledge Graph
+  - Mission Graph
+  - Capability Graph
+  - Relationship Graph
+  - Engineering Intent
+  - Organizational Intelligence
+  - Genome Governance
+

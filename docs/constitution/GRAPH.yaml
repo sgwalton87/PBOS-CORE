@@ -1,0 +1,37 @@
+graph: Constitution Graph
+
+root:
+
+  - PBS-CON-000
+
+nodes:
+
+  - PBS-CON-000
+  - PBS-CON-001
+  - PBS-CON-002
+  - PBS-CON-003
+  - PBS-CON-004
+  - PBS-CON-005
+  - PBS-CON-006
+  - PBS-CON-007
+  - PBS-CON-008
+  - PBS-CON-009
+
+edges:
+
+  - governs
+  - inherits
+  - authorizes
+  - validates
+  - enforces
+  - evolves
+  - interprets
+
+exports:
+
+  - Constitutional Authority
+  - Governance Model
+  - Authority Graph
+  - Constitutional Policies
+  - Engineering Governance
+

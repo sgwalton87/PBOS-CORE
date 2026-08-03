@@ -1,0 +1,36 @@
+graph: Charter Graph
+
+root:
+
+  - PBS-CHR-000
+
+nodes:
+
+  - PBS-CHR-000
+  - PBS-CHR-001
+  - PBS-CHR-002
+  - PBS-CHR-003
+  - PBS-CHR-004
+  - PBS-CHR-005
+  - PBS-CHR-006
+  - PBS-CHR-007
+  - PBS-CHR-008
+  - PBS-CHR-009
+
+edges:
+
+  - governs
+  - delegates
+  - authorizes
+  - assigns
+  - aligns
+  - evolves
+
+exports:
+
+  - Governance Framework
+  - Organizational Structure
+  - Responsibility Model
+  - Decision Model
+  - Accountability Framework
+

@@ -1,0 +1,44 @@
+id: PBS-VAL
+
+title: Constitutional Validation
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Validation
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Validation Graph
+
+artifacts:
+
+  - PBS-VAL-000
+  - PBS-VAL-001
+  - PBS-VAL-002
+  - PBS-VAL-003
+  - PBS-VAL-004
+  - PBS-VAL-005
+  - PBS-VAL-006
+  - PBS-VAL-007
+  - PBS-VAL-008
+  - PBS-VAL-009
+
+dependencies:
+
+  - PBS-CMP-009
+
+produces:
+
+  - Validation Reports
+  - Engineering Evidence
+  - Repository Validation
+  - Runtime Validation
+  - Validation Intelligence
+  - Validation Governance
+

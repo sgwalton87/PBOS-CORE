@@ -1,0 +1,64 @@
+graph: PBOS Root Graph
+
+root:
+
+  PBOS Genesis
+
+nodes:
+
+  - PBS-SYS
+  - PBS-BOT
+  - PBS-CON
+  - PBS-VSN
+  - PBS-CHR
+  - PBS-ORG
+  - PBS-SPC
+  - PBS-ARC
+  - PBS-ENG
+  - PBS-KRN
+  - PBS-RUN
+  - PBS-PLN
+  - PBS-CMP
+  - PBS-VAL
+  - PBS-CER
+  - PBS-REL
+
+edges:
+
+  - boots
+  - governs
+  - inspires
+  - authorizes
+  - specifies
+  - structures
+  - engineers
+  - executes
+  - validates
+  - certifies
+  - releases
+  - evolves
+
+exports:
+
+  - Constitutional Knowledge Graph
+
+  - Engineering Graph
+
+  - Organizational Graph
+
+  - Runtime Graph
+
+  - Validation Graph
+
+  - Certification Graph
+
+  - Release Graph
+
+boot_entry:
+
+  PBS-SYS
+
+boot_exit:
+
+  PBS-REL
+

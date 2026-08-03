@@ -1,0 +1,37 @@
+graph: Planner Graph
+
+root:
+
+  - PBS-PLN-000
+
+nodes:
+
+  - PBS-PLN-000
+  - PBS-PLN-001
+  - PBS-PLN-002
+  - PBS-PLN-003
+  - PBS-PLN-004
+  - PBS-PLN-005
+  - PBS-PLN-006
+  - PBS-PLN-007
+  - PBS-PLN-008
+  - PBS-PLN-009
+
+edges:
+
+  - plans
+  - decomposes
+  - prioritizes
+  - resolves
+  - optimizes
+  - adapts
+  - governs
+
+exports:
+
+  - Mission Graph
+  - Dependency Graph
+  - Engineering Plan
+  - Execution Plan
+  - Planning Intelligence
+

@@ -1,0 +1,36 @@
+graph: Specification Graph
+
+root:
+
+  - PBS-SPC-000
+
+nodes:
+
+  - PBS-SPC-000
+  - PBS-SPC-001
+  - PBS-SPC-002
+  - PBS-SPC-003
+  - PBS-SPC-004
+  - PBS-SPC-005
+  - PBS-SPC-006
+  - PBS-SPC-007
+  - PBS-SPC-008
+  - PBS-SPC-009
+
+edges:
+
+  - specifies
+  - defines
+  - depends_on
+  - traces_to
+  - validates
+  - compiles
+
+exports:
+
+  - Engineering Specifications
+  - Mission Definitions
+  - Engineering Contracts
+  - Dependency Graph
+  - Constitutional Engineering Language
+

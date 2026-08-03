@@ -1,0 +1,45 @@
+id: PBS-CHR
+
+title: PBOS Charter
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Charter
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Charter Graph
+
+artifacts:
+
+  - PBS-CHR-000
+  - PBS-CHR-001
+  - PBS-CHR-002
+  - PBS-CHR-003
+  - PBS-CHR-004
+  - PBS-CHR-005
+  - PBS-CHR-006
+  - PBS-CHR-007
+  - PBS-CHR-008
+  - PBS-CHR-009
+
+dependencies:
+
+  - PBS-CON-000
+  - PBS-VSN-009
+
+produces:
+
+  - Operational Governance
+  - Organizational Structure
+  - Decision Framework
+  - Accountability Framework
+  - Strategic Objectives
+  - Organizational Stewardship
+

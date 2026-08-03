@@ -1,0 +1,44 @@
+id: PBS-CON
+
+title: PBOS Constitution
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitution
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Constitution Graph
+
+artifacts:
+
+  - PBS-CON-000
+  - PBS-CON-001
+  - PBS-CON-002
+  - PBS-CON-003
+  - PBS-CON-004
+  - PBS-CON-005
+  - PBS-CON-006
+  - PBS-CON-007
+  - PBS-CON-008
+  - PBS-CON-009
+
+dependencies:
+
+  - PBS-BOT-009
+
+produces:
+
+  - Constitutional Authority
+  - Constitutional Governance
+  - Constitutional Inheritance
+  - Constitutional Compliance
+  - Constitutional Evolution
+  - Constitutional Interpretation
+

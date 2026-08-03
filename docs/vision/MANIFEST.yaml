@@ -1,0 +1,43 @@
+id: PBS-VSN
+
+title: PBOS Vision
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Vision
+
+owner: PBOS Core
+
+constitutional_authority:
+
+  - PBS-CON-000
+
+graph: Vision Graph
+
+artifacts:
+
+  - PBS-VSN-000
+  - PBS-VSN-001
+  - PBS-VSN-002
+  - PBS-VSN-003
+  - PBS-VSN-004
+  - PBS-VSN-005
+  - PBS-VSN-006
+  - PBS-VSN-007
+  - PBS-VSN-008
+  - PBS-VSN-009
+
+dependencies:
+
+  - PBS-CON-000
+
+produces:
+
+  - Organizational Vision
+  - Engineering Vision
+  - Strategic Direction
+  - Innovation Strategy
+  - Future State
+
