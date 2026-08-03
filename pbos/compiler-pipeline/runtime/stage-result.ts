@@ -1,18 +1,5 @@
-/*
-===============================================================================
-
-PBOS Stage Result
-
-Authority
-
-PBOS-CIP-001
-
-Classification
-
-Constitutional Runtime
-
-===============================================================================
-*/
+import { CompilerArtifact }
+    from "../../compiler-artifacts";
 
 export interface StageResult {
 
@@ -28,7 +15,7 @@ export interface StageResult {
 
     readonly durationMs: number;
 
-    readonly artifacts: readonly string[];
+    readonly artifacts: readonly CompilerArtifact[];
 
     readonly diagnostics: readonly string[];
 

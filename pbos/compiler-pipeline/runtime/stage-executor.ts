@@ -10,17 +10,9 @@ PBOS-CIP-004
 ===============================================================================
 */
 
-import { CompilerContext }
-
-from "../context/compiler-context";
-
-import { PipelineStage }
-
-from "../stages/pipeline-stage";
-
-import { StageResult }
-
-from "./stage-result";
+import { CompilerContext } from "../context/compiler-context";
+import { PipelineStage } from "../stages/pipeline-stage";
+import { StageResult } from "./stage-result";
 
 export class StageExecutor {
 
@@ -32,28 +24,18 @@ export class StageExecutor {
 
     ): Promise<StageResult> {
 
-        const startedAt =
+        const startedAt = new Date();
 
-            new Date();
+        await stage.execute(context);
 
-        await stage.execute(
-
-            context
-
-        );
-
-        const completedAt =
-
-            new Date();
+        const completedAt = new Date();
 
         return {
 
             stageId:
-
                 stage.id,
 
             stageName:
-
                 stage.name,
 
             success: true,
@@ -63,14 +45,11 @@ export class StageExecutor {
             completedAt,
 
             durationMs:
-
                 completedAt.getTime() -
-
                 startedAt.getTime(),
 
             artifacts:
-
-                [...context.artifacts],
+                [...context.getArtifacts()],
 
             diagnostics: []
 

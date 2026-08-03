@@ -2,6 +2,14 @@ import { StageResult }
 
 from "../runtime/stage-result";
 
+import {
+
+    CompilerArtifact
+
+}
+
+from "../../compiler-artifacts";
+
 export interface PipelineReport {
 
     readonly pipelineId: string;
@@ -15,5 +23,7 @@ export interface PipelineReport {
     readonly stageCount: number;
 
     readonly stages: readonly StageResult[];
+
+    readonly artifacts?: readonly CompilerArtifact[];
 
 }

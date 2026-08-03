@@ -4,42 +4,60 @@ import { CompilerPipeline }
 
 from "../compiler-pipeline";
 
-describe("Compiler Pipeline Integration", () => {
+describe(
 
-    it("executes successfully", async () => {
+    "PBOS Compiler Integration",
 
-        const pipeline =
+    () => {
 
-            new CompilerPipeline();
+        it(
 
-        const report =
+            "executes the compiler",
 
-            await pipeline.execute();
+            async () => {
 
-        expect(
+                const pipeline =
 
-            report.success
+                    new CompilerPipeline();
 
-        ).toBe(true);
+                const report =
 
-    });
+                    await pipeline.execute();
 
-    it("executes at least one stage", async () => {
+                expect(
 
-        const pipeline =
+                    report.success
 
-            new CompilerPipeline();
+                ).toBe(true);
 
-        const report =
+            }
 
-            await pipeline.execute();
+        );
 
-        expect(
+        it(
 
-            report.stages.length
+            "executes four compiler stages",
 
-        ).toBeGreaterThan(0);
+            async () => {
 
-    });
+                const pipeline =
 
-});
+                    new CompilerPipeline();
+
+                const report =
+
+                    await pipeline.execute();
+
+                expect(
+
+                    report.stageCount
+
+                ).toBe(4);
+
+            }
+
+        );
+
+    }
+
+);

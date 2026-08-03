@@ -1,53 +1,52 @@
-/*
-===============================================================================
+import { randomUUID } from "crypto";
 
-PBOS Intermediate Representation Engine
-
-Authority
-
-PBOS-PIR-001
-
-Classification
-
-Constitutional Compiler Engine
-
-===============================================================================
-
-Purpose
-
-Coordinate creation and refinement of the PBOS Intermediate Representation.
-
-The PIR Engine SHALL orchestrate constitutional compiler stages.
-
-The PIR Engine SHALL NOT implement business logic.
-
-===============================================================================
-*/
-
-import { PirRuntime } from "./runtime/pir-runtime";
+import {
+    OrganizationUnderstandingArtifact,
+    PirArtifact
+} from "../compiler-artifacts";
 
 export class PirEngine {
 
-    constructor(
+    compile(
+        understanding:
+        OrganizationUnderstandingArtifact
+    ): PirArtifact {
 
-        private readonly runtime =
-            new PirRuntime()
+        return {
 
-    ) {}
+            id: randomUUID(),
 
-    async initialize(): Promise<void> {
+            artifactType: "PIR",
 
-        await this.runtime.initialize();
+            schemaVersion: "1.0.0",
 
-    }
+            compilerVersion: "1.0.0",
 
-    async execute(): Promise<void> {
+            producedBy:
+                "PirEngine",
 
-        console.log(
+            producedAt: new Date(),
 
-            "PBOS PIR Engine executing..."
+            sessionId:
+                understanding.sessionId,
 
-        );
+            lineageId:
+                randomUUID(),
+
+            metadata: {},
+
+            representationVersion:
+                "1.0.0",
+
+            compilerPasses: [
+
+                "organization"
+
+            ],
+
+            organizationModel: {}
+
+        };
 
     }
 

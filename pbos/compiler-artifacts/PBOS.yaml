@@ -1,0 +1,33 @@
+id: PBOS-ARTIFACT
+
+name: Compiler Artifact Model
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Constitutional
+
+owner: PBOS Genesis
+
+purpose: >
+  Provide immutable constitutional artifacts exchanged between compiler
+  stages.
+
+execution:
+
+  deterministic: true
+
+  fail_closed: true
+
+outputs:
+
+  - Compiler Artifacts
+
+consumer:
+
+  - Compiler Pipeline
+
+certification:
+
+  required: true

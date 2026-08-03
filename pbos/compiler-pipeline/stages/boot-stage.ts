@@ -1,25 +1,67 @@
-import { CompilerContext } from "../context/compiler-context";
-import { PipelineStage } from "./pipeline-stage";
+import { randomUUID }
 
-export class BootStage implements PipelineStage {
+from "crypto";
+
+import { CompilerContext }
+
+from "../context/compiler-context";
+
+import { PipelineStage }
+
+from "./pipeline-stage";
+
+import { SessionArtifact }
+
+from "../../compiler-artifacts";
+
+export class BootStage
+
+implements PipelineStage {
 
     readonly id = "boot";
 
     readonly name = "Boot";
 
-    readonly order = 10;
+    readonly order = 1;
 
     async execute(
+
         context: CompilerContext
+
     ): Promise<void> {
 
-        context.set(
-            "boot",
-            true
-        );
+        const artifact: SessionArtifact = {
 
-        context.addArtifact(
-            "boot-complete"
+            id: randomUUID(),
+
+            artifactType: "SESSION",
+
+            schemaVersion: "1.0.0",
+
+            compilerVersion: "1.0.0",
+
+            producedBy: "BootStage",
+
+            producedAt: new Date(),
+
+            sessionId: randomUUID(),
+
+            lineageId: randomUUID(),
+
+            metadata: {},
+
+            organizationId: "unknown",
+
+            executionId: randomUUID(),
+
+            startedAt: new Date()
+
+        };
+
+        context.registerArtifact(
+
+            artifact
+
         );
 
     }

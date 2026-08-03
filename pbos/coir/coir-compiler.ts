@@ -1,52 +1,48 @@
-/*
-===============================================================================
+import { randomUUID } from "crypto";
 
-PBOS COIR Compiler
-
-Authority
-
-PBOS-COIR-001
-
-Classification
-
-Constitutional Compiler
-
-===============================================================================
-
-Purpose
-
-Compile the PBOS Intermediate Representation into the Canonical
-Organizational Intermediate Representation.
-
-The compiler SHALL orchestrate compilation only.
-
-===============================================================================
-*/
-
-import { CoirRuntime } from "./runtime/coir-runtime";
+import {
+    CoirArtifact,
+    PirArtifact
+} from "../compiler-artifacts";
 
 export class CoirCompiler {
 
-    constructor(
+    compile(
+        pir: PirArtifact
+    ): CoirArtifact {
 
-        private readonly runtime =
-            new CoirRuntime()
+        return {
 
-    ) {}
+            id: randomUUID(),
 
-    async initialize(): Promise<void> {
+            artifactType: "COIR",
 
-        await this.runtime.initialize();
+            schemaVersion: "1.0.0",
 
-    }
+            compilerVersion: "1.0.0",
 
-    async compile(): Promise<void> {
+            producedBy:
+                "CoirCompiler",
 
-        console.log(
+            producedAt: new Date(),
 
-            "Compiling Canonical Organization..."
+            sessionId:
+                pir.sessionId,
 
-        );
+            lineageId:
+                randomUUID(),
+
+            metadata: {},
+
+            canonicalOrganization: {},
+
+            certificationLevel:
+                "DRAFT",
+
+            compiledBy:
+                "PBOS Genesis"
+
+        };
 
     }
 
