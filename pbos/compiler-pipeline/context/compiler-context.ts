@@ -15,14 +15,16 @@ Constitutional Compiler Context
 */
 
 import { CompilerArtifact }
-from "../../compiler-artifacts";
+    from "../../compiler-artifacts";
 
 import { EvidenceRuntime }
-from "../../evidence-engine";
+    from "../../evidence-engine";
 
 import { KnowledgeRuntime }
-from "../../knowledge-engine";
+    from "../../knowledge-engine";
 
+import { OrganizationRuntime }
+    from "../../organization-engine";
 
 export class CompilerContext {
 
@@ -37,6 +39,9 @@ export class CompilerContext {
 
     readonly knowledgeRuntime =
         new KnowledgeRuntime();
+
+    readonly organizationRuntime =
+        new OrganizationRuntime();
 
 
     private readonly artifactRegistry =
