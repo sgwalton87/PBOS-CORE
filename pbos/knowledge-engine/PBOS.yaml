@@ -1,0 +1,56 @@
+---
+id: PBOS-KNOWLEDGE-000
+title: Knowledge Compiler Engine
+version: 1.0.0
+status: Canonical
+classification: Constitutional
+owner: PBOS Genesis
+layer: Intelligence Compiler
+parent:
+  - PBOS-CIP-003B
+---
+
+name: Knowledge Engine
+
+purpose:
+
+  Establish the governed subsystem responsible for transforming
+  validated evidence into structured knowledge representations.
+
+responsibilities:
+
+  - Entity extraction
+  - Relationship discovery
+  - Knowledge graph construction
+  - Ontology alignment
+  - Semantic reasoning
+  - Knowledge lineage preservation
+
+inputs:
+
+  - Evidence artifacts
+  - Validated information records
+  - Discovery intelligence outputs
+
+outputs:
+
+  - Knowledge artifacts
+  - Entity models
+  - Relationship models
+  - Knowledge graphs
+  - Reasoning reports
+
+principles:
+
+  - Evidence precedes understanding
+  - Meaning requires provenance
+  - Relationships require validation
+  - Knowledge remains explainable
+  - Transformations remain deterministic
+
+dependencies:
+
+  - PBOS Evidence Engine
+  - PBOS Compiler Pipeline
+  - PBOS Compiler Artifact Model
+

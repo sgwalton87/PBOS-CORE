@@ -14,9 +14,14 @@ Constitutional Compiler Context
 ===============================================================================
 */
 
-import { CompilerArtifact } from "../../compiler-artifacts";
+import { CompilerArtifact }
+from "../../compiler-artifacts";
 
-import { EvidenceRuntime } from "../../evidence-engine";
+import { EvidenceRuntime }
+from "../../evidence-engine";
+
+import { KnowledgeRuntime }
+from "../../knowledge-engine";
 
 
 export class CompilerContext {
@@ -28,6 +33,10 @@ export class CompilerContext {
 
     readonly evidenceRuntime =
         new EvidenceRuntime();
+
+
+    readonly knowledgeRuntime =
+        new KnowledgeRuntime();
 
 
     private readonly artifactRegistry =
@@ -64,9 +73,7 @@ export class CompilerContext {
 
             if (artifact.artifactType === artifactType) {
 
-
                 return artifact as T;
-
 
             }
 
@@ -74,7 +81,6 @@ export class CompilerContext {
 
 
         return undefined;
-
 
     }
 
@@ -87,7 +93,6 @@ export class CompilerContext {
             ...this.artifactRegistry.values()
 
         ];
-
 
     }
 
@@ -109,7 +114,6 @@ export class CompilerContext {
 
         );
 
-
     }
 
 
@@ -126,8 +130,6 @@ export class CompilerContext {
 
         ) as T | undefined;
 
-
     }
-
 
 }
