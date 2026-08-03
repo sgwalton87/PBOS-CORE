@@ -30,3 +30,4 @@ export * from "./organization/organization-artifact";
 
 export * from "./operating-system/operating-system-artifact";
 export * from "./execution/execution-artifact";
+export * from "./evolution/evolution-artifact";
