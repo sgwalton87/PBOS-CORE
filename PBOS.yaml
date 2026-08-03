@@ -1,0 +1,252 @@
+###############################################################################
+# PBOS Genesis
+# Constitutional Engineering Operating System
+#
+# Root Configuration
+#
+# This is the canonical machine-readable entry point for PBOS Genesis.
+#
+# Every implementation engine SHALL begin here.
+#
+###############################################################################
+
+pbos:
+
+  id: PBOS
+
+  name: PBOS Genesis
+
+  description: >
+    Constitutional Engineering Operating System that transforms
+    organizational intent into governed, deterministic,
+    production-ready software.
+
+  version: 1.0.0
+
+  constitutional_version: 1.0.0
+
+  engineering_version: 1.0.0
+
+  runtime_version: 1.0.0
+
+  compiler_version: 1.0.0
+
+###############################################################################
+# Repository
+###############################################################################
+
+repository:
+
+  type: constitutional-engineering-operating-system
+
+  root: .
+
+  docs: docs
+
+  source: src
+
+###############################################################################
+# Constitutional Authority
+###############################################################################
+
+constitution:
+
+  root: docs/constitution/PBS-CON-000.md
+
+  required: true
+
+###############################################################################
+# Documentation
+###############################################################################
+
+documentation:
+
+  index: docs/INDEX.md
+
+  manifest: docs/MANIFEST.yaml
+
+  graph: docs/GRAPH.yaml
+
+###############################################################################
+# Boot Sequence
+###############################################################################
+
+boot:
+
+  deterministic: true
+
+  fail_closed: true
+
+  certification_required: true
+
+  order:
+
+    - PBS-SYS
+    - PBS-BOT
+    - PBS-CON
+    - PBS-VSN
+    - PBS-CHR
+    - PBS-ORG
+    - PBS-SPC
+    - PBS-ARC
+    - PBS-ENG
+    - PBS-KRN
+    - PBS-RUN
+    - PBS-PLN
+    - PBS-CMP
+    - PBS-VAL
+    - PBS-CER
+    - PBS-REL
+
+###############################################################################
+# Constitutional Volumes
+###############################################################################
+
+volumes:
+
+  PBS-SYS: docs/system/PBS-SYS
+
+  PBS-BOT: docs/boot
+
+  PBS-CON: docs/constitution
+
+  PBS-VSN: docs/vision
+
+  PBS-CHR: docs/charter
+
+  PBS-ORG: docs/organization
+
+  PBS-SPC: docs/specifications
+
+  PBS-ARC: docs/architecture
+
+  PBS-ENG: docs/engineering
+
+  PBS-KRN: docs/kernel
+
+  PBS-RUN: docs/runtime
+
+  PBS-PLN: docs/planner
+
+  PBS-CMP: docs/compiler
+
+  PBS-VAL: docs/validation
+
+  PBS-CER: docs/certification
+
+  PBS-REL: docs/release
+
+###############################################################################
+# Knowledge Graph
+###############################################################################
+
+knowledge:
+
+  graph: docs/GRAPH.yaml
+
+  deterministic: true
+
+  authoritative: true
+
+###############################################################################
+# Compiler
+###############################################################################
+
+compiler:
+
+  language:
+
+    CEL
+
+  deterministic: true
+
+  explainable: true
+
+  fail_closed: true
+
+###############################################################################
+# Runtime
+###############################################################################
+
+runtime:
+
+  deterministic: true
+
+  observable: true
+
+  recoverable: true
+
+###############################################################################
+# Validation
+###############################################################################
+
+validation:
+
+  required: true
+
+  continuous: true
+
+###############################################################################
+# Certification
+###############################################################################
+
+certification:
+
+  required: true
+
+  release_blocking: true
+
+###############################################################################
+# Implementation Engines
+###############################################################################
+
+engines:
+
+  supported:
+
+    - OpenAI Codex
+
+    - Claude Code
+
+    - Gemini
+
+    - OpenAI API
+
+    - Anthropic API
+
+    - Local LLM
+
+    - Future Constitutional Engine
+
+###############################################################################
+# Organizational Philosophy
+###############################################################################
+
+philosophy:
+
+  organization_before_software: true
+
+  constitution_before_engineering: true
+
+  specification_before_architecture: true
+
+  architecture_before_engineering: true
+
+  engineering_before_implementation: true
+
+  validation_before_certification: true
+
+  certification_before_release: true
+
+###############################################################################
+# Closing Declaration
+###############################################################################
+
+declaration: >
+
+  PBOS Genesis shall transform constitutional organizational intent into
+  governed engineering through deterministic compilation, constitutional
+  execution, continuous validation, and trustworthy certification while
+  preserving founder intent, organizational knowledge, and engineering
+  integrity.
+
