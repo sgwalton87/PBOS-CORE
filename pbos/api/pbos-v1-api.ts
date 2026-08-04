@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import {
+    CapabilityDiscovery,
     DomainRegistration,
     DomainRegistrationRegistry,
     IdentityMapper,
@@ -16,33 +17,45 @@ import {
     DomainActivationCommand,
     DomainRegistrationManifest,
     HealthCheckCommand,
+    ConnectorStatusCommand, ConnectorLifecycleCommand, VersionNegotiationCommand, DomainStatusCommand,
+    DomainDeactivationCommand, CapabilityDiscoveryCommand, RuntimeOperationCommand, AuditQueryCommand,
     PbosApiFailure,
     PbosApiRequest,
     PbosApiResponse,
     SystemCertificationCommand
 } from "../connector-sdk";
+import { requestHash, RuntimeCommunicationHandler, RuntimeCommunicationType } from "../integration";
 
 export type ConnectorCertificationAuthority = (command: SystemCertificationCommand) => boolean;
 export type DomainActivationAuthority = (command: DomainActivationCommand) => boolean;
 export type RuntimeAuthorityResolver = (actorId: string, action: string, connectorId: string) => AuthorizationDecision;
+export type ConnectorLifecycleAuthority = (command: ConnectorLifecycleCommand | DomainDeactivationCommand) => boolean;
+
+const MUTATIONS = new Set(["REGISTER_SYSTEM", "CERTIFY_SYSTEM", "REGISTER_DOMAIN", "ACTIVATE_DOMAIN", "REGISTER_IDENTITY",
+    "SUSPEND_SYSTEM", "RESUME_SYSTEM", "REVOKE_SYSTEM", "DEACTIVATE_DOMAIN", "PUBLISH_LIFECYCLE_EVENT",
+    "REQUEST_INTELLIGENCE", "EXCHANGE_APPROVED_DATA"]);
 
 export class PbosV1Api {
     private readonly systems: ConnectedSystemRegistry;
     private readonly domains: DomainRegistrationRegistry;
     private readonly identities: IdentityMapper;
     private readonly runtime: RuntimeCommunicationBoundary;
+    private readonly capabilities = new CapabilityDiscovery();
 
     constructor(
         private readonly certifyConnector: ConnectorCertificationAuthority,
         private readonly activateRegisteredDomain: DomainActivationAuthority,
         private readonly resolveAuthority: RuntimeAuthorityResolver,
-        repository?: IntegrationStateRepository,
-        organizationId = "PBOS-DEFAULT-ORG"
+        private readonly repository?: IntegrationStateRepository,
+        private readonly organizationId = "PBOS-DEFAULT-ORG",
+        private readonly lifecycleAuthority: ConnectorLifecycleAuthority = () => false,
+        runtimeHandlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>> = {}
     ) {
         this.systems = new ConnectedSystemRegistry(repository, organizationId);
         this.domains = new DomainRegistrationRegistry(this.systems, repository, organizationId);
         this.identities = new IdentityMapper(repository, organizationId);
         this.runtime = new RuntimeCommunicationBoundary(this.systems, this.domains, {
+            ...runtimeHandlers,
             HEALTH_CHECK: async (_payload) => {
                 const connectorId = String((_payload as { connectorId?: unknown }).connectorId ?? "");
                 const connector = this.systems.get(connectorId);
@@ -62,17 +75,30 @@ export class PbosV1Api {
             return this.failure(request.correlationId, "INVALID_REQUEST", "PBOS API v1 and correlation ID are required.");
         }
         try {
+            const cached = request.idempotencyKey ? this.repository?.idempotency(this.organizationId, request.idempotencyKey) : undefined;
+            if (cached) {
+                if (cached.operation !== request.operation || cached.requestHash !== requestHash(request.payload)) {
+                    throw new Error("Idempotency key reused with a different request.");
+                }
+                return cached.response as PbosApiResponse;
+            }
             const output = await this.dispatch(request);
-            return {
+            const response: PbosApiResponse = {
                 success: true,
                 apiVersion: "v1",
                 correlationId: request.correlationId,
                 output,
                 provenance: ["PBOS-V1", request.operation, request.correlationId]
             };
+            if (request.idempotencyKey && MUTATIONS.has(request.operation) && this.repository) {
+                this.repository.claimIdempotency({ organizationId: this.organizationId, key: request.idempotencyKey,
+                    operation: request.operation, requestHash: requestHash(request.payload), response, recordedAt: new Date() });
+            }
+            return response;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            const code = /denied|approval|certif/i.test(message) ? "AUTHORITY_DENIED"
+            const code = /supported PBOS API version/i.test(message) ? "UNSUPPORTED_VERSION"
+                : /denied|approval|certif/i.test(message) ? "AUTHORITY_DENIED"
                 : /not found/i.test(message) ? "NOT_FOUND"
                 : /already|transition/i.test(message) ? "CONFLICT" : "INVALID_REQUEST";
             return this.failure(request.correlationId, code, message);
@@ -93,6 +119,18 @@ export class PbosV1Api {
                 }
                 return this.healthCheck(command);
             }
+            case "GET_CONNECTOR_STATUS": return this.connectorStatus(request.payload as ConnectorStatusCommand);
+            case "SUSPEND_SYSTEM": return this.changeConnectorStatus(request.payload as ConnectorLifecycleCommand, "SUSPENDED");
+            case "RESUME_SYSTEM": return this.changeConnectorStatus(request.payload as ConnectorLifecycleCommand, "ACTIVE");
+            case "REVOKE_SYSTEM": return this.revokeSystem(request.payload as ConnectorLifecycleCommand);
+            case "NEGOTIATE_VERSION": return this.negotiateVersion(request.payload as VersionNegotiationCommand);
+            case "GET_DOMAIN_STATUS": return this.domainStatus(request.payload as DomainStatusCommand);
+            case "DEACTIVATE_DOMAIN": return this.deactivateDomain(request.payload as DomainDeactivationCommand);
+            case "DISCOVER_CAPABILITIES": return this.discoverCapabilities(request.payload as CapabilityDiscoveryCommand);
+            case "PUBLISH_LIFECYCLE_EVENT": return this.runtimeOperation(request.payload as RuntimeOperationCommand, "LIFECYCLE_EVENT");
+            case "REQUEST_INTELLIGENCE": return this.runtimeOperation(request.payload as RuntimeOperationCommand, "INTELLIGENCE_REQUEST");
+            case "EXCHANGE_APPROVED_DATA": return this.runtimeOperation(request.payload as RuntimeOperationCommand, "DATA_EXCHANGE");
+            case "QUERY_AUDIT": return this.queryAudit(request.payload as AuditQueryCommand);
         }
     }
 
@@ -186,6 +224,87 @@ export class PbosV1Api {
             requestedAt: new Date()
         };
         return this.runtime.communicate(request);
+    }
+
+    private connectorStatus(command: ConnectorStatusCommand): SystemConnector {
+        this.requireStrings(command, ["connectorId"]);
+        const connector = this.systems.get(command.connectorId);
+        if (!connector) throw new Error(`Connector not found: ${command.connectorId}`);
+        return connector;
+    }
+
+    private changeConnectorStatus(command: ConnectorLifecycleCommand, status: "ACTIVE" | "SUSPENDED"): SystemConnector {
+        this.requireLifecycle(command);
+        const connector = this.connectorStatus(command);
+        if (!this.lifecycleAuthority(command)) throw new Error("Connector lifecycle change denied by governance authority.");
+        if (status === "ACTIVE" && connector.certification !== "CERTIFIED") throw new Error("Only certified connectors can resume.");
+        const updated = { ...connector, status };
+        this.systems.update(updated);
+        return updated;
+    }
+
+    private revokeSystem(command: ConnectorLifecycleCommand): SystemConnector {
+        this.requireLifecycle(command);
+        this.connectorStatus(command);
+        if (!this.lifecycleAuthority(command)) throw new Error("Connector revocation denied by governance authority.");
+        return this.systems.revoke(command.connectorId, command.reason, command.actorId, command.approvalId);
+    }
+
+    private negotiateVersion(command: VersionNegotiationCommand): Readonly<{ apiVersion: "v1"; connectorVersion: string }> {
+        this.requireStrings(command, ["connectorId"]);
+        const connector = this.connectorStatus(command);
+        if (!command.supportedVersions.includes("v1")) throw new Error("No supported PBOS API version was offered.");
+        return { apiVersion: "v1", connectorVersion: connector.version };
+    }
+
+    private domainStatus(command: DomainStatusCommand): DomainRegistration {
+        this.requireStrings(command, ["registrationId"]);
+        const domain = this.domains.get(command.registrationId);
+        if (!domain) throw new Error(`Domain registration not found: ${command.registrationId}`);
+        return domain;
+    }
+
+    private deactivateDomain(command: DomainDeactivationCommand): DomainRegistration {
+        this.requireStrings(command, ["registrationId", "approvalId", "actorId", "reason"]);
+        const domain = this.domainStatus(command);
+        if (!this.lifecycleAuthority(command)) throw new Error("Domain deactivation denied by governance authority.");
+        const updated = { ...domain, status: "SUSPENDED" as const, updatedAt: new Date() };
+        this.domains.update(updated);
+        return updated;
+    }
+
+    private discoverCapabilities(command: CapabilityDiscoveryCommand): unknown {
+        this.requireStrings(command, ["connectorId"]);
+        return this.capabilities.discover(this.connectorStatus(command), command.grantedPermissions);
+    }
+
+    private runtimeOperation(command: RuntimeOperationCommand, type: RuntimeCommunicationType): Promise<unknown> {
+        this.requireStrings(command, ["connectorId", "domainRegistrationId", "identityMappingId", "purpose", "correlationId"]);
+        const mapping = this.identities.get(command.identityMappingId);
+        if (!mapping || !mapping.externalIdentity.active || !mapping.pbosIdentity.active) {
+            throw new Error(`Identity mapping not found or inactive: ${command.identityMappingId}`);
+        }
+        const action = type === "LIFECYCLE_EVENT" ? "PUBLISH_LIFECYCLE_EVENT"
+            : type === "INTELLIGENCE_REQUEST" ? "USE_INTELLIGENCE" : "EXCHANGE_APPROVED_DATA";
+        const authority = this.resolveAuthority(mapping.pbosIdentity.actorId, action, command.connectorId);
+        return this.runtime.communicate({ communicationId: randomUUID(), connectorId: command.connectorId,
+            domainRegistrationId: command.domainRegistrationId, type, actorId: mapping.pbosIdentity.actorId,
+            authority, payload: command.payload, purpose: command.purpose, dataClassification: command.dataClassification,
+            exchangeApprovalId: command.exchangeApprovalId, correlationId: command.correlationId,
+            provenance: [mapping.mappingId, mapping.externalIdentity.externalIdentityId], requestedAt: new Date() });
+    }
+
+    private queryAudit(command: AuditQueryCommand): unknown {
+        this.requireStrings(command, ["connectorId"]);
+        this.connectorStatus(command);
+        const limit = Math.min(Math.max(command.limit ?? 100, 1), 500);
+        const events = this.runtime.history(command.connectorId)
+            .filter(event => !command.correlationId || event.correlationId === command.correlationId);
+        return events.slice(-limit);
+    }
+
+    private requireLifecycle(command: ConnectorLifecycleCommand): void {
+        this.requireStrings(command, ["connectorId", "approvalId", "actorId", "reason"]);
     }
 
     private failure(correlationId: string, code: PbosApiFailure["error"]["code"], message: string): PbosApiFailure {
