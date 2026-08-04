@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Title
 
@@ -33,12 +33,14 @@ Establish the governed PBOS v1 service boundary and reusable connector SDK requi
 - Runtime communication requires an active domain and PBOS authority decision.
 - Playbook and Bulletproof application logic remain outside PBOS Core.
 
-## Validation Commands Ready
+## Validation Evidence
 
-```bash
-npm run typecheck
-npm test
-npm run build
-```
+- PBOS Core `npm run typecheck`: PASS
+- PBOS Core `npm test`: PASS — 51 test files, 173 tests
+- PBOS Core `npm run build`: PASS
+- Playbook Platform validation gate: PASS — confirmed by human operator
+- Human certification approval completed 2026-08-03
 
-Playbook Platform validation commands are documented in its CIP-021 implementation record.
+## Certification Outcome
+
+`PLAYBOOK-SYSTEM-001` is certified to register and operate through `PLAYBOOK-OS-001` on the PBOS v1 connector boundary. Intelligence, approved data exchange, and delegated autonomous build authority remain outside this certification scope.
