@@ -12,3 +12,4 @@ export * from "./capabilities/capability-discovery";
 export * from "./runtime/runtime-communication-boundary";
 export * from "./state";
 export * from "./trust";
+export * from "./schema";

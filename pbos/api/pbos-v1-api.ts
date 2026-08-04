@@ -24,7 +24,7 @@ import {
     PbosApiResponse,
     SystemCertificationCommand
 } from "../connector-sdk";
-import { requestHash, RuntimeCommunicationHandler, RuntimeCommunicationType } from "../integration";
+import { PbosV1SchemaBoundary, requestHash, RuntimeCommunicationHandler, RuntimeCommunicationType } from "../integration";
 
 export type ConnectorCertificationAuthority = (command: SystemCertificationCommand) => boolean;
 export type DomainActivationAuthority = (command: DomainActivationCommand) => boolean;
@@ -49,7 +49,8 @@ export class PbosV1Api {
         private readonly repository?: IntegrationStateRepository,
         private readonly organizationId = "PBOS-DEFAULT-ORG",
         private readonly lifecycleAuthority: ConnectorLifecycleAuthority = () => false,
-        runtimeHandlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>> = {}
+        runtimeHandlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>> = {},
+        private readonly schemas = new PbosV1SchemaBoundary()
     ) {
         this.systems = new ConnectedSystemRegistry(repository, organizationId);
         this.domains = new DomainRegistrationRegistry(this.systems, repository, organizationId);
@@ -75,6 +76,8 @@ export class PbosV1Api {
             return this.failure(request.correlationId, "INVALID_REQUEST", "PBOS API v1 and correlation ID are required.");
         }
         try {
+            const validatedPayload = this.schemas.validateOperation(request.operation, request.payload);
+            request = { ...request, payload: validatedPayload };
             const cached = request.idempotencyKey ? this.repository?.idempotency(this.organizationId, request.idempotencyKey) : undefined;
             if (cached) {
                 if (cached.operation !== request.operation || cached.requestHash !== requestHash(request.payload)) {

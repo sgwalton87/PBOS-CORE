@@ -1,0 +1,8 @@
+{
+  "connectorId": "PLAYBOOK-CONNECTOR-001",
+  "domainRegistrationId": "PLAYBOOK-SCHOLAR-REGISTRATION-001",
+  "identityMappingId": "PLAYBOOK-IDENTITY-001",
+  "purpose": "Request governed Scholar guidance",
+  "correlationId": "playbook-schema-fixture",
+  "payload": { "learnerGoal": "Complete onboarding" }
+}
