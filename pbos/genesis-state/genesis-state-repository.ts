@@ -3,6 +3,7 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GenesisSystemDefinition } from "../genesis-console/system-definition";
 import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
+import { RemediationRun } from "../validation-automation/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -19,6 +20,7 @@ interface DurableGenesisState {
     readonly sessions: readonly unknown[];
     readonly grants: readonly unknown[];
     readonly audit: readonly GenesisAuditEvent[];
+    readonly remediationRuns?: readonly RemediationRun[];
 }
 
 const dateKeys = new Set(["createdAt", "activatedAt", "issuedAt", "expiresAt", "revokedAt", "decidedAt", "requestedAt"]);
@@ -56,4 +58,10 @@ export class GenesisStateRepository {
         this.store.update(state => ({ ...state, audit: [...state.audit, event] }));
     }
     audit(): readonly GenesisAuditEvent[] { return [...this.store.read().audit]; }
+
+    remediationRuns(): readonly RemediationRun[] { return [...(this.store.read().remediationRuns ?? [])]; }
+    remediationRun(runId: string): RemediationRun | undefined { return this.remediationRuns().find(run => run.runId === runId); }
+    saveRemediationRun(run: RemediationRun): void {
+        this.store.update(state => ({ ...state, remediationRuns: [...(state.remediationRuns ?? []).filter(item => item.runId !== run.runId), run] }));
+    }
 }

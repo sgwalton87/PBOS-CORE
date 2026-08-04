@@ -74,6 +74,14 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         await this.commands.run("git", ["push", "-u", "origin", branch], await this.checkout(repository));
     }
 
+    async checkoutPullRequest(repository: RepositoryReference, pullRequestNumber: number): Promise<void> {
+        await this.commands.run("gh", ["pr", "checkout", String(pullRequestNumber), "--repo", `${repository.owner}/${repository.name}`, "--force"], await this.checkout(repository));
+    }
+
+    async prepareDependencyLock(repository: RepositoryReference): Promise<void> {
+        await this.commands.run("npm", ["install", "--package-lock-only", "--ignore-scripts"], await this.checkout(repository));
+    }
+
     async openDraftPullRequest(repository: RepositoryReference, branch: string, title: string, body: string): Promise<PullRequestReference> {
         this.assertBranch(branch);
         const result = await this.commands.run("gh", ["pr", "create", "--draft", "--repo", `${repository.owner}/${repository.name}`,

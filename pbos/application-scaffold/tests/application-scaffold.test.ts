@@ -14,6 +14,8 @@ describe("application scaffold generator", () => {
         const paths = scaffold.files.map(file => file.path);
         expect(paths).toContain("supabase/migrations/001_foundation.sql");
         expect(paths).toContain(".github/workflows/ci.yml");
+        expect(paths).toContain("tsconfig.json");
+        expect(paths).toContain("src/app/page.tsx");
         expect(paths).toContain("src/domain/legacy/vertical-slice.ts");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");

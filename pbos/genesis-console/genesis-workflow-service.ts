@@ -49,6 +49,12 @@ export class GenesisWorkflowService {
         return { plan, branch, pullRequest };
     }
 
+    authorizeRemediation(session: GenesisBuildSession, branch: string): void {
+        for (const [action, risk] of [
+            ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"], ["PUSH_BRANCH", "MEDIUM"]
+        ] as readonly (readonly [BuildAction, ActionRisk])[]) this.requireAuthority(session, action, risk, branch);
+    }
+
     private reference(session: GenesisBuildSession): RepositoryReference {
         const [owner, name] = session.system.repository.split("/");
         if (!owner || !name) throw new Error(`Invalid repository identity: ${session.system.repository}`);
