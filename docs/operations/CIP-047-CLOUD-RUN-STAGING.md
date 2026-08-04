@@ -48,6 +48,17 @@ The CIP-047 launch plan now represents the remaining work as dependency-ordered 
 
 The portable restore-evidence verifier is prepared. It requires byte-identical SHA-256 digests between the immutable backup and isolated restoration, then verifies connector, domain, identity, and audit evidence for the expected organization. Backup creation, isolated restore resources, and any state promotion remain protected actions.
 
+The explicitly approved backup and isolated restoration proof completed successfully on 2026-08-04 with run ID `20260804T194424Z` and workflow exit code `0`. Active runtime state was not modified.
+
+- Recovery bucket: `pbos-genesis-staging-cip047-recovery`, uniform-access and versioning enabled
+- Recovery duration: `49` seconds
+- Playbook backup: `gs://pbos-genesis-staging-pbos-state/backups/cip047/20260804T194424Z/integration-state.json`
+- Playbook restore: `gs://pbos-genesis-staging-cip047-recovery/playbook/20260804T194424Z/integration-state.json`
+- Playbook evidence: `PBOS-RESTORE-PLAYBOOK-ORG-001-001`, SHA-256 `531039a779f5c401e06dcbeb95111ad442f260819f4c1575be4b78b836b3586c`, schema `1`, revision `39`, one connector, one domain, one identity, six audit events
+- Bulletproof backup: `gs://pbos-genesis-staging-bulletproof-state/backups/cip047/20260804T194424Z/integration-state.json`
+- Bulletproof restore: `gs://pbos-genesis-staging-cip047-recovery/bulletproof/20260804T194424Z/integration-state.json`
+- Bulletproof evidence: `PBOS-RESTORE-BULLETPROOF-ORG-001-001`, SHA-256 `50484679f064914f6336775496757577407b62ab3b53a35ed412419295dcc614`, schema `1`, revision `15`, one connector, one domain, one identity, one audit event
+
 Run locally and stop if any command fails:
 
 ```bash
