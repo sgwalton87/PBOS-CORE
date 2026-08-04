@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Title
 
@@ -26,6 +26,14 @@ System Blueprint and Brand Experience Intake
 ## Governance
 
 Regulated domains without human-confirmed regulatory frameworks remain `REVIEW_REQUIRED`. Generated systems cannot advance directly from intake to deployment without blueprint approval, build authority, validation, and certification.
+
+## Certification Evidence
+
+- Certification date: 2026-08-03
+- `npm run typecheck`: PASS
+- `npm test -- --run`: PASS — 55 test files, 188 tests
+- `npm run build`: PASS
+- Terminal selection and presentation regression corrected before certification
 
 ## Validation Commands Ready
 

@@ -40,7 +40,8 @@ export class GenesisTerminal {
             const modeIndex = this.selection(await this.io.prompt("\nAuthority mode: "), MODES.length);
             const selectedMode = MODES[modeIndex];
 
-            this.io.write(`\nSystem: ${system.name}`);
+            this.io.write("");
+            this.io.write(`System: ${system.name}`);
             this.io.write(`Repository: ${system.repository}`);
             this.io.write(`Authority: ${selectedMode.label}`);
             this.io.write("Branch scope: agent/*");
@@ -56,7 +57,8 @@ export class GenesisTerminal {
                 "GENESIS-TERMINAL-OPERATOR",
                 `terminal-approval-${Date.now()}`
             );
-            this.io.write("\nBuild session active.");
+            this.io.write("");
+            this.io.write("Build session active.");
             this.io.write(`Session: ${session.sessionId}`);
             this.io.write(`Grant: ${session.grant.grantId}`);
             this.io.write(`Expires: ${session.grant.expiresAt.toISOString()}`);

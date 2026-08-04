@@ -27,7 +27,8 @@ export class SystemIntakeTerminal {
     constructor(private readonly factory = new SystemBlueprintFactory()) {}
 
     async collect(io: TerminalIO): Promise<SystemBlueprint> {
-        io.write("\nCREATE NEW OPERATING SYSTEM");
+        io.write("");
+        io.write("CREATE NEW OPERATING SYSTEM");
         const organizationName = await io.prompt("Organization name: ");
         const systemName = await io.prompt("System name: ");
         const mission = await io.prompt("Mission: ");
