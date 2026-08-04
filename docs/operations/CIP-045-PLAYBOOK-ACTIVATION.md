@@ -2,7 +2,7 @@
 
 ## Status
 
-LIVE STAGING ACTIVATED — RECOVERY AND GOVERNED LIFECYCLE EVIDENCE COMPLETE — CREDENTIAL REVOCATION EVIDENCE PENDING — NOT CERTIFIED
+LIVE STAGING ACTIVATED — RECOVERY, GOVERNED LIFECYCLE, AND CREDENTIAL ROTATION PROVEN — FINAL EVIDENCE ASSEMBLY PENDING
 
 ## Boundaries
 
@@ -36,6 +36,7 @@ LIVE STAGING ACTIVATED — RECOVERY AND GOVERNED LIFECYCLE EVIDENCE COMPLETE —
 - [x] Durable activation recovered after restart in both the PBOS reference harness and live Cloud Run staging
 - [x] Governed suspension denied runtime communication before and after a live Cloud Run revision replacement
 - [x] Approved resume restored active authority and healthy runtime communication
+- [x] Retired staging credential denied and replacement credential accepted after Cloud Run revision replacement
 - [x] Dependency failure reported without bypassing governance in the PBOS reference activation harness
 - [x] Application connector typecheck, 316 tests, lint, and production build pass — human operator validation, 2026-08-04
 - [x] PBOS Core typecheck, tests, and build pass — human operator validation, 2026-08-04
@@ -65,7 +66,9 @@ LIVE STAGING ACTIVATED — RECOVERY AND GOVERNED LIFECYCLE EVIDENCE COMPLETE —
 - Resume evidence: `PLAYBOOK-RESUME-20260804-001`; connector returned to `ACTIVE`
 - Resume health correlation: `playbook-resume-health-20260804132350349`; output reported `healthy: true` with identity, connector, and registration provenance
 - Governed lifecycle proof and enclosing workflow exit codes: `0`; temporary bootstrap cleanup completed
-- Credential revocation/rotation probe prepared for human validation; live trust-bundle mutation and revision replacement remain protected and unexecuted
+- Credential rotation revision: `pbos-v1-integration-staging-rotate134124`, serving 100% of traffic
+- Credential rotation result: retired credential denied, replacement credential completed governed health, protected Secret Manager versions enabled, and workflow exited `0`
+- Credential rotation evidence: `PLAYBOOK-CREDENTIAL-ROTATION-20260804-001`
 
 ## Validation gate
 
