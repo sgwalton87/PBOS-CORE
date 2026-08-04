@@ -28,6 +28,7 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 - [x] Staging Cloud Run, immutable build, durable state, health, authentication, activation, recovery, and suspension proof
 - [x] Credential rotation evidence recorded
 - [x] Backup/restore and evidence digest proof
+- [x] Rollback and resilience evidence verifiers prepared
 - [ ] Rollback and degraded-mode proof
 - [ ] Load, rate, concurrency, and failure-injection proof
 - [ ] Monitoring, alerts, incident response, and disaster recovery
