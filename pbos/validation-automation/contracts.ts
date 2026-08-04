@@ -24,4 +24,8 @@ export interface RemediationRun {
     readonly blockers: readonly string[];
     readonly updatedAt: string;
 }
-export interface RemediationChangeSet { readonly summary: string; readonly files: readonly { path: string; content: string }[]; }
+export interface RemediationChangeSet {
+    readonly summary: string;
+    readonly files: readonly { path: string; content: string }[];
+    readonly prepareDependencyLock?: boolean;
+}

@@ -15,7 +15,7 @@ import { NodeTerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
-import { BulletproofRemediationHandler, GitHubCheckCollector, ResumableRemediationEngine } from "../validation-automation";
+import { createDefaultRemediationHandler, GitHubCheckCollector, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
@@ -67,7 +67,7 @@ async function launch(): Promise<number> {
         gateway, undefined, undefined,
         (session, action, risk, branch) => control.authorizeAction(session.sessionId, action, risk, branch)
     );
-    const remediation = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), new BulletproofRemediationHandler(gateway));
+    const remediation = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), createDefaultRemediationHandler(gateway));
     return new GenesisTerminal(control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => state.saveBlueprint(blueprint)),
         sessionAuthority, workflows, remediation).run();
 }

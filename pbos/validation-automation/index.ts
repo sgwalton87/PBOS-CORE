@@ -2,3 +2,8 @@ export * from "./contracts";
 export * from "./github-check-collector";
 export * from "./resumable-remediation-engine";
 export * from "./bulletproof-remediation-handler";
+export * from "./remediation-pack";
+export * from "./remediation-pack-registry";
+export * from "./standard-remediation-packs";
+export * from "./universal-remediation-handler";
+export * from "./default-remediation-configuration";
