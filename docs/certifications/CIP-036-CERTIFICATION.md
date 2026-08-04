@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Operator Briefing, Session Continuity, and Background Monitoring
 
@@ -33,3 +33,12 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Certification Evidence
+
+- Certification date: 2026-08-04
+- `npm run typecheck`: PASS — operator confirmed
+- `npm run test:run`: PASS — 66 test files, 209 tests
+- `npm run build`: PASS — operator confirmed
+- Operator continuity tests: PASS — 2 tests
+- Reproducible scaffold tests: PASS — 2 tests
