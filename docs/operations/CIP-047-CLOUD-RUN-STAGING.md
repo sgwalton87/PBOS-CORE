@@ -2,7 +2,7 @@
 
 ## Status
 
-STAGING DEPLOYED — SIGNED PLAYBOOK ACTIVATION PENDING
+STAGING DEPLOYED — PLAYBOOK ACTIVATION, RECOVERY, AND GOVERNED LIFECYCLE PROVEN
 
 ## Deployment boundary
 
@@ -39,6 +39,10 @@ The signed Playbook activation command and staging runtime handlers passed typec
 The protected signed activation completed successfully on revision `pbos-v1-integration-staging-adae599` with exit code `0`. PBOS registered and certified the Playbook connector, activated the Scholar domain, mapped the synthetic staging identity, discovered capabilities, reported governed health, accepted the approved onboarding event and private dashboard exchange, and returned three durable provenance-bearing audit events. The temporary credential file was removed immediately after execution.
 
 Cross-revision recovery completed successfully on `pbos-v1-integration-staging-recovery1`, which served 100% of traffic using the same immutable runtime digest. The read-only verifier recovered the active certified connector, active Scholar domain, and all three original audit events with exit code `0`; it did not replay registration, certification, activation, identity, lifecycle, or data-exchange mutations.
+
+The explicitly approved governed lifecycle test completed successfully on 2026-08-04. `PLAYBOOK-CONNECTOR-001` entered `SUSPENDED`, and runtime health communication was denied with `AUTHORITY_DENIED`. Cloud Run then replaced the active revision with `pbos-v1-integration-staging-suspended1`, serving 100% of traffic with all readiness conditions true. The replacement process recovered the suspension and repeated the same authority denial. The approved resume returned the connector to `ACTIVE`; correlation `playbook-resume-health-20260804132350349` reported `healthy: true` with complete provenance. Both the lifecycle proof and enclosing workflow exited `0`.
+
+The credential rotation evidence probe is prepared to require an HTTP `401` from the retired key and a successful governed health response from the replacement key. Creating the replacement credential, publishing a new Secret Manager trust-bundle version, replacing the Cloud Run revision, and retiring the prior secret remain separate protected actions and must not occur until the operator explicitly approves the final runbook.
 
 Run locally and stop if any command fails:
 

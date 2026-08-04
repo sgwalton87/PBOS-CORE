@@ -2,7 +2,7 @@
 
 ## Status
 
-LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERTIFIED
+LIVE STAGING ACTIVATED — RECOVERY AND GOVERNED LIFECYCLE EVIDENCE COMPLETE — CREDENTIAL REVOCATION EVIDENCE PENDING — NOT CERTIFIED
 
 ## Boundaries
 
@@ -34,6 +34,8 @@ LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERT
 - [x] Self-certification denied in the PBOS reference activation harness
 - [x] Revoked authority denied across process restart in the PBOS reference activation harness
 - [x] Durable activation recovered after restart in both the PBOS reference harness and live Cloud Run staging
+- [x] Governed suspension denied runtime communication before and after a live Cloud Run revision replacement
+- [x] Approved resume restored active authority and healthy runtime communication
 - [x] Dependency failure reported without bypassing governance in the PBOS reference activation harness
 - [x] Application connector typecheck, 316 tests, lint, and production build pass — human operator validation, 2026-08-04
 - [x] PBOS Core typecheck, tests, and build pass — human operator validation, 2026-08-04
@@ -57,7 +59,13 @@ LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERT
 - Recovery result: connector `ACTIVE`, certification `CERTIFIED`, Scholar domain `ACTIVE`, and all `3` original audit events recovered without replaying an activation mutation
 - Recovery correlation: `playbook-recovery-20260804131632628`
 - Recovery verifier exit code: `0`; temporary bootstrap cleanup completed
-- Governed suspension, denial, and resume harness passed typecheck, tests, and build by the human operator on 2026-08-04; live execution remains pending under explicit approval
+- Suspension evidence: `PLAYBOOK-SUSPENSION-20260804-001`; connector entered `SUSPENDED`
+- Denial evidence: `PLAYBOOK-DENIAL-20260804-001`; runtime communication returned `AUTHORITY_DENIED` before and after revision replacement
+- Suspended-state recovery revision: `pbos-v1-integration-staging-suspended1`, serving 100% of traffic with all service readiness conditions true
+- Resume evidence: `PLAYBOOK-RESUME-20260804-001`; connector returned to `ACTIVE`
+- Resume health correlation: `playbook-resume-health-20260804132350349`; output reported `healthy: true` with identity, connector, and registration provenance
+- Governed lifecycle proof and enclosing workflow exit codes: `0`; temporary bootstrap cleanup completed
+- Credential revocation/rotation probe prepared for human validation; live trust-bundle mutation and revision replacement remain protected and unexecuted
 
 ## Validation gate
 
