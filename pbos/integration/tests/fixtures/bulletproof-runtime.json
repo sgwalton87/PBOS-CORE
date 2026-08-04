@@ -1,0 +1,10 @@
+{
+  "connectorId": "BULLETPROOF-CONNECTOR-001",
+  "domainRegistrationId": "BULLETPROOF-LEGACY-DOMAIN-001",
+  "identityMappingId": "BULLETPROOF-IDENTITY-001",
+  "purpose": "Exchange approved beneficiary search metadata",
+  "correlationId": "bulletproof-schema-fixture",
+  "payload": { "searchId": "SEARCH-001" },
+  "dataClassification": "BENEFICIARY_PRIVATE",
+  "exchangeApprovalId": "EXCHANGE-APPROVAL-001"
+}
