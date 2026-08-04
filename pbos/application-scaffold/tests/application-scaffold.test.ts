@@ -20,6 +20,9 @@ describe("application scaffold generator", () => {
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
         expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");
+        const tokens = scaffold.files.find(file => file.path === "src/design/tokens.ts")?.content;
+        expect(tokens).toMatch(/\}\s+as const;\n$/);
+        expect(tokens).not.toContain("}\n as const");
     });
 
     it("materializes the dependency lock with TypeScript and Next.js entry files", async () => {
