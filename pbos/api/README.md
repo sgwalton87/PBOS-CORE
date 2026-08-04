@@ -4,6 +4,8 @@
 
 `PbosNodeHttpAdapter` exposes the API at `POST /pbos/v1` without coupling the core service to an application framework. Deployment composition supplies certification, activation, and runtime authority providers.
 
+`PbosIntegrationService` gives deployment adapters an explicit start/stop lifecycle around that HTTP boundary. Production composition must supply the authenticated HTTP adapter, credential registry, secret provider, replay store, rate limiter, durable integration repository, and governance authorities. The service host does not read credentials from source files or manufacture approvals.
+
 ## PBOS v1 operation matrix
 
 Registration and governance:
