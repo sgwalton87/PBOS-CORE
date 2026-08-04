@@ -30,3 +30,5 @@ After GitHub Actions starts on the draft PR, relaunch `pbos`, activate the same 
 Remediation is pack-based rather than permanently hardcoded per application. Each project profile selects reusable stack, database, domain, and quality packs. Bulletproof currently selects Node dependency, Next.js, Supabase, and legacy-planning packs; future projects register a blueprint and pack identifiers without creating a separate remediation engine.
 
 The workflow menu remains active after each action. Operators can plan, prepare the build, collect validation evidence, and resume remediation in one launch; PBOS recommends the next action until the operator explicitly exits or reaches a governed blocker.
+
+Exit now produces a session summary and Markdown memo under `~/.pbos/memos/<SYSTEM-ID>/`. Use `pbos memo` to read the latest briefing and `pbos status` to see the latest validation/background state. For unfinished validation, the exit prompt can launch an explicitly authorized background monitor; logs are stored under `~/.pbos/logs/`.

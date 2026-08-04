@@ -4,6 +4,7 @@ import { TerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
 import { GenesisWorkflowService } from "./genesis-workflow-service";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { OperatorContinuityService } from "../operator-continuity";
 
 export interface SessionAuthorityProvider {
     authorize(systemId: string): Promise<{ operatorId: string; approvalId: string }>;
@@ -22,7 +23,8 @@ export class GenesisTerminal {
         private readonly intake = new SystemIntakeTerminal(),
         private readonly sessionAuthority?: SessionAuthorityProvider,
         private readonly workflows?: GenesisWorkflowService,
-        private readonly remediation?: ResumableRemediationEngine
+        private readonly remediation?: ResumableRemediationEngine,
+        private readonly continuity?: OperatorContinuityService
     ) {}
 
     async run(): Promise<number> {
@@ -76,6 +78,22 @@ export class GenesisTerminal {
             this.io.write(`Expires: ${session.grant.expiresAt.toISOString()}`);
             this.io.write("Available: inspect, status, plan, propose, build, test preparation, documentation, commit, push, draft PR");
             if (this.workflows) await this.runWorkflow(session);
+            if (this.continuity) {
+                const summary = this.continuity.summarize(session);
+                this.io.write("");
+                summary.lines.forEach(line => this.io.write(line));
+                if (summary.run && !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(summary.run.state)) {
+                    const background = (await this.io.prompt("Continue validation monitoring in background? [y/N] ")).trim().toLowerCase();
+                    if (background === "y" || background === "yes") {
+                        const job = this.continuity.launchBackground(session);
+                        if (job) {
+                            this.io.write(`Background monitor started: PID ${job.pid}`);
+                            this.io.write(`Monitor log: ${job.logPath}`);
+                            this.io.write("Use `pbos memo` for the latest operator briefing.");
+                        }
+                    }
+                }
+            }
             return 0;
         } catch (error) {
             this.io.write(`Genesis console error: ${error instanceof Error ? error.message : String(error)}`);

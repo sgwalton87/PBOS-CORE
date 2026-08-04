@@ -18,6 +18,7 @@
     "pbos": "tsx pbos/genesis-console/entrypoint.ts",
     "pbos:login": "tsx pbos/genesis-console/entrypoint.ts login",
     "pbos:status": "tsx pbos/genesis-console/entrypoint.ts status",
+    "pbos:memo": "tsx pbos/genesis-console/entrypoint.ts memo",
     "build": "tsc",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
