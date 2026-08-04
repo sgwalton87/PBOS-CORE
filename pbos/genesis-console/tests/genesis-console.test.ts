@@ -25,7 +25,7 @@ describe("Genesis terminal control plane", () => {
     });
 
     it("activates Playbook with delegated autonomous build authority", async () => {
-        const io = new FakeTerminal(["1", "3", "yes"]);
+        const io = new FakeTerminal(["1", "1", "3", "yes"]);
         const terminal = new GenesisTerminal(
             new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io
         );
@@ -35,7 +35,7 @@ describe("Genesis terminal control plane", () => {
     });
 
     it("supports Bulletproof selection without activating Playbook", async () => {
-        const io = new FakeTerminal(["2", "1", "y"]);
+        const io = new FakeTerminal(["1", "2", "1", "y"]);
         const terminal = new GenesisTerminal(
             new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io
         );
