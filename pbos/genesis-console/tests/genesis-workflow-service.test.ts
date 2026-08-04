@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
-import { GenesisWorkflowService } from "../genesis-workflow-service";
+import { buildBranchForSession, GenesisWorkflowService } from "../genesis-workflow-service";
 
 const session = {
     sessionId: "session", activatedAt: new Date(),
@@ -12,6 +12,14 @@ const session = {
 };
 
 describe("Genesis governed workflow", () => {
+    it("allocates a distinct governed branch for every build session", () => {
+        const first = buildBranchForSession("BULLETPROOF-SYSTEM-001", "ba42340c-4431-4cfe-90bf-ac16030f516f");
+        const second = buildBranchForSession("BULLETPROOF-SYSTEM-001", "cd53451d-5542-5def-a1c0-bd27141f6270");
+        expect(first).toBe("agent/pbos-bulletproof-system-001-vertical-slice-ba42340c4431");
+        expect(second).not.toBe(first);
+        expect(first).toMatch(/^agent\//);
+    });
+
     it("stops before repository access when durable authority denies an action", async () => {
         const gateway = new GitHubRepositoryGateway("/tmp/never-used");
         const workflow = new GenesisWorkflowService(gateway, undefined, undefined, (_session, action) => ({
