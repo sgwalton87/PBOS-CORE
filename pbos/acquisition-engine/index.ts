@@ -7,6 +7,10 @@ Authority
 
 PBOS-CIP-010
 
+Classification
+
+Genesis Acquisition Boundary
+
 ===============================================================================
 */
 
@@ -22,6 +26,8 @@ export * from "./contracts/playbook-system-contract";
 export * from "./contracts/system-acquisition-context";
 
 export * from "./contracts/playbook-compilation-target";
+
+export * from "./contracts/registered-system";
 
 
 export * from "./scanners/repository-scanner";
@@ -49,4 +55,13 @@ export * from "./runtime/genesis-acquisition-runtime";
 export * from "./runtime/playbook-registration-runtime";
 
 
+export * from "./registry/system-registry";
+
+export * from "./targets/playbook-target";
+
+
 export * from "./reporting/acquisition-report";
+
+export * from "./catalog/system-catalog";
+
+export * from "./catalog/playbook-catalog";
