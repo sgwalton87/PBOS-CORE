@@ -4,6 +4,8 @@ import { GenesisSystemCatalog } from "../system-catalog";
 import { GenesisTerminal } from "../genesis-terminal";
 import { REFERENCE_SYSTEMS } from "../system-definition";
 import { TerminalIO } from "../terminal-io";
+import { GenesisWorkflowService } from "../genesis-workflow-service";
+import { ResumableRemediationEngine, RemediationRun } from "../../validation-automation";
 
 class FakeTerminal implements TerminalIO {
     readonly output: string[] = [];
@@ -55,5 +57,30 @@ describe("Genesis terminal control plane", () => {
         expect(control.authorizeAction(
             session.sessionId, "MODIFY_APPLICATION_CODE", "MEDIUM", "main"
         ).allowed).toBe(false);
+    });
+
+    it("guides the operator through plan, build, validation, and explicit exit in one launch", async () => {
+        const io = new FakeTerminal(["1", "2", "3", "y", "1", "2", "3", "4"]);
+        const pullRequest = { number: 1, branch: "agent/build", repository: "vycoywalton/bulletproof-beneficiary-registry",
+            url: "https://github.com/vycoywalton/bulletproof-beneficiary-registry/pull/1" };
+        const run: RemediationRun = { runId: "validation-run", systemId: "BULLETPROOF-SYSTEM-001", pullRequest,
+            headSha: "sha", attempt: 0, maximumAttempts: 5, state: "READY_FOR_CERTIFICATION", evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+        const workflows = {
+            inspectAndPlan: async () => ({ planId: "plan-1", status: "READY_FOR_APPROVAL", workPackages: [{ id: "work-1" }] }),
+            prepareDraftBuild: async () => ({ branch: pullRequest.branch, pullRequest, plan: {} }),
+            authorizeRemediation: () => undefined
+        } as unknown as GenesisWorkflowService;
+        const remediation = {
+            start: () => run,
+            latest: () => run,
+            resume: async () => run
+        } as unknown as ResumableRemediationEngine;
+        const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io,
+            undefined, undefined, workflows, remediation);
+        expect(await terminal.run()).toBe(0);
+        expect(io.output).toContain("Plan: plan-1");
+        expect(io.output).toContain(`Draft PR: ${pullRequest.url}`);
+        expect(io.output).toContain("Certification memo is ready for human approval.");
+        expect(io.output.filter(line => line === "1. Inspect repository and create build plan")).toHaveLength(4);
     });
 });
