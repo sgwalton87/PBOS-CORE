@@ -35,6 +35,9 @@ import { ExecutionRuntime }
 import { EvolutionRuntime }
     from "../../evolution-engine";
 
+import { GovernanceRuntime }
+    from "../../governance-engine";
+
 export class CompilerContext {
 
 
@@ -63,6 +66,9 @@ export class CompilerContext {
 
     readonly evolutionRuntime =
         new EvolutionRuntime();
+
+    readonly governanceRuntime =
+        new GovernanceRuntime();
 
 
     private readonly artifactRegistry =
