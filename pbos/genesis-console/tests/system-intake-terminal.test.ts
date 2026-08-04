@@ -20,7 +20,10 @@ describe("Genesis create-system intake", () => {
             "Example Learning", "Scholar Network", "Improve opportunity readiness",
             "Scholars,Families", "Verified records,Opportunity access", "business-owner", "technical-owner",
             "1", "1,2,4,5", "1", "3",
-            "1,8", "1", "", "", "", "3", "3", "2",
+            "1,8", "1",
+            "uploads/scholar-brand-card.png", "uploads/scholar-logo.svg,uploads/scholar-icon.png",
+            "Opportunity for every scholar", "Montserrat", "Inter", "Preserve clear space", "y",
+            "", "", "", "3", "3", "2",
             "US-CA", "STUDENT_DATA", "FERPA"
         ]);
         const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog()), io);
@@ -28,5 +31,6 @@ describe("Genesis create-system intake", () => {
         expect(io.output).toContain("CREATE NEW OPERATING SYSTEM");
         expect(io.output).toContain("Blueprint status: READY_FOR_APPROVAL");
         expect(io.output.some(line => line.startsWith("Primary: #"))).toBe(true);
+        expect(io.output).toContain("Brand assets: 3");
     });
 });

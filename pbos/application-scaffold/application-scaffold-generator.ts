@@ -28,6 +28,15 @@ export class ApplicationScaffoldGenerator {
             { path: "vitest.config.ts", content: "import { defineConfig } from \"vitest/config\";\nexport default defineConfig({ test: { environment: \"node\" } });\n" },
             { path: "PBOS.yaml", content: `systemId: ${blueprint.identity.proposedSystemId}\noperatingSystemId: ${blueprint.identity.proposedOperatingSystemId}\npbosVersion: ${blueprint.foundation.pbosVersion}\ndomainPack: ${blueprint.foundation.domainPack}\nblueprintId: ${blueprint.blueprintId}\n` },
             { path: "src/design/tokens.ts", content: `export const designTokens = ${json(blueprint.design.tokens).trimEnd()} as const;\n` },
+            { path: "src/design/brand-source.json", content: json({
+                sourceBlueprintId: blueprint.blueprintId,
+                systemId: blueprint.identity.proposedSystemId,
+                tagline: blueprint.design.brand.tagline,
+                typography: blueprint.design.tokens.typography,
+                usageGuidance: blueprint.design.brand.usageGuidance,
+                assets: blueprint.design.brand.assets ?? [],
+                policy: "References are build inputs. Verify integrity, rights, and production-ready variants before copying or publishing assets."
+            }) },
             { path: "src/lib/auth/server.ts", content: "export interface AuthenticatedActor { actorId: string; organizationId: string; roles: readonly string[] }\nexport function requireActor(actor?: AuthenticatedActor): AuthenticatedActor { if (!actor) throw new Error(\"Authentication required.\"); return actor; }\n" },
             { path: "src/lib/security/authority.ts", content: "export function requireOwner(actorId: string, ownerId: string): void { if (actorId !== ownerId) throw new Error(\"Access denied.\"); }\nexport function requireApproval(approvalId?: string): string { if (!approvalId) throw new Error(\"Explicit approval required.\"); return approvalId; }\n" },
             { path: "supabase/migrations/001_foundation.sql", content: this.foundationSql() },

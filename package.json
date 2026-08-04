@@ -25,6 +25,7 @@
     "pbos:evidence:playbook-credential": "tsx pbos/tools/playbook-staging-credential.ts",
     "pbos:activate:bulletproof": "tsx pbos/tools/bulletproof-staging-activation.ts",
     "pbos:evidence:state-restore": "tsx pbos/tools/integration-state-restore-evidence.ts",
+    "pbos:evidence:runtime-rollback": "tsx pbos/tools/runtime-rollback-evidence.ts",
     "build": "tsc --noEmit && npm run build --workspace @pbos/connector-sdk && npm run build:cloud-run",
     "build:cloud-run": "tsc --project tsconfig.cloud-run.json",
     "clean": "rm -rf dist",

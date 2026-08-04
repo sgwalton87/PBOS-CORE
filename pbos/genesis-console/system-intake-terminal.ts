@@ -2,6 +2,7 @@ import { AuthorityMode } from "../autonomous-authority";
 import {
     ApplicationStrategy,
     BrandPersonality,
+    BrandAssetReference,
     CapabilityKind,
     CornerStyle,
     DomainKind,
@@ -50,6 +51,15 @@ export class SystemIntakeTerminal {
         io.write("\nDESIGN YOUR APPLICATION");
         const personalities = await this.chooseMany(io, "Brand personality", PERSONALITIES);
         const visualDirection = await this.choose(io, "Visual direction", VISUAL);
+        const logoCardLocation = await io.prompt("Logo card location or URL (blank if none): ");
+        const logoLocations = this.csv(await io.prompt("Logo/app-icon locations or URLs (comma separated, blank if none): "));
+        const tagline = await io.prompt("Brand tagline (blank if none): ");
+        const headingFont = await io.prompt("Heading font (blank for PBOS recommendation): ");
+        const bodyFont = await io.prompt("Body font (blank for PBOS recommendation): ");
+        const usageGuidance = await io.prompt("Logo/brand usage guidance (blank if none): ");
+        const referencedAssets = [logoCardLocation.trim(), ...logoLocations].filter(Boolean);
+        const rightsConfirmed = referencedAssets.length === 0
+            || (await io.prompt("Confirm you may use these brand assets? [y/N]: ")).trim().toLowerCase() === "y";
         const primaryColor = await io.prompt("Primary color (#RRGGBB, blank for PBOS recommendation): ");
         const secondaryColor = await io.prompt("Secondary color (#RRGGBB, blank for PBOS recommendation): ");
         const accentColor = await io.prompt("Accent color (#RRGGBB, blank for PBOS recommendation): ");
@@ -81,7 +91,12 @@ export class SystemIntakeTerminal {
                 accentColor: accentColor.trim() || undefined,
                 theme,
                 cornerStyle,
-                density
+                density,
+                tagline: tagline.trim() || undefined,
+                headingFont: headingFont.trim() || undefined,
+                bodyFont: bodyFont.trim() || undefined,
+                usageGuidance: usageGuidance.trim() || undefined,
+                assets: this.brandAssets(logoCardLocation, logoLocations, rightsConfirmed)
             }
         });
 
@@ -93,6 +108,7 @@ export class SystemIntakeTerminal {
         io.write(`Application: ${blueprint.application.strategy}`);
         io.write(`Autonomy: ${blueprint.governance.autonomyMode}`);
         io.write(`Primary: ${blueprint.design.tokens.colors.primary}`);
+        io.write(`Brand assets: ${blueprint.design.brand.assets?.length ?? 0}`);
         io.write(`Accessibility: ${blueprint.design.accessibility.passed ? "PASS" : "REVIEW REQUIRED"}`);
         io.write(`Blueprint status: ${blueprint.status}`);
         blueprint.unresolvedDecisions.forEach(decision => io.write(`Review: ${decision}`));
@@ -102,6 +118,15 @@ export class SystemIntakeTerminal {
 
     private csv(value: string): string[] {
         return value.split(",").map(item => item.trim()).filter(Boolean);
+    }
+
+    private brandAssets(logoCardLocation: string, logoLocations: readonly string[], rightsConfirmed: boolean): BrandAssetReference[] {
+        const assets: BrandAssetReference[] = [];
+        if (logoCardLocation.trim()) assets.push({ assetId: "BRAND-LOGO-CARD-001", kind: "LOGO_CARD",
+            location: logoCardLocation.trim(), rightsConfirmed });
+        logoLocations.forEach((location, index) => assets.push({ assetId: `BRAND-LOGO-${String(index + 1).padStart(3, "0")}`,
+            kind: index === 0 ? "PRIMARY_LOGO" : index === 1 ? "APP_ICON" : "SECONDARY_LOGO", location, rightsConfirmed }));
+        return assets;
     }
 
     private async choose<T extends string>(io: TerminalIO, title: string, options: readonly T[]): Promise<T> {

@@ -9,7 +9,8 @@ const blueprint = new SystemBlueprintFactory().create({
     existingRepository: "vycoywalton/bulletproof-beneficiary-registry", autonomyMode: "HUMAN_GATED",
     businessOwner: "Viveca", technicalOwner: "PBOS", operatingRegions: ["US"],
     dataClassifications: ["BENEFICIARY_DATA"], regulatoryFrameworks: ["HUMAN_REVIEW"],
-    brand: { personalities: ["TRUSTWORTHY", "WARM"], visualDirection: "GUIDED_CUSTOM", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE" }
+    brand: { personalities: ["TRUSTWORTHY", "WARM"], visualDirection: "GUIDED_CUSTOM", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE",
+        assets: [{ assetId: "BRAND-CARD-001", kind: "LOGO_CARD", location: "uploads/brand-card.png", rightsConfirmed: true }] }
 });
 
 describe("Genesis build plan compiler", () => {
@@ -21,6 +22,7 @@ describe("Genesis build plan compiler", () => {
         expect(plan.gaps.map(gap => gap.capability)).toEqual(["WORKFLOWS", "DOCUMENTS"]);
         expect(plan.workPackages.every(item => item.acceptanceCriteria.length >= 3)).toBe(true);
         expect(plan.implementationPlan).toHaveLength(2);
+        expect(plan.missions[0].generatedFrom).toContain("BRAND_ASSET:BRAND-CARD-001:uploads/brand-card.png");
         expect(plan.status).toBe("READY_FOR_APPROVAL");
     });
 });

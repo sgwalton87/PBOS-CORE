@@ -59,6 +59,14 @@ The explicitly approved backup and isolated restoration proof completed successf
 - Bulletproof restore: `gs://pbos-genesis-staging-cip047-recovery/bulletproof/20260804T194424Z/integration-state.json`
 - Bulletproof evidence: `PBOS-RESTORE-BULLETPROOF-ORG-001-001`, SHA-256 `50484679f064914f6336775496757577407b62ab3b53a35ed412419295dcc614`, schema `1`, revision `15`, one connector, one domain, one identity, one audit event
 
+The portable rollback-evidence verifier is now prepared. It accepts operator-collected observations only after an approved exercise and proves that an intentionally different candidate revision was replaced by the exact known-good immutable digest, durable state remained byte-identical, the restored revision became healthy with 100% traffic, anonymous connector access remained denied, and degraded dependencies failed closed. Live revision changes and failure injection remain protected human-approval actions.
+
+After an approved exercise, store the observation in a protected temporary JSON file and run:
+
+```bash
+PBOS_ROLLBACK_EVIDENCE_PATH=/protected/path/rollback-observation.json npm run pbos:evidence:runtime-rollback
+```
+
 Run locally and stop if any command fails:
 
 ```bash

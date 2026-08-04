@@ -6,9 +6,9 @@ The initial catalog contains Playbook Platform and Bulletproof Beneficiary as in
 
 The terminal uses the same control-plane contracts intended for the future PBOS Marketplace / Factory Portal.
 
-New-system intake produces a reviewable `SystemBlueprint` containing mission, users, outcomes, domain pack, capabilities, application strategy, governance, autonomy, data policy, palette, accessibility evidence, and design tokens. It does not deploy directly from questionnaire answers.
+New-system intake produces a reviewable `SystemBlueprint` containing mission, users, outcomes, domain pack, capabilities, application strategy, governance, autonomy, data policy, palette, accessibility evidence, and design tokens. Brand discovery also accepts a logo card, logo/app-icon references, tagline, approved typography, and usage guidance. A future web intake can upload assets to governed storage and submit the resulting durable references through this same interface-neutral contract. It does not deploy directly from questionnaire answers.
 
-Application scaffolds are materialized as one reproducible unit. PBOS writes the source, TypeScript configuration, Next.js entry point, tests, and CI configuration; generates `package-lock.json`; and commits the complete path set together so generated CI can use `npm ci` immediately.
+Application scaffolds are materialized as one reproducible unit. PBOS writes the source, TypeScript configuration, Next.js entry point, tests, CI configuration, design tokens, and `src/design/brand-source.json`; generates `package-lock.json`; and commits the complete path set together so generated CI can use `npm ci` immediately. Brand asset references are included in build-plan provenance and remain separate for every generated product.
 
 ## Partner CLI
 

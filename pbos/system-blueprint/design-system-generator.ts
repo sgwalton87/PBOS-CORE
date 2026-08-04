@@ -72,6 +72,9 @@ export class DesignSystemGenerator {
     }
 
     private typography(brand: BrandIntake): { heading: string; body: string } {
+        if (brand.headingFont || brand.bodyFont) {
+            return { heading: brand.headingFont?.trim() || "Inter", body: brand.bodyFont?.trim() || "Inter" };
+        }
         if (brand.personalities.includes("PREMIUM")) return { heading: "Source Serif 4", body: "Inter" };
         if (brand.personalities.includes("YOUTHFUL") || brand.personalities.includes("BOLD")) {
             return { heading: "Space Grotesk", body: "Inter" };

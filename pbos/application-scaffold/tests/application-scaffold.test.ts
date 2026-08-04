@@ -6,7 +6,10 @@ const blueprint = new SystemBlueprintFactory().create({ organizationName: "Bulle
     users: ["Members"], desiredOutcomes: ["Policy discovery"], domain: "LEGACY_PLANNING", capabilities: ["IDENTITY", "WORKFLOWS", "DOCUMENTS"],
     applicationStrategy: "CONNECT_EXISTING", existingRepository: "vycoywalton/bulletproof-beneficiary-registry", autonomyMode: "HUMAN_GATED",
     businessOwner: "Viveca", technicalOwner: "PBOS", operatingRegions: ["US"], dataClassifications: ["BENEFICIARY_DATA"], regulatoryFrameworks: ["HUMAN_REVIEW"],
-    brand: { personalities: ["TRUSTWORTHY"], visualDirection: "PBOS_RECOMMENDED", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE" } });
+    brand: { personalities: ["TRUSTWORTHY"], visualDirection: "EXISTING_BRAND", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE",
+        tagline: "Built to Leave a Legacy.", headingFont: "Inter", bodyFont: "Inter",
+        assets: [{ assetId: "BULLETPROOF-LOGO-CARD-001", kind: "LOGO_CARD",
+            location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } });
 
 describe("application scaffold generator", () => {
     it("generates stack, security, CI, deployment, and Bulletproof vertical slice", () => {
@@ -16,6 +19,7 @@ describe("application scaffold generator", () => {
         expect(paths).toContain(".github/workflows/ci.yml");
         expect(paths).toContain("tsconfig.json");
         expect(paths).toContain("src/app/page.tsx");
+        expect(paths).toContain("src/design/brand-source.json");
         expect(paths).toContain("src/domain/legacy/vertical-slice.ts");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
         expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
@@ -23,6 +27,9 @@ describe("application scaffold generator", () => {
         const tokens = scaffold.files.find(file => file.path === "src/design/tokens.ts")?.content;
         expect(tokens).toMatch(/\}\s+as const;\n$/);
         expect(tokens).not.toContain("}\n as const");
+        const brandSource = scaffold.files.find(file => file.path === "src/design/brand-source.json")?.content ?? "";
+        expect(brandSource).toContain("BULLETPROOF-LOGO-CARD-001");
+        expect(brandSource).toContain("Built to Leave a Legacy.");
     });
 
     it("materializes the dependency lock with TypeScript and Next.js entry files", async () => {

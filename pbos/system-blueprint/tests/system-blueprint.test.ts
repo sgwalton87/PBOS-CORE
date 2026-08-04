@@ -76,4 +76,27 @@ describe("PBOS system blueprint intake", () => {
         expect(result.tokens.colors.primary).not.toBe("#76A9FF");
         expect(result.accessibility.normalTextPass).toBe(true);
     });
+
+    it("preserves governed logo-card inputs and explicit typography for downstream builds", () => {
+        const blueprint = new SystemBlueprintFactory().create({ ...educationIntake, brand: {
+            ...educationIntake.brand,
+            tagline: "Connect. Empower. Achieve.",
+            headingFont: "Montserrat",
+            bodyFont: "Inter",
+            assets: [{ assetId: "PLAYBOOK-LOGO-CARD-001", kind: "LOGO_CARD",
+                location: "uploads/playbook-logo-card.png", sha256: "a".repeat(64), rightsConfirmed: true }]
+        } });
+        expect(blueprint.design.brand.assets?.[0].location).toBe("uploads/playbook-logo-card.png");
+        expect(blueprint.design.tokens.typography).toEqual({ heading: "Montserrat", body: "Inter" });
+        expect(blueprint.status).toBe("READY_FOR_APPROVAL");
+    });
+
+    it("requires human review when brand usage rights are not confirmed", () => {
+        const blueprint = new SystemBlueprintFactory().create({ ...educationIntake, brand: {
+            ...educationIntake.brand,
+            assets: [{ assetId: "LOGO-001", kind: "PRIMARY_LOGO", location: "uploads/logo.svg", rightsConfirmed: false }]
+        } });
+        expect(blueprint.status).toBe("REVIEW_REQUIRED");
+        expect(blueprint.unresolvedDecisions).toContain("Brand asset ownership or usage rights require human confirmation.");
+    });
 });

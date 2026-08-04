@@ -8,6 +8,16 @@ export type VisualDirection = "PBOS_RECOMMENDED" | "EXISTING_BRAND" | "GUIDED_CU
 export type ThemePreference = "LIGHT" | "DARK" | "BOTH";
 export type CornerStyle = "SHARP" | "SUBTLE" | "ROUNDED" | "EXPRESSIVE";
 export type InterfaceDensity = "COMPACT" | "COMFORTABLE" | "SPACIOUS";
+export type BrandAssetKind = "LOGO_CARD" | "PRIMARY_LOGO" | "SECONDARY_LOGO" | "APP_ICON" | "BRAND_GUIDELINES";
+
+export interface BrandAssetReference {
+    readonly assetId: string;
+    readonly kind: BrandAssetKind;
+    readonly location: string;
+    readonly mediaType?: string;
+    readonly sha256?: string;
+    readonly rightsConfirmed: boolean;
+}
 
 export interface BrandIntake {
     readonly personalities: readonly BrandPersonality[];
@@ -18,6 +28,11 @@ export interface BrandIntake {
     readonly theme: ThemePreference;
     readonly cornerStyle: CornerStyle;
     readonly density: InterfaceDensity;
+    readonly tagline?: string;
+    readonly headingFont?: string;
+    readonly bodyFont?: string;
+    readonly usageGuidance?: string;
+    readonly assets?: readonly BrandAssetReference[];
 }
 
 export interface SystemIntakeSubmission {
