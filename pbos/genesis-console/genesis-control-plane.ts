@@ -8,6 +8,7 @@ import {
 } from "../autonomous-authority";
 import { GenesisSystemCatalog } from "./system-catalog";
 import { GenesisSystemDefinition } from "./system-definition";
+import { GenesisStateRepository } from "../genesis-state/genesis-state-repository";
 
 export interface GenesisBuildSession {
     readonly sessionId: string;
@@ -33,7 +34,8 @@ export class GenesisControlPlane {
 
     constructor(
         private readonly systems: GenesisSystemCatalog,
-        private readonly authority = new BuildAuthorityService()
+        private readonly authority = new BuildAuthorityService(),
+        private readonly state?: GenesisStateRepository
     ) {}
 
     listSystems(): readonly GenesisSystemDefinition[] {
@@ -64,6 +66,7 @@ export class GenesisControlPlane {
         });
         const session = { sessionId: randomUUID(), system, grant, activatedAt: new Date() };
         this.sessions.set(session.sessionId, session);
+        this.state?.saveSession(session);
         return session;
     }
 
@@ -74,7 +77,7 @@ export class GenesisControlPlane {
         branch: string,
         explicitApprovalId?: string
     ): BuildAuthorityDecision {
-        const session = this.sessions.get(sessionId);
+        const session = this.sessions.get(sessionId) ?? this.state?.sessions().find(candidate => candidate.sessionId === sessionId);
         if (!session) throw new Error(`Genesis build session not found: ${sessionId}`);
         return this.authority.authorize({
             grantId: session.grant.grantId,
@@ -89,7 +92,7 @@ export class GenesisControlPlane {
     }
 
     revokeSession(sessionId: string, reason: string): AutonomousBuildGrant {
-        const session = this.sessions.get(sessionId);
+        const session = this.sessions.get(sessionId) ?? this.state?.sessions().find(candidate => candidate.sessionId === sessionId);
         if (!session) throw new Error(`Genesis build session not found: ${sessionId}`);
         return this.authority.revoke(session.grant.grantId, reason);
     }

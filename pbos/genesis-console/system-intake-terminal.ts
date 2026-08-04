@@ -24,7 +24,10 @@ const CORNERS: readonly CornerStyle[] = ["SHARP", "SUBTLE", "ROUNDED", "EXPRESSI
 const DENSITIES: readonly InterfaceDensity[] = ["COMPACT", "COMFORTABLE", "SPACIOUS"];
 
 export class SystemIntakeTerminal {
-    constructor(private readonly factory = new SystemBlueprintFactory()) {}
+    constructor(
+        private readonly factory = new SystemBlueprintFactory(),
+        private readonly saveBlueprint?: (blueprint: SystemBlueprint) => void
+    ) {}
 
     async collect(io: TerminalIO): Promise<SystemBlueprint> {
         io.write("");
@@ -93,6 +96,7 @@ export class SystemIntakeTerminal {
         io.write(`Accessibility: ${blueprint.design.accessibility.passed ? "PASS" : "REVIEW REQUIRED"}`);
         io.write(`Blueprint status: ${blueprint.status}`);
         blueprint.unresolvedDecisions.forEach(decision => io.write(`Review: ${decision}`));
+        this.saveBlueprint?.(blueprint);
         return blueprint;
     }
 
