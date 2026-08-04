@@ -12,6 +12,11 @@ describe("CIP-046 Bulletproof staging activation preparation", () => {
         });
         expect(BULLETPROOF_DOMAIN_MANIFEST.connectorId).toBe("BULLETPROOF-CONNECTOR-001");
         expect(bulletproofExternalIdentity("member-001").pbosIdentity.systemId).toBe("BULLETPROOF-OS-001");
+        expect(BULLETPROOF_CONNECTOR_MANIFEST.permissions).toContain("READ_RUNTIME_HEALTH");
+        expect(BULLETPROOF_CONNECTOR_MANIFEST.capabilities).toContainEqual(
+            expect.objectContaining({ capabilityId: "BULLETPROOF_RUNTIME_HEALTH",
+                requiredPermissions: ["READ_RUNTIME_HEALTH"] })
+        );
     });
 
     it("requires protected bootstrap input and never manufactures approval", () => {

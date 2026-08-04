@@ -13,9 +13,10 @@ export const BULLETPROOF_CONNECTOR_MANIFEST: ConnectorRegistrationManifest = {
     capabilities: [
         { capabilityId: "ACCOUNT_IDENTITY", name: "Account Identity", type: "SERVICE", version: "1.0.0", requiredPermissions: ["identity:self"], inputSchemaId: "pbos.identity.account.v1", outputSchemaId: "pbos.identity.account.v1", active: true },
         { capabilityId: "BENEFICIARY_SEARCH", name: "Beneficiary Search", type: "WORKFLOW", version: "1.0.0", requiredPermissions: ["search:create", "search:read-own"], inputSchemaId: "legacy.search.request.v1", outputSchemaId: "legacy.search.status.v1", active: true },
-        { capabilityId: "SECURE_DOCUMENT", name: "Secure Document", type: "SERVICE", version: "1.0.0", requiredPermissions: ["document:create", "document:read-own"], inputSchemaId: "legacy.document.metadata.v1", outputSchemaId: "legacy.document.reference.v1", active: true }
+        { capabilityId: "SECURE_DOCUMENT", name: "Secure Document", type: "SERVICE", version: "1.0.0", requiredPermissions: ["document:create", "document:read-own"], inputSchemaId: "legacy.document.metadata.v1", outputSchemaId: "legacy.document.reference.v1", active: true },
+        { capabilityId: "BULLETPROOF_RUNTIME_HEALTH", name: "Runtime Health", type: "SERVICE", version: "1.0.0", requiredPermissions: ["READ_RUNTIME_HEALTH"], inputSchemaId: "pbos.health.request.v1", outputSchemaId: "pbos.health.response.v1", active: true }
     ],
-    permissions: ["identity:self", "search:create", "search:read-own", "document:create", "document:read-own"],
+    permissions: ["identity:self", "search:create", "search:read-own", "document:create", "document:read-own", "READ_RUNTIME_HEALTH"],
     communicationRules: ["TLS_REQUIRED", "SIGNED_IDENTITY_REQUIRED", "PROVENANCE_REQUIRED", "NO_RAW_DOCUMENT_EXCHANGE"]
 };
 
