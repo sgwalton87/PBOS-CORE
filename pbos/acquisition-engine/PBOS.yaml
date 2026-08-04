@@ -1,0 +1,55 @@
+---
+id: PBOS-ACQUISITION-000
+title: Genesis Acquisition Engine Foundation
+version: 1.0.0
+status: Canonical
+classification: Constitutional
+owner: PBOS Genesis
+layer: Acquisition
+parent:
+  - PBOS-CIP-009B
+---
+
+name: Acquisition Engine
+
+purpose:
+
+  Establish the governed ingestion boundary that allows
+  PBOS Genesis to analyze external systems and transform
+  them into compiler-ready artifacts.
+
+responsibilities:
+
+  - Repository discovery
+  - Architecture inspection
+  - Dependency analysis
+  - Documentation discovery
+  - System artifact generation
+
+inputs:
+
+  - External repositories
+  - Source code
+  - Documentation
+  - Configuration
+  - Database definitions
+
+outputs:
+
+  - System artifacts
+  - Acquisition reports
+  - Repository context
+
+principles:
+
+  - External systems remain independent
+  - Acquisition is read-only
+  - Evidence precedes compilation
+  - Identity must be preserved
+
+dependencies:
+
+  - PBOS Artifact System
+  - PBOS Compiler Pipeline
+  - PBOS Evidence Engine
+
