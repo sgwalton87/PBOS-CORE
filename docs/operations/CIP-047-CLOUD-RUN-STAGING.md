@@ -46,6 +46,8 @@ The explicitly approved credential rotation completed successfully on 2026-08-04
 
 The CIP-047 launch plan now represents the remaining work as dependency-ordered evidence gates: credential rotation, immutable backup and verified restoration, rollback and degraded-mode behavior, load/rate/concurrency and failure injection, then monitoring, incident response, disaster recovery, and production isolation. Each infrastructure mutation remains a protected human-approval action.
 
+The portable restore-evidence verifier is prepared. It requires byte-identical SHA-256 digests between the immutable backup and isolated restoration, then verifies connector, domain, identity, and audit evidence for the expected organization. Backup creation, isolated restore resources, and any state promotion remain protected actions.
+
 Run locally and stop if any command fails:
 
 ```bash
