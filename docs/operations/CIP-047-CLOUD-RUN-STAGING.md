@@ -75,6 +75,16 @@ PBOS_RESILIENCE_EVIDENCE_PATH=/protected/path/resilience-observation.json npm ru
 
 Load generation, rate-limit exercise, concurrency pressure, and dependency failure injection are not performed by this command. They remain separately approved infrastructure actions; the verifier only evaluates the resulting observation file.
 
+The portable operations verifier is prepared for the final staging-operations gate. It requires dashboards covering health, volume, errors, latency, authentication denial, and state durability; enabled alerts with verified notification routing; a timed simulated incident that preserves audit evidence and confidentiality; backup/restore evidence meeting approved RPO and RTO; named runbooks; and an accountable on-call owner.
+
+```bash
+PBOS_OPERATIONS_EVIDENCE_PATH=/protected/path/operations-observation.json npm run pbos:evidence:runtime-operations
+```
+
+Creating dashboards, alerts, notification channels, paging operators, and initiating incident or disaster-recovery exercises remain protected actions.
+
+The operator procedure is defined in `docs/operations/CIP-047-RUNTIME-OPERATIONS-RUNBOOK.md`.
+
 Run locally and stop if any command fails:
 
 ```bash
