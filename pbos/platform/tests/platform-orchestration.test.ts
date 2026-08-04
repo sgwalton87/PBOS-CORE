@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SystemRegistry } from "../../acquisition-engine";
+import { BuildAuthorityService } from "../../autonomous-authority";
 import {
     CertificationEngine,
     CertificationEvidenceRegistry,
@@ -128,6 +129,25 @@ describe("PBOS platform orchestration boundaries", () => {
             proposalId: proposal.proposalId, approvedBy: "operator", approvalId: "approval", approvedAt: new Date()
         });
         expect(dispatch.status).toBe("COMPLETED");
+    });
+
+    it("dispatches work authorized by a bounded autonomous build grant", async () => {
+        const connector = new RepositoryConnector(new InMemoryRepositoryGateway());
+        const inspection = await connector.inspectRepository(repository);
+        const proposal = await connector.proposeChange(inspection, "Build Scholar onboarding", ["app/onboarding"]);
+        const authority = new BuildAuthorityService();
+        const grant = authority.issue({
+            systemId: "PLAYBOOK-SYSTEM-001", repository: "domain-owner/domain-application",
+            branchPattern: "agent/*", mode: "DELEGATED_AUTONOMY",
+            allowedActions: ["MODIFY_APPLICATION_CODE"], maximumRisk: "MEDIUM",
+            issuedBy: "operator", issuanceApprovalId: "session-approval", durationMinutes: 60
+        });
+        const decision = authority.authorize({
+            grantId: grant.grantId, systemId: grant.systemId, repository: grant.repository,
+            branch: "agent/scholar-onboarding", action: "MODIFY_APPLICATION_CODE", risk: "MEDIUM",
+            requestedAt: new Date()
+        });
+        expect((await connector.dispatchGovernedWork(proposal, decision)).status).toBe("COMPLETED");
     });
 
     it("promotes only completed, validated, formally certified changes", async () => {

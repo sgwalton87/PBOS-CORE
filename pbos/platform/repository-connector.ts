@@ -1,4 +1,5 @@
 import { EcosystemScorecard } from "../certification";
+import { BuildAuthorityDecision } from "../autonomous-authority";
 
 export interface RepositoryReference {
     readonly owner: string;
@@ -87,6 +88,19 @@ export class RepositoryConnector {
             throw new Error("Repository dispatch requires matching explicit approval.");
         }
         return this.gateway.dispatch(proposal, approval);
+    }
+
+    dispatchGovernedWork(
+        proposal: RepositoryChangeProposal,
+        authority: BuildAuthorityDecision
+    ): Promise<RepositoryDispatch> {
+        if (!authority.allowed) throw new Error(`Repository dispatch denied: ${authority.reason}`);
+        return this.gateway.dispatch(proposal, {
+            proposalId: proposal.proposalId,
+            approvedBy: "PBOS-V1-DELEGATED-AUTHORITY",
+            approvalId: authority.explicitApprovalId ?? `grant:${authority.grantId}:${authority.decisionId}`,
+            approvedAt: authority.decidedAt
+        });
     }
 
     async collectValidationEvidence(
