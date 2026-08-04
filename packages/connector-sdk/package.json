@@ -12,6 +12,10 @@
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./server": { "types": "./dist/server.d.ts", "default": "./dist/server.js" }
   },
-  "scripts": { "build": "tsc -p tsconfig.json", "typecheck": "tsc -p tsconfig.json --noEmit" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
   "dependencies": { "zod": "^4.4.3" }
 }

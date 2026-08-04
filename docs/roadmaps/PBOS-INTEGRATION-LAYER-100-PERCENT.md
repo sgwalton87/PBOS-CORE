@@ -49,6 +49,9 @@ Each gate must have implementation, tests, operational evidence, human approval,
 | Bulletproof activation | Bulletproof completes a governed real-world transaction through PBOS v1 | Repository and runtime evidence |
 | Deployment readiness | Staging and production promotion, rollback, backup, restore, and incident procedures are proven | Deployment rehearsal evidence |
 | Independent certification | Security, operations, governance, integration, and lineage scorecards are all certified | Final certification report |
+| Multi-platform foundation | Intake and scaffolding generate governed web, iOS, and Android application targets from shared contracts | Scaffold and device-target conformance evidence |
+| Store delivery | Mobile builds, signing boundaries, privacy declarations, and testing-channel releases are reproducible | TestFlight and Play testing-track evidence |
+| Multi-platform certification | Playbook and Bulletproof independently satisfy web and mobile release-readiness gates | Per-application certification bundles |
 
 ## Implementation sequence
 
@@ -146,7 +149,7 @@ Exit: operators can detect, explain, contain, and recover every integration fail
 
 ### CIP-045 — Playbook Production Connector Activation
 
-- [ ] Normalize repository paths that differ only by case
+- [x] Normalize repository paths that differ only by case — Playbook PR #46, merge commit `074301888a2514752cd21cc8cc4d6cd9bc39c58b`
 - [ ] Install the packaged SDK and connector manifest in Playbook Platform
 - [ ] Register `PLAYBOOK-SYSTEM-001`, `PLAYBOOK-OS-001`, and its domains
 - [ ] Map Supabase identity to PBOS identity without transferring authentication ownership
@@ -157,6 +160,8 @@ Exit: operators can detect, explain, contain, and recover every integration fail
 - [ ] Human-certify the connector; do not certify the whole application yet
 
 Exit: Playbook is a live independent PBOS-powered application, not only a reference manifest.
+
+Current gate: the normalized Playbook baseline is ready. `@pbos/connector-sdk@1.0.0` must be published to an approved registry before Playbook can prove an independent, reproducible installation. Registry selection and first publication require human approval.
 
 ### CIP-046 — Bulletproof Production Connector Activation
 
@@ -186,6 +191,45 @@ Exit: Bulletproof is a live independent PBOS-powered application using the same 
 - [ ] Promote only the explicitly approved release
 
 Exit: the Integration Layer is certified 100% production-ready.
+
+### CIP-048 — Multi-Platform Application Foundation
+
+- [ ] Add `WEB`, `IOS`, and `ANDROID` delivery targets to system intake and blueprints
+- [ ] Capture phone, tablet, offline, notification, camera, file, biometric, location, accessibility, locale, age, and monetization requirements
+- [ ] Generate separate web and mobile application shells without moving domain behavior into PBOS Core
+- [ ] Share domain contracts, connector clients, identity boundaries, design tokens, and test utilities across targets
+- [ ] Generate unique application identifiers, environment contracts, icons, splash assets, and platform configuration
+- [ ] Preserve independent product branding and color systems
+- [ ] Add scaffold, denial, configuration, and clean-install consumer tests
+- [ ] Document upgrade, rollback, and target-addition procedures
+
+Exit: every blueprint can produce reproducible web, iOS, and Android foundations from one governed system definition.
+
+### CIP-049 — Mobile Build and Store Delivery
+
+- [ ] Add iOS and Android build profiles for development, testing, staging, and production
+- [ ] Keep signing certificates, provisioning profiles, keystores, and API credentials outside source control
+- [ ] Generate Apple privacy manifests, Google Play data-safety inputs, age-rating inputs, and store metadata templates
+- [ ] Add device tests, accessibility tests, deep-link tests, offline recovery, notification, and secure-storage tests
+- [ ] Automate versioning, build-number allocation, artifact lineage, and software-bill-of-materials evidence
+- [ ] Prepare TestFlight and Google Play testing-track releases behind explicit approval gates
+- [ ] Prove credential rotation, rollback, revoked-build handling, and incident response
+- [ ] Produce per-platform release-readiness scorecards
+
+Exit: PBOS can reproducibly prepare signed, governed builds for Apple and Google testing channels without claiming store approval.
+
+### CIP-050 — Multi-Platform Ecosystem Certification
+
+- [ ] Certify Playbook Platform independently for responsive web, iOS, and Android readiness
+- [ ] Certify Bulletproof Beneficiary independently for responsive web, iOS, and Android readiness
+- [ ] Prove both applications use the same PBOS v1 contracts while retaining separate repositories, branding, data ownership, and release authority
+- [ ] Verify privacy, identity, authority, provenance, accessibility, security, operational, and commercial readiness per platform
+- [ ] Collect web deployment, device-build, testing-channel, governance, and human-approval evidence
+- [ ] Produce final lineage graphs and application-specific certification memos
+- [ ] Require explicit human approval for public web promotion and each store submission
+- [ ] Record Apple and Google review outcomes as external evidence rather than PBOS-issued approval
+
+Exit: PBOS demonstrates one foundation powering two independently deployable web-and-mobile application families through certified release boundaries.
 
 ## “20/10” enhancements
 
@@ -266,4 +310,4 @@ No category receives credit for implementation alone. Tests, operational evidenc
 
 ## Immediate next action
 
-Complete and certify the current scaffold-generator correction, then begin CIP-038. Do not mix CIP-038 state architecture into the scaffold correction batch.
+Complete CIP-045 against the normalized Playbook repository, then proceed sequentially through CIP-050. Each CIP stops at its human validation and certification gate; application merges, deployments, signing, and store submissions remain protected actions.
