@@ -12,6 +12,13 @@ export interface PreparedApplicationBuild {
     readonly pullRequest: PullRequestReference;
 }
 
+export function buildBranchForSession(systemId: string, sessionId: string): string {
+    const systemSlug = systemId.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+    const sessionSlug = sessionId.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 12);
+    if (!systemSlug || !sessionSlug) throw new Error("A valid system and session identity are required to allocate a build branch.");
+    return `agent/pbos-${systemSlug}-vertical-slice-${sessionSlug}`;
+}
+
 export class GenesisWorkflowService {
     constructor(
         private readonly gateway: GitHubRepositoryGateway,
@@ -33,7 +40,7 @@ export class GenesisWorkflowService {
         const reference = this.reference(session);
         const plan = await this.inspectAndPlan(session);
         if (plan.status !== "READY_FOR_APPROVAL") throw new Error(`Build plan blocked: ${plan.blockers.join("; ")}`);
-        const branch = `agent/pbos-${session.system.systemId.toLowerCase()}-vertical-slice`;
+        const branch = buildBranchForSession(session.system.systemId, session.sessionId);
         for (const [action, risk] of [
             ["PROPOSE_CHANGE", "MEDIUM"], ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"],
             ["CREATE_COMMIT", "MEDIUM"], ["PUSH_BRANCH", "MEDIUM"], ["OPEN_DRAFT_PR", "MEDIUM"]
