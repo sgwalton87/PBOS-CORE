@@ -1,6 +1,7 @@
 import { AuthorityMode } from "../autonomous-authority";
 import { GenesisControlPlane } from "./genesis-control-plane";
 import { TerminalIO } from "./terminal-io";
+import { SystemIntakeTerminal } from "./system-intake-terminal";
 
 const MODES: readonly { mode: AuthorityMode; label: string }[] = [
     { mode: "READ_ONLY", label: "Read Only" },
@@ -9,12 +10,23 @@ const MODES: readonly { mode: AuthorityMode; label: string }[] = [
 ];
 
 export class GenesisTerminal {
-    constructor(private readonly controlPlane: GenesisControlPlane, private readonly io: TerminalIO) {}
+    constructor(
+        private readonly controlPlane: GenesisControlPlane,
+        private readonly io: TerminalIO,
+        private readonly intake = new SystemIntakeTerminal()
+    ) {}
 
     async run(): Promise<number> {
         try {
             this.io.write("PBOS GENESIS");
             this.io.write("System Factory Console\n");
+            this.io.write("1. Activate Registered System");
+            this.io.write("2. Create New Operating System");
+            const operation = this.selection(await this.io.prompt("\nChoose an operation: "), 2);
+            if (operation === 1) {
+                await this.intake.collect(this.io);
+                return 0;
+            }
             const systems = this.controlPlane.listSystems();
             systems.forEach((system, index) => {
                 this.io.write(`${index + 1}. ${system.name}`);
