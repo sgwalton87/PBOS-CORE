@@ -28,6 +28,8 @@ Operator-reported result: **PASS**, 2026-08-04.
 
 Cloud Build YAML parsing remediation validated green by the human operator on 2026-08-04; corrected image definition awaits merge and resubmission.
 
+First staging revision evidence: the bucket mounted and Secret Manager configuration was accepted, but the source-executed TypeScript entrypoint was absent from the runtime image. The reproducible container now compiles the Cloud Run dependency graph in a build stage and copies the emitted artifact into a minimal runtime stage. The remediation passed typecheck, tests, build, and emitted-entrypoint verification by the human operator on 2026-08-04; a new immutable image is required before redeployment.
+
 Run locally and stop if any command fails:
 
 ```bash

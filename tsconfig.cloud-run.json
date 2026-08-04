@@ -1,0 +1,17 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": false,
+        "rootDir": ".",
+        "outDir": "./dist",
+        "types": ["node"]
+    },
+    "include": [
+        "pbos/api/cloud-run-entrypoint.ts"
+    ],
+    "exclude": [
+        "**/tests/**",
+        "node_modules",
+        "dist"
+    ]
+}
