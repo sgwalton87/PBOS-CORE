@@ -19,8 +19,8 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 - [x] Bulletproof manifest and activation harness prepared
 - [x] Cross-connector authentication boundary prepared
 - [ ] Human validation green
-- [ ] Protected Bulletproof staging activation approved
-- [ ] Parallel isolation evidence collected
+- [x] Protected Bulletproof staging activation approved
+- [x] Parallel isolation evidence collected
 - [ ] Human certification issued
 
 ## CIP-047 runtime readiness
