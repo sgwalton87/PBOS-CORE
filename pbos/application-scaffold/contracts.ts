@@ -14,6 +14,15 @@ export interface ApplicationScaffold {
     readonly stack: ApplicationStack;
     readonly files: readonly ScaffoldFile[];
     readonly securityBoundaries: readonly string[];
+    readonly dependencyLock: Readonly<{ manager: "NPM"; path: "package-lock.json"; required: true }>;
     readonly generatedAt: Date;
 }
 export interface ScaffoldRequest { readonly blueprint: SystemBlueprint; readonly includeFirstVerticalSlice?: boolean; }
+export interface ScaffoldMaterializationTarget {
+    writeFiles(files: readonly ScaffoldFile[]): Promise<void>;
+    prepareDependencyLock(manager: ApplicationScaffold["dependencyLock"]["manager"]): Promise<void>;
+}
+export interface MaterializedScaffold {
+    readonly scaffoldId: string;
+    readonly generatedPaths: readonly string[];
+}
