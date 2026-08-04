@@ -36,6 +36,11 @@ export class PbosNodeHttpAdapter {
             if (authenticated && !authenticated.scopes.includes("*") && !authenticated.scopes.includes(payload.operation)) {
                 throw new Error(`Connector credential scope denies operation: ${payload.operation}`);
             }
+            const requestedConnectorId = (payload.payload as { connectorId?: unknown } | undefined)?.connectorId;
+            if (authenticated && typeof requestedConnectorId === "string" &&
+                requestedConnectorId !== authenticated.connectorId) {
+                throw new Error("Connector authentication does not authorize a different connector boundary.");
+            }
             const result = await this.api.handle(payload);
             this.respond(response, result.success ? 200 : 400, result);
         } catch (error) {

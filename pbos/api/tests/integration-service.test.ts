@@ -31,7 +31,8 @@ describe("CIP-045 authenticated PBOS integration service", () => {
             organizationId: "PLAYBOOK-ORG-001",
             connectorId: PLAYBOOK_CONNECTOR_MANIFEST.connectorId,
             scopes: ["REGISTER_SYSTEM", "CERTIFY_SYSTEM", "REGISTER_DOMAIN", "ACTIVATE_DOMAIN",
-                "REGISTER_IDENTITY", "PUBLISH_LIFECYCLE_EVENT", "EXCHANGE_APPROVED_DATA", "QUERY_AUDIT"],
+                "REGISTER_IDENTITY", "PUBLISH_LIFECYCLE_EVENT", "EXCHANGE_APPROVED_DATA", "QUERY_AUDIT",
+                "GET_CONNECTOR_STATUS"],
             durationMinutes: 15,
             issuedBy: "PBOS-CREDENTIAL-AUTHORITY",
             approvalId: "PLAYBOOK-CREDENTIAL-APPROVAL-001"
@@ -77,6 +78,14 @@ describe("CIP-045 authenticated PBOS integration service", () => {
         await expect(response.json()).resolves.toMatchObject({ success: true,
             correlationId: "playbook-http-register-001",
             provenance: expect.arrayContaining(["PBOS-V1", "REGISTER_SYSTEM"]) });
+
+        const crossConnector = await send({ apiVersion: "v1", operation: "GET_CONNECTOR_STATUS",
+            correlationId: "playbook-cross-connector-denial-001",
+            payload: { connectorId: "BULLETPROOF-CONNECTOR-001" } });
+        expect(crossConnector.status).toBe(401);
+        await expect(crossConnector.json()).resolves.toMatchObject({
+            error: "Connector authentication does not authorize a different connector boundary."
+        });
 
         const identity = playbookSupabaseIdentity("supabase-scholar-http-001", "PLAYBOOK-SCHOLAR-HTTP-ACTOR-001");
         const operations: PbosApiRequest[] = [

@@ -2,7 +2,7 @@
 
 ## Status
 
-STAGING DEPLOYED — PLAYBOOK ACTIVATION, RECOVERY, AND GOVERNED LIFECYCLE PROVEN
+STAGING DEPLOYED — ACTIVATION, RECOVERY, LIFECYCLE, AND CREDENTIAL ROTATION PROVEN
 
 ## Deployment boundary
 
@@ -42,7 +42,9 @@ Cross-revision recovery completed successfully on `pbos-v1-integration-staging-r
 
 The explicitly approved governed lifecycle test completed successfully on 2026-08-04. `PLAYBOOK-CONNECTOR-001` entered `SUSPENDED`, and runtime health communication was denied with `AUTHORITY_DENIED`. Cloud Run then replaced the active revision with `pbos-v1-integration-staging-suspended1`, serving 100% of traffic with all readiness conditions true. The replacement process recovered the suspension and repeated the same authority denial. The approved resume returned the connector to `ACTIVE`; correlation `playbook-resume-health-20260804132350349` reported `healthy: true` with complete provenance. Both the lifecycle proof and enclosing workflow exited `0`.
 
-The credential rotation evidence probe is prepared to require an HTTP `401` from the retired key and a successful governed health response from the replacement key. Creating the replacement credential, publishing a new Secret Manager trust-bundle version, replacing the Cloud Run revision, and retiring the prior secret remain separate protected actions and must not occur until the operator explicitly approves the final runbook.
+The explicitly approved credential rotation completed successfully on 2026-08-04. The protected trust bundle and application bootstrap received new enabled Secret Manager versions. Revision `pbos-v1-integration-staging-rotate134124` became ready and served 100% of traffic. The retired credential was denied, the replacement credential completed governed health, temporary secret files were cleaned up, and the enclosing workflow exited `0`.
+
+The CIP-047 launch plan now represents the remaining work as dependency-ordered evidence gates: credential rotation, immutable backup and verified restoration, rollback and degraded-mode behavior, load/rate/concurrency and failure injection, then monitoring, incident response, disaster recovery, and production isolation. Each infrastructure mutation remains a protected human-approval action.
 
 Run locally and stop if any command fails:
 
