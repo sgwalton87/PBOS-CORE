@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTED AND HUMAN-VALIDATED — DEPLOYMENT APPROVAL REQUIRED
+STAGING DEPLOYED — SIGNED PLAYBOOK ACTIVATION PENDING
 
 ## Deployment boundary
 
@@ -30,7 +30,11 @@ Cloud Build YAML parsing remediation validated green by the human operator on 20
 
 First staging revision evidence: the bucket mounted and Secret Manager configuration was accepted, but the source-executed TypeScript entrypoint was absent from the runtime image. The reproducible container now compiles the Cloud Run dependency graph in a build stage and copies the emitted artifact into a minimal runtime stage. The remediation passed typecheck, tests, build, and emitted-entrypoint verification by the human operator on 2026-08-04; a new immutable image is required before redeployment.
 
-The corrected compiled revision became healthy and its public `/pbos/v1` boundary rejected anonymous traffic with `401`. Google Cloud Run intercepted `/healthz` before the container because the platform reserves some paths ending in `z`. PBOS now uses the portable `/health` route; the remediation passed typecheck, tests, and build by the human operator on 2026-08-04 and requires a new immutable image before the health gate is complete.
+The corrected compiled revision became healthy and its public `/pbos/v1` boundary rejected anonymous traffic with `401`. Google Cloud Run intercepted `/healthz` before the container because the platform reserves some paths ending in `z`. PBOS now uses the portable `/health` route; the remediation passed typecheck, tests, and build by the human operator on 2026-08-04 and was promoted as a new immutable image.
+
+Deployed revision `pbos-v1-integration-staging-2d8fb8d` serves image digest `sha256:a8e08389e28c9b0c335e2ce547acf795f884ec9aaf9398998d6a2563c1ffbc43`. Operator evidence confirms `GET /health` returns `200`, anonymous `POST /pbos/v1` returns `401`, container concurrency is `1`, and the active revision maximum scale is `1`. Public Cloud Run invocation was explicitly approved because PBOS HMAC authentication remains mandatory on the connector API.
+
+The signed Playbook activation command and staging runtime handlers passed typecheck, tests, and build by the human operator on 2026-08-04. Live credential use and the approved private Scholar data exchange remain protected execution gates.
 
 Run locally and stop if any command fails:
 

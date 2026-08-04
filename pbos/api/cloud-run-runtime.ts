@@ -107,7 +107,11 @@ export function createCloudRunIntegrationService(config: CloudRunRuntimeConfig):
         }),
         repository,
         config.organizationId,
-        command => lifecycleApprovals.has(command.approvalId)
+        command => lifecycleApprovals.has(command.approvalId),
+        {
+            LIFECYCLE_EVENT: async payload => ({ accepted: true, payload }),
+            DATA_EXCHANGE: async payload => ({ accepted: true, payload })
+        }
     );
     const authenticator = new ConnectorHmacAuthenticator(credentials, secrets,
         new RepositoryReplayNonceStore(repository));
