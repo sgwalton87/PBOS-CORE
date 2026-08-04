@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Guided Continuous Operator Session
 
@@ -24,3 +24,10 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Certification Evidence
+
+- Certification date: 2026-08-04
+- `npm run typecheck`: PASS — operator confirmed
+- `npm test`: PASS — operator confirmed
+- `npm run build`: PASS — operator confirmed
