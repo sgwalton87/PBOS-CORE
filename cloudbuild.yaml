@@ -3,11 +3,13 @@ steps:
     args:
       - build
       - --tag
-      - ${_IMAGE}
+      - '${_IMAGE}'
       - .
   - name: gcr.io/cloud-builders/docker
-    args: [push, ${_IMAGE}]
+    args:
+      - push
+      - '${_IMAGE}'
 images:
-  - ${_IMAGE}
+  - '${_IMAGE}'
 options:
   logging: CLOUD_LOGGING_ONLY
