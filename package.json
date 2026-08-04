@@ -9,6 +9,7 @@
     "doc": "docs"
   },
   "scripts": {
+    "pbos": "tsx pbos/genesis-console/entrypoint.ts",
     "build": "tsc",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
