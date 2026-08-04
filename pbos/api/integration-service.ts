@@ -11,11 +11,20 @@ export interface IntegrationServiceAddress {
 export class PbosIntegrationService {
     private server?: Server;
 
-    constructor(private readonly adapter: PbosNodeHttpAdapter) {}
+    constructor(private readonly adapter: PbosNodeHttpAdapter,
+        private readonly healthRoute = "/healthz") {}
 
     async start(port = 0, host = "127.0.0.1"): Promise<IntegrationServiceAddress> {
         if (this.server) throw new Error("PBOS integration service is already running.");
         const server = createServer((request, response) => {
+            if (request.method === "GET" && request.url === this.healthRoute) {
+                response.statusCode = 200;
+                response.setHeader("content-type", "application/json");
+                response.setHeader("cache-control", "no-store");
+                response.setHeader("x-content-type-options", "nosniff");
+                response.end(JSON.stringify({ status: "healthy", service: "pbos-v1-integration" }));
+                return;
+            }
             void this.adapter.handle(request, response);
         });
         this.server = server;
