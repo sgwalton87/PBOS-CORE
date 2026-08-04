@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Title
 
@@ -22,10 +22,13 @@ Delegated Autonomous Build Authority
 
 Main-branch merge, production deployment, destructive migration, secret management, certification, and cross-repository work require explicit human approval even during an autonomous build session.
 
-## Validation Commands Ready
+## Validation Evidence
 
-```bash
-npm run typecheck
-npm test
-npm run build
-```
+- `npm run typecheck`: PASS
+- `npm test`: PASS
+- `npm run build`: PASS
+- Human operator certification approval completed 2026-08-03
+
+## Certification Outcome
+
+PBOS v1 is certified to execute routine application-building work under bounded Genesis delegation while preserving explicit human authority over protected actions.
