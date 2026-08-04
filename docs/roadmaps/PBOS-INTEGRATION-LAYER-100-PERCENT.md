@@ -163,6 +163,8 @@ Exit: Playbook is a live independent PBOS-powered application, not only a refere
 
 Current gate: the normalized Playbook baseline is ready. `@pbos/connector-sdk@1.0.0` must be published to an approved registry before Playbook can prove an independent, reproducible installation. Registry selection and first publication require human approval.
 
+Application progress: Playbook PR #47 merged at `596bc1471c0a483de4e3d99625f3425a66df6426` with human-validated capability discovery and governed Scholar transaction request construction. Live PBOS service evidence and packaged SDK installation remain pending.
+
 ### CIP-046 — Bulletproof Production Connector Activation
 
 - [ ] Finish and certify the reproducible scaffold remediation
