@@ -40,7 +40,9 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 
 - [x] Evidence-driven launch work-package compiler prepared
 - [x] Responsive accessible web target required
-- [ ] Exact Playbook package/revision gap analysis
+- [x] Exact Playbook revision and repository baseline inspected
+- [x] Web/mobile journey gap compiler prepared
+- [ ] Complete Playbook 84-unit ownership and journey map
 - [ ] Foundation and Scholar slice implementation
 - [ ] Connected product journeys
 - [ ] Web staging acceptance
@@ -50,6 +52,7 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 
 - [x] Web/iOS/Android delivery generator prepared
 - [x] Secure-storage, deep-link, privacy, signing, and release gates represented
+- [x] Cross-platform journey and release evidence verifier prepared
 - [ ] Materialize into Playbook repository
 - [ ] Implement and validate mobile journeys
 - [ ] Apple and Google account/signing configuration

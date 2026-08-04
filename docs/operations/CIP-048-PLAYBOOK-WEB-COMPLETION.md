@@ -2,7 +2,7 @@
 
 ## Status
 
-FACTORY ORCHESTRATION PREPARED — REPOSITORY GAP ANALYSIS PENDING
+EXACT REPOSITORY BASELINE RECORDED — JOURNEY EVIDENCE COMPILATION PREPARED
 
 ## Repository boundary
 
@@ -20,11 +20,18 @@ PBOS Core owns build planning, governed connector contracts, delivery blueprints
 
 ## Evidence gates
 
+Compile a revision-bound inventory with:
+
+```bash
+PBOS_APPLICATION_INVENTORY_PATH=/protected/path/playbook-inventory.json npm run pbos:plan:application-readiness
+```
+
 - [x] Launch-plan compiler prepared
 - [x] Responsive web delivery target required by the factory
 - [x] Web/mobile shared governed contracts prepared
-- [ ] Exact repository revision inspected
-- [ ] Package inventory and ownership map collected
+- [x] Exact repository revision inspected
+- [x] Inventory compiler requires every repository unit to map to a journey
+- [ ] Complete 84-unit ownership and journey map collected
 - [ ] Gap analysis approved
 - [ ] Work packages dispatched through an approved agent branch
 - [ ] Human validation passes for each implementation batch

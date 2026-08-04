@@ -28,6 +28,8 @@
     "pbos:evidence:runtime-rollback": "tsx pbos/tools/runtime-rollback-evidence.ts",
     "pbos:evidence:runtime-resilience": "tsx pbos/tools/runtime-resilience-evidence.ts",
     "pbos:evidence:runtime-operations": "tsx pbos/tools/runtime-operations-evidence.ts",
+    "pbos:evidence:application-release": "tsx pbos/tools/application-release-evidence.ts",
+    "pbos:plan:application-readiness": "tsx pbos/tools/application-readiness-report.ts",
     "build": "tsc --noEmit && npm run build --workspace @pbos/connector-sdk && npm run build:cloud-run",
     "build:cloud-run": "tsc --project tsconfig.cloud-run.json",
     "clean": "rm -rf dist",
