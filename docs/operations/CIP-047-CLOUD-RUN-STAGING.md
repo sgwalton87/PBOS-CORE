@@ -26,6 +26,8 @@ Operator-reported result: **PASS**, 2026-08-04.
 - `npm run test:run` — green
 - `npm run build` — green
 
+Cloud Build YAML parsing remediation validated green by the human operator on 2026-08-04; corrected image definition awaits merge and resubmission.
+
 Run locally and stop if any command fails:
 
 ```bash
