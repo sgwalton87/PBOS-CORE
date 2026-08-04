@@ -7,7 +7,8 @@ import {
     ConnectedSystemRegistry,
     RuntimeCommunicationBoundary,
     RuntimeCommunicationRequest,
-    SystemConnector
+    SystemConnector,
+    IntegrationStateRepository
 } from "../integration";
 import { AuthorizationDecision } from "../kernel";
 import {
@@ -26,16 +27,21 @@ export type DomainActivationAuthority = (command: DomainActivationCommand) => bo
 export type RuntimeAuthorityResolver = (actorId: string, action: string, connectorId: string) => AuthorizationDecision;
 
 export class PbosV1Api {
-    private readonly systems = new ConnectedSystemRegistry();
-    private readonly domains = new DomainRegistrationRegistry(this.systems);
-    private readonly identities = new IdentityMapper();
+    private readonly systems: ConnectedSystemRegistry;
+    private readonly domains: DomainRegistrationRegistry;
+    private readonly identities: IdentityMapper;
     private readonly runtime: RuntimeCommunicationBoundary;
 
     constructor(
         private readonly certifyConnector: ConnectorCertificationAuthority,
         private readonly activateRegisteredDomain: DomainActivationAuthority,
-        private readonly resolveAuthority: RuntimeAuthorityResolver
+        private readonly resolveAuthority: RuntimeAuthorityResolver,
+        repository?: IntegrationStateRepository,
+        organizationId = "PBOS-DEFAULT-ORG"
     ) {
+        this.systems = new ConnectedSystemRegistry(repository, organizationId);
+        this.domains = new DomainRegistrationRegistry(this.systems, repository, organizationId);
+        this.identities = new IdentityMapper(repository, organizationId);
         this.runtime = new RuntimeCommunicationBoundary(this.systems, this.domains, {
             HEALTH_CHECK: async (_payload) => {
                 const connectorId = String((_payload as { connectorId?: unknown }).connectorId ?? "");
@@ -48,7 +54,7 @@ export class PbosV1Api {
                     checkedAt: new Date()
                 };
             }
-        });
+        }, repository, organizationId);
     }
 
     async handle(request: PbosApiRequest): Promise<PbosApiResponse> {

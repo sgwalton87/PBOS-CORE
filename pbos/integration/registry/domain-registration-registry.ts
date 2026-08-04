@@ -1,5 +1,7 @@
+import { randomUUID } from "crypto";
 import { DomainRegistration } from "../contracts/domain-registration";
 import { ConnectedSystemRegistry } from "./connected-system-registry";
+import type { IntegrationStateRepository } from "../state/contracts";
 
 const STATUS_TRANSITIONS: Readonly<Record<DomainRegistration["status"], readonly DomainRegistration["status"][]>> = {
     REGISTERED: ["ACTIVE", "SUSPENDED", "REVOKED"],
@@ -11,10 +13,13 @@ const STATUS_TRANSITIONS: Readonly<Record<DomainRegistration["status"], readonly
 export class DomainRegistrationRegistry {
     private readonly registrations = new Map<string, DomainRegistration>();
 
-    constructor(private readonly systems: ConnectedSystemRegistry) {}
+    constructor(private readonly systems: ConnectedSystemRegistry, private readonly repository?: IntegrationStateRepository,
+        private readonly organizationId = "PBOS-DEFAULT-ORG") {
+        repository?.domains(organizationId).forEach(registration => this.registrations.set(registration.registrationId, registration));
+    }
 
     register(registration: DomainRegistration): void {
-        if (this.registrations.has(registration.registrationId)) {
+        if (this.get(registration.registrationId)) {
             throw new Error(`Domain registration already exists: ${registration.registrationId}`);
         }
         const connector = this.systems.get(registration.connectorId);
@@ -27,10 +32,22 @@ export class DomainRegistrationRegistry {
             throw new Error("Domain registration declares an unknown connector capability.");
         }
         this.registrations.set(registration.registrationId, registration);
+        this.repository?.saveDomain(this.organizationId, registration);
+    }
+
+    revoke(registrationId: string, reason: string, revokedBy: string, approvalId: string): DomainRegistration {
+        const current = this.get(registrationId);
+        if (!current) throw new Error(`Domain registration not found: ${registrationId}`);
+        const revoked = { ...current, status: "REVOKED" as const, updatedAt: new Date() };
+        this.repository?.revoke({ revocationId: randomUUID(), organizationId: this.organizationId,
+            resourceType: "DOMAIN", resourceId: registrationId, reason, revokedBy, approvalId, revokedAt: new Date() });
+        this.registrations.set(registrationId, revoked);
+        this.repository?.saveDomain(this.organizationId, revoked);
+        return revoked;
     }
 
     update(registration: DomainRegistration): void {
-        const current = this.registrations.get(registration.registrationId);
+        const current = this.get(registration.registrationId);
         if (!current) {
             throw new Error(`Domain registration not found: ${registration.registrationId}`);
         }
@@ -42,10 +59,17 @@ export class DomainRegistrationRegistry {
             throw new Error(`Invalid domain registration transition: ${current.status} -> ${registration.status}`);
         }
         this.registrations.set(registration.registrationId, registration);
+        this.repository?.saveDomain(this.organizationId, registration);
     }
 
-    get(registrationId: string): DomainRegistration | undefined { return this.registrations.get(registrationId); }
+    get(registrationId: string): DomainRegistration | undefined { return this.values().find(item => item.registrationId === registrationId); }
     forConnector(connectorId: string): readonly DomainRegistration[] {
-        return [...this.registrations.values()].filter(registration => registration.connectorId === connectorId);
+        return this.values().filter(registration => registration.connectorId === connectorId);
+    }
+    private values(): DomainRegistration[] {
+        const domains = [...(this.repository?.domains(this.organizationId) ?? this.registrations.values())];
+        const revoked = new Set(this.repository?.revocations(this.organizationId)
+            .filter(item => item.resourceType === "DOMAIN").map(item => item.resourceId) ?? []);
+        return domains.map(domain => revoked.has(domain.registrationId) ? { ...domain, status: "REVOKED" as const } : domain);
     }
 }
