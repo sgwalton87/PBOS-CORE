@@ -15,6 +15,15 @@ Acquisition Compiler Artifact
 */
 
 
+import {
+
+    ArchitectureDiscovery
+
+}
+
+from "../scanners/architecture-scanner";
+
+
 export interface SystemArtifact {
 
 
@@ -41,7 +50,7 @@ export interface SystemArtifact {
     readonly commitHash: string;
 
 
-    readonly architecture: Record<string, unknown>;
+    readonly architecture: ArchitectureDiscovery;
 
 
     readonly dependencies: readonly string[];
