@@ -24,3 +24,5 @@ pbos
 Select Bulletproof Beneficiary, choose a governed authority mode, then inspect and plan or prepare the application on an `agent/*` branch. Preparation opens a draft pull request and stops before the human validation and certification gate.
 
 After GitHub Actions starts on the draft PR, relaunch `pbos`, activate the same system, and choose **Collect validation evidence and resume remediation**. PBOS imports check evidence and failed logs, persists progress, applies a known deterministic remediation when authorized, and pushes the repair. Re-enter the action after checks rerun. Passing checks produce `READY_FOR_CERTIFICATION`; unknown or repeated failures produce `BLOCKED` for human review instead of an autonomous loop.
+
+Remediation is pack-based rather than permanently hardcoded per application. Each project profile selects reusable stack, database, domain, and quality packs. Bulletproof currently selects Node dependency, Next.js, Supabase, and legacy-planning packs; future projects register a blueprint and pack identifiers without creating a separate remediation engine.
