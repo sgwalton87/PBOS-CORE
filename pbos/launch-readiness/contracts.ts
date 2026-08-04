@@ -1,4 +1,4 @@
-export type LaunchCip = "CIP-046" | "CIP-047" | "CIP-048" | "CIP-049";
+export type LaunchCip = "CIP-046" | "CIP-047" | "CIP-048" | "CIP-049" | "CIP-050";
 export type LaunchGate = "AUTOMATED" | "HUMAN_VALIDATION" | "HUMAN_APPROVAL" | "EXTERNAL_ACCOUNT";
 export type LaunchTaskState = "READY" | "BLOCKED" | "COMPLETE";
 

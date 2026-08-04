@@ -59,3 +59,15 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 - [ ] TestFlight and Play internal testing
 - [ ] Store submission approval
 - [ ] Human certification issued
+
+## CIP-050 ecosystem certification
+
+- [x] Multi-platform certification engine prepared
+- [x] Independent-system, shared-contract, lineage, and scorecard rules represented
+- [x] Separate web, Apple, Google, and final human approval boundaries represented
+- [ ] Playbook web/iOS/Android evidence complete
+- [ ] Bulletproof web/iOS/Android evidence complete
+- [ ] Shared-contract and ownership-isolation proof complete
+- [ ] Separate Playbook human certification issued
+- [ ] Separate Bulletproof human certification issued
+- [ ] Public promotion and store submissions separately approved
