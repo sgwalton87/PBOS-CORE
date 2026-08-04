@@ -6,10 +6,14 @@ describe("CIP-048 and CIP-049 application delivery", () => {
         const delivery = new ApplicationDeliveryGenerator().generate({
             systemId: "PLAYBOOK-SYSTEM-001", applicationName: "Playbook Platform",
             bundleNamespace: "com.playbook.platform", universalLinkDomain: "app.playbook.example",
-            targets: ["WEB", "IOS", "ANDROID"]
+            targets: ["WEB", "IOS", "ANDROID"], journeys: ["IDENTITY_ONBOARDING", "DASHBOARD", "MESSAGING"],
+            brandAssets: [{ assetId: "PLAYBOOK-LOGO-001", kind: "PRIMARY_LOGO", location: "assets/playbook.svg", rightsConfirmed: true }]
         });
         expect(delivery.targets).toEqual(["WEB", "IOS", "ANDROID"]);
         expect(delivery.files.map(file => file.path)).toContain("delivery/mobile/app.config.ts");
+        expect(delivery.files.map(file => file.path)).toContain("delivery/shared/brand-assets.json");
+        expect(delivery.files.map(file => file.path)).toContain("delivery/mobile/platform-boundaries.ts");
+        expect(delivery.files.find(file => file.path === "delivery/shared/brand-assets.json")?.content).toContain("PLAYBOOK-LOGO-001");
         expect(delivery.storeRequirements.IOS).toContain("TESTFLIGHT_PASS");
         expect(delivery.storeRequirements.ANDROID).toContain("SIGNED_AAB");
         expect(delivery.protectedReleaseActions).toContain("PRODUCTION_RELEASE");

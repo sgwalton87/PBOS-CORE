@@ -1,4 +1,6 @@
 import { ScaffoldFile } from "../application-scaffold";
+import { ApplicationJourney } from "../application-readiness";
+import { BrandAssetReference, DesignTokens } from "../system-blueprint";
 
 export type DeliveryTarget = "WEB" | "IOS" | "ANDROID";
 
@@ -8,6 +10,9 @@ export interface ApplicationDeliveryRequest {
     readonly bundleNamespace: string;
     readonly universalLinkDomain: string;
     readonly targets: readonly DeliveryTarget[];
+    readonly journeys?: readonly ApplicationJourney[];
+    readonly designTokens?: DesignTokens;
+    readonly brandAssets?: readonly BrandAssetReference[];
 }
 
 export interface ApplicationDeliveryBlueprint {

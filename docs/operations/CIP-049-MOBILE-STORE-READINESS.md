@@ -24,6 +24,9 @@ The factory now prepares:
 - [x] Web/iOS/Android delivery blueprint generator prepared
 - [x] Apple and Google requirements represented independently
 - [x] Tests prepared for shared and platform-specific boundaries
+- [x] Approved brand assets, design tokens, and journey contracts included in delivery output
+- [x] Secure-storage, deep-link, and notification-consent interfaces prepared
+- [x] Web/iOS/Android release-evidence verifier prepared
 - [ ] Materialize delivery files in Playbook through an approved PR
 - [ ] Implement and validate primary mobile journeys
 - [ ] Configure Apple Developer ownership and signing
@@ -36,3 +39,11 @@ The factory now prepares:
 - [ ] Human CIP-049 certification issued
 
 PBOS does not create developer accounts, accept legal agreements, upload signing credentials, or submit an application without the account owner and an explicit protected approval.
+
+After web staging, TestFlight, and Google Play internal-testing evidence exists at the same application revision, verify the combined release candidate with:
+
+```bash
+PBOS_APPLICATION_RELEASE_EVIDENCE_PATH=/protected/path/playbook-release.json npm run pbos:evidence:application-release
+```
+
+This command verifies evidence and stops before Apple App Store or Google Play submission.
