@@ -39,8 +39,10 @@ export class GenesisBuildPlanCompiler {
     }
 
     private mission(gap: CapabilityGap, blueprint: SystemBlueprint): Mission {
+        const brandEvidence = (blueprint.design.brand.assets ?? [])
+            .map(asset => `BRAND_ASSET:${asset.assetId}:${asset.location}`);
         return { missionId: randomUUID(), title: `Implement ${gap.capability.toLowerCase().replaceAll("_", " ")}`,
             priority: gap.priority, dependencies: gap.capability === "IDENTITY" ? [] : ["IDENTITY"],
-            capability: gap.capability, generatedFrom: [blueprint.blueprintId, ...gap.evidence] };
+            capability: gap.capability, generatedFrom: [blueprint.blueprintId, ...brandEvidence, ...gap.evidence] };
     }
 }

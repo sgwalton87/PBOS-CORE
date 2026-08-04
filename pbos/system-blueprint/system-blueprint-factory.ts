@@ -29,6 +29,9 @@ export class SystemBlueprintFactory {
         if (!generatedDesign.accessibility.passed) {
             unresolvedDecisions.push("Design accessibility remediation requires approval.");
         }
+        if (submission.brand.assets?.some(asset => !asset.rightsConfirmed)) {
+            unresolvedDecisions.push("Brand asset ownership or usage rights require human confirmation.");
+        }
         const slug = submission.systemName.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-|-$/g, "");
         return {
             blueprintId: randomUUID(),
@@ -77,5 +80,9 @@ export class SystemBlueprintFactory {
             throw new Error("Connecting an existing application requires a repository.");
         }
         if (submission.brand.personalities.length === 0) throw new Error("Brand intake requires at least one personality.");
+        for (const asset of submission.brand.assets ?? []) {
+            if (!asset.assetId.trim() || !asset.location.trim()) throw new Error("Brand assets require an ID and durable location.");
+            if (asset.sha256 && !/^[a-f0-9]{64}$/i.test(asset.sha256)) throw new Error("Brand asset SHA-256 must contain 64 hexadecimal characters.");
+        }
     }
 }
