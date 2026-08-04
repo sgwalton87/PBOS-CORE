@@ -3,7 +3,8 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GenesisSystemDefinition } from "../genesis-console/system-definition";
 import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
-import { RemediationRun } from "../validation-automation/contracts";
+import type { RemediationRun } from "../validation-automation/contracts";
+import type { BackgroundMonitorJob, OperatorMemoRecord } from "../operator-continuity/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -21,6 +22,8 @@ interface DurableGenesisState {
     readonly grants: readonly unknown[];
     readonly audit: readonly GenesisAuditEvent[];
     readonly remediationRuns?: readonly RemediationRun[];
+    readonly memos?: readonly OperatorMemoRecord[];
+    readonly backgroundJobs?: readonly BackgroundMonitorJob[];
 }
 
 const dateKeys = new Set(["createdAt", "activatedAt", "issuedAt", "expiresAt", "revokedAt", "decidedAt", "requestedAt"]);
@@ -63,5 +66,14 @@ export class GenesisStateRepository {
     remediationRun(runId: string): RemediationRun | undefined { return this.remediationRuns().find(run => run.runId === runId); }
     saveRemediationRun(run: RemediationRun): void {
         this.store.update(state => ({ ...state, remediationRuns: [...(state.remediationRuns ?? []).filter(item => item.runId !== run.runId), run] }));
+    }
+    memos(): readonly OperatorMemoRecord[] { return [...(this.store.read().memos ?? [])]; }
+    saveMemo(memo: OperatorMemoRecord): void { this.store.update(state => ({ ...state, memos: [...(state.memos ?? []), memo] })); }
+    backgroundJobs(): readonly BackgroundMonitorJob[] { return [...(this.store.read().backgroundJobs ?? [])]; }
+    saveBackgroundJob(job: BackgroundMonitorJob): void {
+        this.store.update(state => ({ ...state, backgroundJobs: [...(state.backgroundJobs ?? []).filter(item => item.jobId !== job.jobId), job] }));
+    }
+    backgroundJobForRun(runId: string): BackgroundMonitorJob | undefined {
+        return [...this.backgroundJobs()].reverse().find(job => job.runId === runId);
     }
 }

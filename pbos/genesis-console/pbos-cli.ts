@@ -17,6 +17,7 @@ import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
 import { createDefaultRemediationHandler, GitHubCheckCollector, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
+import { BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -45,7 +46,7 @@ function profile(): LocalProfile {
     catch { throw new Error("PBOS login required. Run: pbos login"); }
 }
 
-async function launch(): Promise<number> {
+function runtime() {
     const local = profile();
     const identities = new OperatorIdentityService(operatorsPath);
     const operator = identities.authenticate(local.operatorId, local.credential);
@@ -65,18 +66,48 @@ async function launch(): Promise<number> {
     const gateway = new GitHubRepositoryGateway(join(stateRoot, "repositories"), commands);
     const workflows = new GenesisWorkflowService(
         gateway, undefined, undefined,
-        (session, action, risk, branch) => control.authorizeAction(session.sessionId, action, risk, branch)
+        (session, action, risk, branch) => control.authorizeAction(session.sessionId, action, risk, branch),
+        (stage, message) => stdout.write(`[${stage}] ${message}\n`)
     );
     const remediation = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), createDefaultRemediationHandler(gateway));
-    return new GenesisTerminal(control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => state.saveBlueprint(blueprint)),
-        sessionAuthority, workflows, remediation).run();
+    const memos = new OperatorMemoService(join(stateRoot, "memos"), state);
+    return { state, control, sessionAuthority, workflows, remediation, memos };
+}
+
+async function launch(): Promise<number> {
+    const services = runtime();
+    const unfinished = services.state.remediationRuns().filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state));
+    if (unfinished.length) stdout.write(`Unfinished build detected: ${unfinished.at(-1)!.systemId} (${unfinished.at(-1)!.state}). Activate that system and choose validation/remediation to resume.\n`);
+    const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
+    const continuity = new OperatorContinuityService(services.remediation, services.memos, background);
+    return new GenesisTerminal(services.control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => services.state.saveBlueprint(blueprint)),
+        services.sessionAuthority, services.workflows, services.remediation, continuity).run();
 }
 
 export async function runPbosCli(args = process.argv.slice(2)): Promise<number> {
     if (args[0] === "login") return login();
     if (args[0] === "status") {
         const local = profile();
+        const state = new GenesisStateRepository(genesisPath);
+        const run = state.remediationRuns().at(-1);
+        const job = state.backgroundJobs().at(-1);
         stdout.write(`Authenticated organization: ${local.organizationId}\nGitHub account: ${local.githubLogin}\nOperator: ${local.operatorId}\n`);
+        if (run) stdout.write(`Latest validation: ${run.systemId} — ${run.state}\n`);
+        if (job) stdout.write(`Latest background monitor: ${job.status} — PID ${job.pid}\n`);
+        return 0;
+    }
+    if (args[0] === "memo") {
+        profile();
+        const latest = new OperatorMemoService(join(stateRoot, "memos"), new GenesisStateRepository(genesisPath)).latest(args[1]);
+        if (!latest) throw new Error("No PBOS operator memo is available.");
+        stdout.write(`${latest.content}\nMemo: ${latest.record.path}\n`);
+        return 0;
+    }
+    if (args[0] === "monitor") {
+        const runId = args[1]; const sessionId = args[2];
+        if (!runId || !sessionId) throw new Error("Background monitor requires run and session identifiers.");
+        const services = runtime();
+        await new BackgroundMonitor(services.state, services.remediation, services.workflows, services.memos).run(runId, sessionId);
         return 0;
     }
     if (args.length > 0) throw new Error(`Unknown PBOS command: ${args.join(" ")}`);
