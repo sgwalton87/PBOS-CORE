@@ -27,11 +27,11 @@ The activation harness consumes an operator-created bootstrap file. It cannot ge
 - [x] Unit and integration tests prepared
 - [ ] Human validation commands pass
 - [ ] Bulletproof staging credential and approvals authorized
-- [ ] Bulletproof connector activated beside Playbook
-- [ ] Bulletproof health and audit evidence collected
-- [ ] Playbook credential denied against Bulletproof resources
-- [ ] Bulletproof credential denied against Playbook resources
-- [ ] State, audit, credentials, and organization isolation proven
+- [x] Bulletproof connector activated beside Playbook
+- [x] Bulletproof health and audit evidence collected
+- [x] Playbook credential denied against Bulletproof resources
+- [x] Bulletproof credential denied against Playbook resources
+- [x] State, audit, credentials, and organization isolation proven
 - [ ] Human CIP-046 certification issued
 
 ## First live activation evidence
@@ -45,6 +45,12 @@ The activation harness consumes an operator-created bootstrap file. It cannot ge
 - Corrected image `160caad` built successfully as digest `sha256:422279c799e104d8a520501c0f1ce8e9e9224fe9f7a116a54081b935735553f2`; the authorized reset removed only the live synthetic state object while retaining all versioned generations.
 - Revision `pbos-v1-bulletproof-staging-healthfix` became ready and served 100% of traffic.
 - The replay again failed closed at health because the connector declared the capability permission but not the `HEALTH_CHECK` communication rule. The second remediation adds that explicit rule and regression coverage; no isolation test ran after the failed health gate.
+- Final image `a8d9a8f` built successfully as digest `sha256:dc91b70be9e8b44ac9f33ba3dc1d3ceb9c2d4ecc4ab086623207d4099f3859e5`.
+- Revision `pbos-v1-bulletproof-staging-healthrule` became ready and served 100% of traffic.
+- Synthetic identity `BULLETPROOF-IDENTITY-synthetic-member-cip046-001` completed governed health with correlation `bulletproof-staging-20260804191701624-health`, `healthy: true`, and a durable provenance-bearing audit event.
+- Bulletproof-to-Playbook isolation returned HTTP `401` with correlation `cip046-isolation-25e43656-92bc-4dc8-872b-1ffdb0e07bc5`.
+- Playbook-to-Bulletproof isolation returned HTTP `401` with correlation `cip046-isolation-20f09e2a-c4ee-4e4c-8c0a-ffb6fd1dd836`.
+- The final CIP-046 workflow exited `0`; temporary bootstrap files were cleaned up.
 
 ## Validation commands ready
 

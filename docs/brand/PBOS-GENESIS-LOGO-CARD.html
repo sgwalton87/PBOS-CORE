@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PBOS Genesis — Logo Specification Card</title>
+  <style>
+    :root { --midnight:#020f21; --ink:#07182d; --ivory:#f4efe4; --copper:#b65c18; --gold:#f5a12a; --muted:#aab4c2; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#000a17; color:var(--ivory); font-family:Inter,system-ui,sans-serif; }
+    main { width:min(1180px,calc(100% - 32px)); margin:32px auto; border:1px solid #24364c; border-radius:28px; overflow:hidden; background:linear-gradient(145deg,var(--ink),var(--midnight)); box-shadow:0 28px 80px #0009; }
+    .hero { padding:clamp(24px,5vw,64px); border-bottom:1px solid #24364c; }
+    .kicker { color:var(--gold); letter-spacing:.2em; text-transform:uppercase; font-size:.75rem; }
+    h1 { margin:.5rem 0; font:600 clamp(2rem,6vw,5rem)/.95 "Space Grotesk",Inter,sans-serif; }
+    .tagline { letter-spacing:.28em; text-transform:uppercase; color:var(--muted); }
+    .board { display:block; width:100%; margin-top:32px; border-radius:18px; border:1px solid #34465b; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:1px; background:#24364c; }
+    section { background:var(--midnight); padding:28px; }
+    h2 { font-size:.82rem; letter-spacing:.16em; text-transform:uppercase; color:var(--gold); }
+    p,li { line-height:1.6; color:#d8dee7; }
+    .swatches { display:grid; gap:10px; }
+    .swatch { display:flex; align-items:center; gap:12px; }
+    .chip { width:42px; height:42px; border-radius:12px; border:1px solid #ffffff33; }
+    code { color:var(--ivory); }
+    .warning { border-left:3px solid var(--gold); padding-left:14px; }
+  </style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div class="kicker">PBOS Brand System · Genesis</div>
+    <h1>Logo specification card</h1>
+    <div class="tagline">Create. Power. Evolve.</div>
+    <img class="board" src="../../assets/brand/pbos-genesis/pbos-genesis-master-brand-board.png" alt="PBOS Genesis logo system showing full, horizontal, mark, stacked, monochrome, and app-icon treatments">
+  </header>
+  <div class="grid">
+    <section><h2>Identity</h2><p><strong>Product:</strong> PBOS Genesis<br><strong>Role:</strong> System factory<br><strong>Asset:</strong> 1536 × 1024 RGB PNG<br><strong>Master ID:</strong> PBOS-GENESIS-MASTER-BOARD-001</p></section>
+    <section><h2>Clear space & scale</h2><p>Clear space equals the inner counter width of the P mark on every side. Master-board minimum width: 320px. Smaller placements require a dedicated approved mark export.</p></section>
+    <section><h2>Palette</h2><div class="swatches"><div class="swatch"><i class="chip" style="background:#020f21"></i><code>#020F21</code> Midnight</div><div class="swatch"><i class="chip" style="background:#f4efe4"></i><code>#F4EFE4</code> Ivory</div><div class="swatch"><i class="chip" style="background:#b65c18"></i><code>#B65C18</code> Copper</div><div class="swatch"><i class="chip" style="background:#f5a12a"></i><code>#F5A12A</code> Gold</div></div><p>Working UI values visually derived from the raster board; owner approval is required before certification.</p></section>
+    <section><h2>Typography</h2><p><strong>Interface headings:</strong> Space Grotesk<br><strong>Interface body:</strong> Inter<br><span class="warning">Logo lettering is artwork. Do not recreate the wordmark with interface fonts.</span></p></section>
+    <section><h2>Approved use</h2><ul><li>Genesis console and factory portal</li><li>PBOS documentation and presentations</li><li>PBOS Genesis social identity</li><li>Approved Genesis launcher icon</li></ul></section>
+    <section><h2>Never</h2><ul><li>Stretch, crop, skew, or recolor</li><li>Add shadows or effects</li><li>Place over busy imagery</li><li>Use as the Playbook Platform logo</li><li>Treat this board as a transparent production lockup</li></ul></section>
+  </div>
+</main>
+</body>
+</html>
