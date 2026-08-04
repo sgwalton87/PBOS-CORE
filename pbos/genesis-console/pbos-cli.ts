@@ -15,6 +15,8 @@ import { NodeTerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
+import { BulletproofRemediationHandler, GitHubCheckCollector, ResumableRemediationEngine } from "../validation-automation";
+import { NodeCommandRunner } from "../platform";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -59,12 +61,15 @@ async function launch(): Promise<number> {
             resource: systemId, occurredAt: approval.issuedAt, evidence: { approval } });
         return { operatorId: operator.operatorId, approvalId: approval.approvalId };
     } };
+    const commands = new NodeCommandRunner();
+    const gateway = new GitHubRepositoryGateway(join(stateRoot, "repositories"), commands);
     const workflows = new GenesisWorkflowService(
-        new GitHubRepositoryGateway(join(stateRoot, "repositories")), undefined, undefined,
+        gateway, undefined, undefined,
         (session, action, risk, branch) => control.authorizeAction(session.sessionId, action, risk, branch)
     );
+    const remediation = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), new BulletproofRemediationHandler(gateway));
     return new GenesisTerminal(control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => state.saveBlueprint(blueprint)),
-        sessionAuthority, workflows).run();
+        sessionAuthority, workflows, remediation).run();
 }
 
 export async function runPbosCli(args = process.argv.slice(2)): Promise<number> {
