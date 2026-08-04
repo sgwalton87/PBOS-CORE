@@ -33,7 +33,7 @@ LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERT
 - [x] Approved dashboard projection exchange accepted in live staging
 - [x] Self-certification denied in the PBOS reference activation harness
 - [x] Revoked authority denied across process restart in the PBOS reference activation harness
-- [x] Durable activation recovered after restart in the PBOS reference activation harness
+- [x] Durable activation recovered after restart in both the PBOS reference harness and live Cloud Run staging
 - [x] Dependency failure reported without bypassing governance in the PBOS reference activation harness
 - [x] Application connector typecheck, 316 tests, lint, and production build pass — human operator validation, 2026-08-04
 - [x] PBOS Core typecheck, tests, and build pass — human operator validation, 2026-08-04
@@ -53,7 +53,11 @@ LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERT
 - Activation exit code: `0`
 - Credential handling: Secret Manager bootstrap retrieved to a mode-`0600` temporary file and removed immediately after execution; no signing secret appeared in activation output
 - Audit result: health, lifecycle, and private data exchange each recorded a `RESPONDED` event with connector, domain, identity, and external-identity provenance
-- Recovery verifier: read-only connector status, domain status, and audit query command passed typecheck, tests, and build by the human operator on 2026-08-04; live cross-revision execution remains pending
+- Recovery revision: `pbos-v1-integration-staging-recovery1`, serving 100% of traffic with `Ready`, `ConfigurationsReady`, and `RoutesReady` true
+- Recovery result: connector `ACTIVE`, certification `CERTIFIED`, Scholar domain `ACTIVE`, and all `3` original audit events recovered without replaying an activation mutation
+- Recovery correlation: `playbook-recovery-20260804131632628`
+- Recovery verifier exit code: `0`; temporary bootstrap cleanup completed
+- Governed suspension, denial, and resume harness passed typecheck, tests, and build by the human operator on 2026-08-04; live execution remains pending under explicit approval
 
 ## Validation gate
 

@@ -38,6 +38,8 @@ The signed Playbook activation command and staging runtime handlers passed typec
 
 The protected signed activation completed successfully on revision `pbos-v1-integration-staging-adae599` with exit code `0`. PBOS registered and certified the Playbook connector, activated the Scholar domain, mapped the synthetic staging identity, discovered capabilities, reported governed health, accepted the approved onboarding event and private dashboard exchange, and returned three durable provenance-bearing audit events. The temporary credential file was removed immediately after execution.
 
+Cross-revision recovery completed successfully on `pbos-v1-integration-staging-recovery1`, which served 100% of traffic using the same immutable runtime digest. The read-only verifier recovered the active certified connector, active Scholar domain, and all three original audit events with exit code `0`; it did not replay registration, certification, activation, identity, lifecycle, or data-exchange mutations.
+
 Run locally and stop if any command fails:
 
 ```bash
