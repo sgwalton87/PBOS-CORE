@@ -10,3 +10,4 @@ export * from "./adapters/system-adapter";
 export * from "./identity/identity-mapper";
 export * from "./capabilities/capability-discovery";
 export * from "./runtime/runtime-communication-boundary";
+export * from "./state";

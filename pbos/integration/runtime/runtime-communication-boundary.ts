@@ -7,6 +7,7 @@ import {
 } from "../contracts/runtime-communication";
 import { ConnectedSystemRegistry } from "../registry/connected-system-registry";
 import { DomainRegistrationRegistry } from "../registry/domain-registration-registry";
+import type { IntegrationStateRepository } from "../state/contracts";
 
 export type RuntimeCommunicationHandler = (payload: unknown) => Promise<unknown>;
 
@@ -23,7 +24,9 @@ export class RuntimeCommunicationBoundary {
     constructor(
         private readonly systems: ConnectedSystemRegistry,
         private readonly domains: DomainRegistrationRegistry,
-        private readonly handlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>>
+        private readonly handlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>>,
+        private readonly repository?: IntegrationStateRepository,
+        private readonly organizationId = "PBOS-DEFAULT-ORG"
     ) {}
 
     async communicate<T = unknown>(request: RuntimeCommunicationRequest): Promise<RuntimeCommunicationResponse<T>> {
@@ -47,12 +50,14 @@ export class RuntimeCommunicationBoundary {
         const handler = this.handlers[request.type];
         if (!handler) throw new Error(`Runtime communication handler unavailable: ${request.type}`);
         const output = await handler(request.payload) as T;
-        this.events.push({
+        const event: IntegrationEvent = {
             eventId: randomUUID(), connectorId: connector.connectorId, type: "RESPONDED",
             correlationId: request.correlationId,
             provenance: [...request.provenance, connector.connectorId, domain.registrationId],
             details: { communicationType: request.type, purpose: request.purpose }, occurredAt: new Date()
-        });
+        };
+        this.events.push(event);
+        this.repository?.appendEvent(this.organizationId, event);
         return {
             communicationId: request.communicationId, correlationId: request.correlationId,
             type: request.type, output,
@@ -61,6 +66,6 @@ export class RuntimeCommunicationBoundary {
     }
 
     history(connectorId: string): readonly IntegrationEvent[] {
-        return this.events.filter(event => event.connectorId === connectorId);
+        return this.repository?.events(this.organizationId, connectorId) ?? this.events.filter(event => event.connectorId === connectorId);
     }
 }
