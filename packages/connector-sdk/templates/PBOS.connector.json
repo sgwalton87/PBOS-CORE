@@ -1,0 +1,10 @@
+{
+  "connectorId": "YOUR-CONNECTOR-001",
+  "externalSystemId": "YOUR-SYSTEM-001",
+  "pbosSystemId": "YOUR-OS-001",
+  "name": "Your PBOS Connector",
+  "version": "1.0.0",
+  "domainIds": ["YOUR-DOMAIN-001"],
+  "permissions": ["READ_RUNTIME_HEALTH"],
+  "communicationRules": ["HEALTH_CHECK"]
+}
