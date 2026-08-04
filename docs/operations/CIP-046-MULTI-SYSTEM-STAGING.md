@@ -2,7 +2,7 @@
 
 ## Status
 
-IMPLEMENTATION PREPARED — HUMAN VALIDATION AND PROTECTED ACTIVATION PENDING
+CERTIFIED
 
 ## Objective
 
@@ -25,14 +25,14 @@ The activation harness consumes an operator-created bootstrap file. It cannot ge
 - [x] Independent manifests and identity mapping prepared
 - [x] Cross-connector authentication boundary implemented
 - [x] Unit and integration tests prepared
-- [ ] Human validation commands pass
-- [ ] Bulletproof staging credential and approvals authorized
+- [x] Human validation commands pass
+- [x] Bulletproof staging credential and approvals authorized
 - [x] Bulletproof connector activated beside Playbook
 - [x] Bulletproof health and audit evidence collected
 - [x] Playbook credential denied against Bulletproof resources
 - [x] Bulletproof credential denied against Playbook resources
 - [x] State, audit, credentials, and organization isolation proven
-- [ ] Human CIP-046 certification issued
+- [x] Human CIP-046 certification issued
 
 ## First live activation evidence
 

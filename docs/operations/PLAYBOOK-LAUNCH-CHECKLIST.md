@@ -12,7 +12,7 @@ Human validation of the CIP-046 through CIP-049 preparation batch.
 - [x] Credential rotation proof implementation merged
 - [x] Live credential rotation output recorded
 - [ ] Connector SDK registry installation completed
-- [ ] Human certification issued
+- [x] Human CIP-046 certification issued
 
 ## CIP-046 multi-system proof
 
