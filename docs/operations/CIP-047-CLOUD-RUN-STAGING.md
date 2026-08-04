@@ -67,6 +67,14 @@ After an approved exercise, store the observation in a protected temporary JSON 
 PBOS_ROLLBACK_EVIDENCE_PATH=/protected/path/rollback-observation.json npm run pbos:evidence:runtime-rollback
 ```
 
+The portable resilience verifier is also prepared for the next protected exercise. It requires an approved request-volume target, successful and deliberately rate-limited responses, enforced concurrency, bounded p95 latency, zero unexpected failures, unchanged durable state, anonymous connector denial, and at least one dependency failure injection in which every attempt is denied without sensitive-data exposure.
+
+```bash
+PBOS_RESILIENCE_EVIDENCE_PATH=/protected/path/resilience-observation.json npm run pbos:evidence:runtime-resilience
+```
+
+Load generation, rate-limit exercise, concurrency pressure, and dependency failure injection are not performed by this command. They remain separately approved infrastructure actions; the verifier only evaluates the resulting observation file.
+
 Run locally and stop if any command fails:
 
 ```bash
