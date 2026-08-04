@@ -18,7 +18,10 @@ export class OperatorMemoService {
             : run?.state === "BLOCKED" ? "Review the blockers and provide a governed decision."
             : run ? "Allow GitHub Actions to update, then resume validation evidence collection."
             : "Resume PBOS and select the next governed workflow action.";
-        const body = `# PBOS Operator Session Memo\n\n- System: ${session.system.name}\n- System ID: ${session.system.systemId}\n- Session: ${session.sessionId}\n- Authority: ${session.grant.mode}\n- Repository: ${session.system.repository}\n- Generated: ${createdAt}\n- Status: ${run?.state ?? "SESSION_ACTIVE"}\n${run ? `- Validation run: ${run.runId}\n- Attempt: ${run.attempt}/${run.maximumAttempts}\n- Pull request: ${run.pullRequest.url}\n` : ""}\n## Next Recommended Action\n\n${next}\n${run?.blockers.length ? `\n## Blockers\n\n${run.blockers.map(item => `- ${item}`).join("\n")}\n` : ""}`;
+        const certification = run?.state === "READY_FOR_CERTIFICATION"
+            ? "\n## Certification Readiness\n\nValidation evidence is complete. Human certification approval is required before merge or public promotion.\n"
+            : "";
+        const body = `# PBOS Operator Session Memo\n\n- System: ${session.system.name}\n- System ID: ${session.system.systemId}\n- Session: ${session.sessionId}\n- Authority: ${session.grant.mode}\n- Repository: ${session.system.repository}\n- Generated: ${createdAt}\n- Status: ${run?.state ?? "SESSION_ACTIVE"}\n${run ? `- Validation run: ${run.runId}\n- Attempt: ${run.attempt}/${run.maximumAttempts}\n- Pull request: ${run.pullRequest.url}\n` : ""}${certification}\n## Next Recommended Action\n\n${next}\n${run?.blockers.length ? `\n## Blockers\n\n${run.blockers.map(item => `- ${item}`).join("\n")}\n` : ""}`;
         writeFileSync(path, body, { encoding: "utf8", mode: 0o600 });
         const record: OperatorMemoRecord = { memoId: randomUUID(), systemId: session.system.systemId, sessionId: session.sessionId,
             runId: run?.runId, state: run?.state ?? "SESSION_ACTIVE", path, createdAt };

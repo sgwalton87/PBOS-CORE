@@ -27,7 +27,7 @@ describe("operator continuity", () => {
         const record = memos.write(session, run);
         const latest = memos.latest("SYSTEM-001");
         expect(record.state).toBe("READY_FOR_CERTIFICATION");
-        expect(latest?.content).toContain("Certification");
+        expect(latest?.content).toContain("## Certification Readiness");
         expect(latest?.content).toContain(run.pullRequest.url);
     });
 
