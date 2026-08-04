@@ -36,6 +36,8 @@ Deployed revision `pbos-v1-integration-staging-2d8fb8d` serves image digest `sha
 
 The signed Playbook activation command and staging runtime handlers passed typecheck, tests, and build by the human operator on 2026-08-04. Live credential use and the approved private Scholar data exchange remain protected execution gates.
 
+The protected signed activation completed successfully on revision `pbos-v1-integration-staging-adae599` with exit code `0`. PBOS registered and certified the Playbook connector, activated the Scholar domain, mapped the synthetic staging identity, discovered capabilities, reported governed health, accepted the approved onboarding event and private dashboard exchange, and returned three durable provenance-bearing audit events. The temporary credential file was removed immediately after execution.
+
 Run locally and stop if any command fails:
 
 ```bash

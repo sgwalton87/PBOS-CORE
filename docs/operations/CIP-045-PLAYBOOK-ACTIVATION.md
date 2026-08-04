@@ -2,7 +2,7 @@
 
 ## Status
 
-PBOS-SIDE VALIDATED — APPLICATION ACTIVATION PENDING — NOT CERTIFIED
+LIVE STAGING ACTIVATED — RECOVERY AND REVOCATION EVIDENCE PENDING — NOT CERTIFIED
 
 ## Boundaries
 
@@ -25,12 +25,12 @@ PBOS-SIDE VALIDATED — APPLICATION ACTIVATION PENDING — NOT CERTIFIED
 - [x] Case-colliding documentation paths normalized in Playbook PR #46
 - [ ] `@pbos/connector-sdk@1.0.0` published under the PBOS npm organization
 - [ ] Exact SDK version and connector manifest installed in Playbook Platform
-- [ ] System registered and human-certified
-- [ ] Scholar domain registered and human-activated
-- [ ] Supabase identity mapped with immutable external provenance
-- [ ] Capability discovery and health check completed
-- [ ] Scholar onboarding lifecycle event accepted
-- [ ] Approved dashboard projection exchange accepted
+- [x] System registered and human-certified in live staging
+- [x] Scholar domain registered and human-activated in live staging
+- [x] Synthetic staging Supabase identity mapped with immutable external provenance
+- [x] Capability discovery and health check completed in live staging
+- [x] Scholar onboarding lifecycle event accepted in live staging
+- [x] Approved dashboard projection exchange accepted in live staging
 - [x] Self-certification denied in the PBOS reference activation harness
 - [x] Revoked authority denied across process restart in the PBOS reference activation harness
 - [x] Durable activation recovered after restart in the PBOS reference activation harness
@@ -39,6 +39,21 @@ PBOS-SIDE VALIDATED — APPLICATION ACTIVATION PENDING — NOT CERTIFIED
 - [x] PBOS Core typecheck, tests, and build pass — human operator validation, 2026-08-04
 - [ ] Repository revision, CI URLs, runtime audit, approvals, and operator evidence collected
 - [ ] Human connector certification issued
+
+## Live staging transaction evidence
+
+- Runtime revision: `pbos-v1-integration-staging-adae599`
+- Runtime image: `sha256:b5ad74855427086b3a6560e7560f744ad615d6aa15e41045301d07783eac0a70`
+- Synthetic identity: `pbos-staging-scholar-001`
+- Identity mapping: `PLAYBOOK-IDENTITY-pbos-staging-scholar-001`
+- Health correlation: `playbook-staging-20260804130641397-health`
+- Scholar onboarding correlation: `playbook-staging-20260804130641397-onboarding`
+- Dashboard exchange correlation: `playbook-staging-20260804130641397-dashboard`
+- Exchange approval: `PBOS-EXCHANGE-PLAYBOOK-STAGING-20260804-001`
+- Activation exit code: `0`
+- Credential handling: Secret Manager bootstrap retrieved to a mode-`0600` temporary file and removed immediately after execution; no signing secret appeared in activation output
+- Audit result: health, lifecycle, and private data exchange each recorded a `RESPONDED` event with connector, domain, identity, and external-identity provenance
+- Recovery verifier: read-only connector status, domain status, and audit query command passed typecheck, tests, and build by the human operator on 2026-08-04; live cross-revision execution remains pending
 
 ## Validation gate
 
