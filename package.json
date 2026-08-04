@@ -20,6 +20,7 @@
     "pbos:status": "tsx pbos/genesis-console/entrypoint.ts status",
     "pbos:memo": "tsx pbos/genesis-console/entrypoint.ts memo",
     "pbos:activate:playbook": "tsx pbos/tools/playbook-staging-activation.ts",
+    "pbos:verify:playbook-recovery": "tsx pbos/tools/playbook-staging-recovery.ts",
     "build": "tsc --noEmit && npm run build --workspace @pbos/connector-sdk && npm run build:cloud-run",
     "build:cloud-run": "tsc --project tsconfig.cloud-run.json",
     "clean": "rm -rf dist",
