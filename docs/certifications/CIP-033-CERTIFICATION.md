@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Automatic Validation Evidence and Resumable Remediation
 
@@ -33,3 +33,11 @@ npm run typecheck
 npm test -- --run
 npm run build
 ```
+
+## Certification Evidence
+
+- Certification date: 2026-08-04
+- `npm run typecheck`: PASS
+- `npm test`: PASS — 64 test files, 202 tests
+- `npm run build`: PASS
+- Human-operated validation gate completed before promotion
