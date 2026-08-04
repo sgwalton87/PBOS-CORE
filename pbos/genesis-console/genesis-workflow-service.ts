@@ -40,8 +40,11 @@ export class GenesisWorkflowService {
         ] as readonly (readonly [BuildAction, ActionRisk])[]) this.requireAuthority(session, action, risk, branch);
         await this.gateway.createBranch(reference, branch, plan.repositoryRevision);
         const scaffold = this.scaffolds.generate({ blueprint: plan.blueprint, includeFirstVerticalSlice: true });
-        await this.gateway.applyChange(reference, scaffold.files);
-        const revision = await this.gateway.commit(reference, "feat: scaffold PBOS legacy planning vertical slice", scaffold.files.map(file => file.path));
+        const materialized = await this.scaffolds.materialize(scaffold, {
+            writeFiles: files => this.gateway.applyChange(reference, files).then(() => undefined),
+            prepareDependencyLock: () => this.gateway.prepareDependencyLock(reference)
+        });
+        const revision = await this.gateway.commit(reference, "feat: scaffold PBOS legacy planning vertical slice", materialized.generatedPaths);
         await this.gateway.push(reference, branch);
         const pullRequest = await this.gateway.openDraftPullRequest(reference, branch,
             "feat: scaffold PBOS legacy planning vertical slice",
