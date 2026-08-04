@@ -35,7 +35,7 @@ PBOS-SIDE VALIDATED — APPLICATION ACTIVATION PENDING — NOT CERTIFIED
 - [x] Revoked authority denied across process restart in the PBOS reference activation harness
 - [x] Durable activation recovered after restart in the PBOS reference activation harness
 - [x] Dependency failure reported without bypassing governance in the PBOS reference activation harness
-- [ ] Application repository typecheck, tests, and build pass
+- [x] Application connector typecheck, 316 tests, lint, and production build pass — human operator validation, 2026-08-04
 - [x] PBOS Core typecheck, tests, and build pass — human operator validation, 2026-08-04
 - [ ] Repository revision, CI URLs, runtime audit, approvals, and operator evidence collected
 - [ ] Human connector certification issued
@@ -64,3 +64,14 @@ Passing commands prepare evidence; they do not merge, deploy, or certify automat
 ## Deferred registry action
 
 The PBOS npm organization and first SDK publication are intentionally deferred by the owner. This does not authorize a personal-scope substitute or an unversioned repository dependency. Application-side installation resumes only after `@pbos/connector-sdk@1.0.0` is available from the approved registry.
+
+## Application repository evidence
+
+- Repository: `sgwalton87/playbook-platform`
+- Pull request: `#47`
+- Connector revision validated: `aa94b6df7b6772a825e4370022389136e99e288d`
+- Merge revision: `596bc1471c0a483de4e3d99625f3425a66df6426`
+- Merged: 2026-08-04
+- Prepared operations: capability discovery, Scholar onboarding lifecycle publication, and approved private dashboard projection
+
+The application tests prove request construction, idempotency, and missing-approval denial. They do not replace live evidence against a deployed PBOS v1 service.
