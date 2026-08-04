@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { PbosApiResponse, PbosConnectorClient, PbosConnectorTransport } from "../../connector-sdk";
+import {
+    PbosApiRequest,
+    PbosApiResponse,
+    PbosConnectorClient,
+    PbosConnectorTransport
+} from "../../connector-sdk";
 import { IdentityMapping } from "../../integration";
 import { PbosV1Api } from "../index";
 
@@ -50,7 +55,7 @@ const identity: IdentityMapping = {
         systemId: connector.pbosSystemId,
         role: "SCHOLAR",
         authorityContext: ["PLAYBOOK-SCHOLAR-AUTHORITY"],
-        provenance: ["supabase-user-001"],
+        provenance: "supabase-user-001",
         active: true
     },
     mappedAt: new Date()
@@ -69,7 +74,7 @@ function client(allowed = true): PbosConnectorClient {
         })
     );
     const transport: PbosConnectorTransport = {
-        async send<TOutput>(request): Promise<PbosApiResponse<TOutput>> {
+        async send<TOutput>(request: PbosApiRequest): Promise<PbosApiResponse<TOutput>> {
             return await api.handle(request) as PbosApiResponse<TOutput>;
         }
     };
