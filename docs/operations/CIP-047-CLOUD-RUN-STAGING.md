@@ -11,7 +11,7 @@ IMPLEMENTED AND HUMAN-VALIDATED — DEPLOYMENT APPROVAL REQUIRED
 - Service: `pbos-v1-integration-staging`
 - Artifact repository: `pbos-staging`
 - Runtime identity: `pbos-integration-staging@pbos-genesis-staging.iam.gserviceaccount.com`
-- Public health route: `GET /healthz`
+- Public health route: `GET /health`
 - Authenticated connector route: `POST /pbos/v1`
 - Minimum instances: `0`
 - Maximum instances: `1` while the file-backed staging state repository is mounted
@@ -29,6 +29,8 @@ Operator-reported result: **PASS**, 2026-08-04.
 Cloud Build YAML parsing remediation validated green by the human operator on 2026-08-04; corrected image definition awaits merge and resubmission.
 
 First staging revision evidence: the bucket mounted and Secret Manager configuration was accepted, but the source-executed TypeScript entrypoint was absent from the runtime image. The reproducible container now compiles the Cloud Run dependency graph in a build stage and copies the emitted artifact into a minimal runtime stage. The remediation passed typecheck, tests, build, and emitted-entrypoint verification by the human operator on 2026-08-04; a new immutable image is required before redeployment.
+
+The corrected compiled revision became healthy and its public `/pbos/v1` boundary rejected anonymous traffic with `401`. Google Cloud Run intercepted `/healthz` before the container because the platform reserves some paths ending in `z`. PBOS now uses the portable `/health` route; the remediation passed typecheck, tests, and build by the human operator on 2026-08-04 and requires a new immutable image before the health gate is complete.
 
 Run locally and stop if any command fails:
 

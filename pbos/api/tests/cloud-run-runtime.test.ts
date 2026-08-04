@@ -38,9 +38,12 @@ describe("CIP-047 Cloud Run runtime", () => {
         const service = createCloudRunIntegrationService(config);
         const address = await service.start(0, "127.0.0.1");
         try {
-            const health = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+            const health = await fetch(`http://127.0.0.1:${address.port}/health`);
             expect(health.status).toBe(200);
             await expect(health.json()).resolves.toMatchObject({ status: "healthy" });
+
+            const reserved = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+            expect(reserved.status).toBe(404);
 
             const anonymous = await fetch(`http://127.0.0.1:${address.port}/pbos/v1`, {
                 method: "POST",

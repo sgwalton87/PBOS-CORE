@@ -12,7 +12,7 @@ export class PbosIntegrationService {
     private server?: Server;
 
     constructor(private readonly adapter: PbosNodeHttpAdapter,
-        private readonly healthRoute = "/healthz") {}
+        private readonly healthRoute = "/health") {}
 
     async start(port = 0, host = "127.0.0.1"): Promise<IntegrationServiceAddress> {
         if (this.server) throw new Error("PBOS integration service is already running.");
