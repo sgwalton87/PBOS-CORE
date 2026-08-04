@@ -5,7 +5,7 @@ import { InMemoryIntegrationStateRepository } from "./in-memory-integration-stat
 import { DurableIntegrationState, IntegrationTenantState } from "./contracts";
 import { defaultIntegrationMigrations, emptyIntegrationState, IntegrationStateMigrationRegistry } from "./integration-state-core";
 
-const dateKeys = new Set(["registeredAt", "updatedAt", "mappedAt", "occurredAt", "revokedAt", "recordedAt"]);
+const dateKeys = new Set(["registeredAt", "updatedAt", "mappedAt", "occurredAt", "revokedAt", "recordedAt", "expiresAt"]);
 const revive = (text: string): DurableIntegrationState => JSON.parse(text, (key, value) =>
     dateKeys.has(key) && typeof value === "string" ? new Date(value) : value) as DurableIntegrationState;
 

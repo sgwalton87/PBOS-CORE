@@ -27,6 +27,13 @@ export interface IntegrationIdempotencyRecord {
     readonly recordedAt: Date;
 }
 
+export interface IntegrationReplayNonce {
+    readonly organizationId: string;
+    readonly connectorId: string;
+    readonly nonce: string;
+    readonly expiresAt: Date;
+}
+
 export interface IntegrationTenantState {
     readonly organizationId: string;
     readonly connectors: readonly SystemConnector[];
@@ -35,6 +42,7 @@ export interface IntegrationTenantState {
     readonly events: readonly IntegrationEvent[];
     readonly revocations: readonly IntegrationRevocation[];
     readonly idempotency: readonly IntegrationIdempotencyRecord[];
+    readonly replayNonces?: readonly IntegrationReplayNonce[];
 }
 
 export interface DurableIntegrationState {
@@ -57,6 +65,7 @@ export interface IntegrationStateRepository {
     revoke(revocation: IntegrationRevocation, expectedRevision?: number): void;
     idempotency(organizationId: string, key: string): IntegrationIdempotencyRecord | undefined;
     claimIdempotency(record: IntegrationIdempotencyRecord, expectedRevision?: number): void;
+    consumeReplayNonce(record: IntegrationReplayNonce, expectedRevision?: number): void;
     snapshot(): DurableIntegrationState;
 }
 
