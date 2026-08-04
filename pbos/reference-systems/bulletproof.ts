@@ -17,7 +17,7 @@ export const BULLETPROOF_CONNECTOR_MANIFEST: ConnectorRegistrationManifest = {
         { capabilityId: "BULLETPROOF_RUNTIME_HEALTH", name: "Runtime Health", type: "SERVICE", version: "1.0.0", requiredPermissions: ["READ_RUNTIME_HEALTH"], inputSchemaId: "pbos.health.request.v1", outputSchemaId: "pbos.health.response.v1", active: true }
     ],
     permissions: ["identity:self", "search:create", "search:read-own", "document:create", "document:read-own", "READ_RUNTIME_HEALTH"],
-    communicationRules: ["TLS_REQUIRED", "SIGNED_IDENTITY_REQUIRED", "PROVENANCE_REQUIRED", "NO_RAW_DOCUMENT_EXCHANGE"]
+    communicationRules: ["HEALTH_CHECK", "TLS_REQUIRED", "SIGNED_IDENTITY_REQUIRED", "PROVENANCE_REQUIRED", "NO_RAW_DOCUMENT_EXCHANGE"]
 };
 
 export const BULLETPROOF_CONNECTOR: SystemConnector = {

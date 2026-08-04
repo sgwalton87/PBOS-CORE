@@ -42,6 +42,9 @@ The activation harness consumes an operator-created bootstrap file. It cannot ge
 - Registration, certification, domain activation, and synthetic identity mapping completed before health verification.
 - Health failed closed with `AUTHORITY_DENIED` because the connector manifest omitted `READ_RUNTIME_HEALTH`; no authority bypass occurred.
 - Remediation adds an explicit runtime-health capability and permission. Human validation and a new immutable image are required before the synthetic staging state may be reset and activation replayed.
+- Corrected image `160caad` built successfully as digest `sha256:422279c799e104d8a520501c0f1ce8e9e9224fe9f7a116a54081b935735553f2`; the authorized reset removed only the live synthetic state object while retaining all versioned generations.
+- Revision `pbos-v1-bulletproof-staging-healthfix` became ready and served 100% of traffic.
+- The replay again failed closed at health because the connector declared the capability permission but not the `HEALTH_CHECK` communication rule. The second remediation adds that explicit rule and regression coverage; no isolation test ran after the failed health gate.
 
 ## Validation commands ready
 
