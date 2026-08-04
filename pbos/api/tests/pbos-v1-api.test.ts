@@ -7,6 +7,7 @@ import {
 } from "../../connector-sdk";
 import { IdentityMapping } from "../../integration";
 import { PbosV1Api } from "../index";
+import { InMemoryIntegrationStateRepository } from "../../integration";
 
 const connector = {
     connectorId: "PLAYBOOK-CONNECTOR-001",
@@ -25,8 +26,8 @@ const connector = {
         outputSchemaId: "pbos.health.response.v1",
         active: true
     }],
-    permissions: ["READ_RUNTIME_HEALTH"],
-    communicationRules: ["HEALTH_CHECK"]
+    permissions: ["READ_RUNTIME_HEALTH", "PUBLISH_LIFECYCLE_EVENT", "USE_INTELLIGENCE", "EXCHANGE_APPROVED_DATA"],
+    communicationRules: ["HEALTH_CHECK", "LIFECYCLE_EVENT", "INTELLIGENCE_REQUEST", "DATA_EXCHANGE"]
 };
 
 const domain = {
@@ -61,7 +62,7 @@ const identity: IdentityMapping = {
     mappedAt: new Date()
 };
 
-function client(allowed = true): PbosConnectorClient {
+function client(allowed = true, lifecycleAllowed = false, repository?: InMemoryIntegrationStateRepository): PbosConnectorClient {
     const api = new PbosV1Api(
         command => command.approvalId === "SYSTEM-APPROVAL-001",
         command => command.approvalId === "DOMAIN-APPROVAL-001",
@@ -71,7 +72,11 @@ function client(allowed = true): PbosConnectorClient {
             action,
             authorityId: allowed ? "PBOS-AUTHORITY-001" : undefined,
             reason: allowed ? "Governed permission granted." : "Governed permission denied."
-        })
+        }), repository, "PLAYBOOK-ORG-001", () => lifecycleAllowed, {
+            LIFECYCLE_EVENT: async payload => ({ accepted: true, payload }),
+            INTELLIGENCE_REQUEST: async payload => ({ recommendation: payload }),
+            DATA_EXCHANGE: async payload => ({ exchanged: payload })
+        }
     );
     const transport: PbosConnectorTransport = {
         async send<TOutput>(request: PbosApiRequest): Promise<PbosApiResponse<TOutput>> {
@@ -135,5 +140,46 @@ describe("PBOS v1 connector API", () => {
         });
         expect(result.success).toBe(false);
         if (!result.success) expect(result.error.code).toBe("AUTHORITY_DENIED");
+    });
+
+    it("operates the complete governed connector lifecycle and runtime API", async () => {
+        const repository = new InMemoryIntegrationStateRepository();
+        const sdk = client(true, true, repository);
+        await activatePlaybook(sdk);
+        expect((await sdk.connectorStatus({ connectorId: connector.connectorId }, "status")).success).toBe(true);
+        const version = await sdk.negotiateVersion({ connectorId: connector.connectorId, supportedVersions: ["v1"] }, "version");
+        expect(version.success).toBe(true);
+        const capabilities = await sdk.discoverCapabilities({ connectorId: connector.connectorId,
+            grantedPermissions: ["READ_RUNTIME_HEALTH"] }, "capabilities");
+        expect(capabilities.success).toBe(true);
+        const base = { connectorId: connector.connectorId, domainRegistrationId: domain.registrationId,
+            identityMappingId: identity.mappingId, purpose: "Governed runtime operation", correlationId: "runtime",
+            payload: { value: 1 } };
+        expect((await sdk.publishLifecycleEvent(base, "lifecycle-1")).success).toBe(true);
+        expect((await sdk.requestIntelligence({ ...base, correlationId: "intelligence" }, "intelligence-1")).success).toBe(true);
+        expect((await sdk.exchangeApprovedData({ ...base, correlationId: "exchange", dataClassification: "PRIVATE",
+            exchangeApprovalId: "exchange-approval" }, "exchange-1")).success).toBe(true);
+        const audit = await sdk.queryAudit({ connectorId: connector.connectorId }, "audit");
+        expect(audit.success).toBe(true);
+        const lifecycle = { connectorId: connector.connectorId, approvalId: "lifecycle-approval", actorId: "operator",
+            reason: "Governed lifecycle test" };
+        expect((await sdk.suspendSystem(lifecycle, "suspend", "suspend-1")).success).toBe(true);
+        expect((await sdk.suspendSystem(lifecycle, "suspend-replay", "suspend-1")).success).toBe(true);
+        expect((await sdk.resumeSystem(lifecycle, "resume", "resume-1")).success).toBe(true);
+        expect((await sdk.deactivateDomain({ registrationId: domain.registrationId, approvalId: "domain-approval",
+            actorId: "operator", reason: "Lifecycle test" }, "deactivate", "domain-1")).success).toBe(true);
+        expect((await sdk.revokeSystem(lifecycle, "revoke", "revoke-1")).success).toBe(true);
+    });
+
+    it("rejects unsupported API version negotiation and unapproved lifecycle changes", async () => {
+        const sdk = client();
+        await activatePlaybook(sdk);
+        const version = await sdk.negotiateVersion({ connectorId: connector.connectorId, supportedVersions: ["v2"] }, "version");
+        expect(version.success).toBe(false);
+        if (!version.success) expect(version.error.code).toBe("UNSUPPORTED_VERSION");
+        const denied = await sdk.suspendSystem({ connectorId: connector.connectorId, approvalId: "self", actorId: "application",
+            reason: "Self-authorize" }, "suspend", "suspend-denied");
+        expect(denied.success).toBe(false);
+        if (!denied.success) expect(denied.error.code).toBe("AUTHORITY_DENIED");
     });
 });
