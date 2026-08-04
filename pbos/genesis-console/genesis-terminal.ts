@@ -2,6 +2,11 @@ import { AuthorityMode } from "../autonomous-authority";
 import { GenesisControlPlane } from "./genesis-control-plane";
 import { TerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
+import { GenesisWorkflowService } from "./genesis-workflow-service";
+
+export interface SessionAuthorityProvider {
+    authorize(systemId: string): Promise<{ operatorId: string; approvalId: string }>;
+}
 
 const MODES: readonly { mode: AuthorityMode; label: string }[] = [
     { mode: "READ_ONLY", label: "Read Only" },
@@ -13,7 +18,9 @@ export class GenesisTerminal {
     constructor(
         private readonly controlPlane: GenesisControlPlane,
         private readonly io: TerminalIO,
-        private readonly intake = new SystemIntakeTerminal()
+        private readonly intake = new SystemIntakeTerminal(),
+        private readonly sessionAuthority?: SessionAuthorityProvider,
+        private readonly workflows?: GenesisWorkflowService
     ) {}
 
     async run(): Promise<number> {
@@ -51,11 +58,14 @@ export class GenesisTerminal {
                 this.io.write("Build session not authorized.");
                 return 1;
             }
+            const identity = this.sessionAuthority
+                ? await this.sessionAuthority.authorize(system.systemId)
+                : { operatorId: "GENESIS-TERMINAL-OPERATOR", approvalId: `terminal-approval-${Date.now()}` };
             const session = this.controlPlane.activateSystem(
                 system.systemId,
                 selectedMode.mode,
-                "GENESIS-TERMINAL-OPERATOR",
-                `terminal-approval-${Date.now()}`
+                identity.operatorId,
+                identity.approvalId
             );
             this.io.write("");
             this.io.write("Build session active.");
@@ -63,6 +73,7 @@ export class GenesisTerminal {
             this.io.write(`Grant: ${session.grant.grantId}`);
             this.io.write(`Expires: ${session.grant.expiresAt.toISOString()}`);
             this.io.write("Available: inspect, status, plan, propose, build, test preparation, documentation, commit, push, draft PR");
+            if (this.workflows) await this.runWorkflow(session);
             return 0;
         } catch (error) {
             this.io.write(`Genesis console error: ${error instanceof Error ? error.message : String(error)}`);
@@ -70,6 +81,30 @@ export class GenesisTerminal {
         } finally {
             this.io.close();
         }
+    }
+
+    private async runWorkflow(session: import("./genesis-control-plane").GenesisBuildSession): Promise<void> {
+        this.io.write("");
+        this.io.write("1. Inspect repository and create build plan");
+        this.io.write("2. Prepare application build on agent branch and open draft PR");
+        this.io.write("3. Exit");
+        const answer = (await this.io.prompt("Next action [3]: ")).trim();
+        if (!answer || answer === "3") return;
+        if (answer === "1") {
+            const plan = await this.workflows!.inspectAndPlan(session);
+            this.io.write(`Plan: ${plan.planId}`);
+            this.io.write(`Status: ${plan.status}`);
+            this.io.write(`Work packages: ${plan.workPackages.length}`);
+            return;
+        }
+        if (answer === "2") {
+            const build = await this.workflows!.prepareDraftBuild(session);
+            this.io.write(`Branch: ${build.branch}`);
+            this.io.write(`Draft PR: ${build.pullRequest.url}`);
+            this.io.write("Stop: human validation and certification required before merge.");
+            return;
+        }
+        throw new Error("Invalid workflow selection.");
     }
 
     private selection(value: string, count: number): number {

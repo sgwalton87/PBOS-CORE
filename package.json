@@ -2,14 +2,22 @@
   "name": "pbos-core",
   "version": "1.0.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "",
   "type": "commonjs",
   "main": "index.js",
+  "bin": {
+    "pbos": "bin/pbos.js"
+  },
   "directories": {
     "doc": "docs"
   },
   "scripts": {
     "pbos": "tsx pbos/genesis-console/entrypoint.ts",
+    "pbos:login": "tsx pbos/genesis-console/entrypoint.ts login",
+    "pbos:status": "tsx pbos/genesis-console/entrypoint.ts status",
     "build": "tsc",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",

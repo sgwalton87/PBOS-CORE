@@ -71,6 +71,9 @@ Every Work Package SHALL preserve:
 ===============================================================================
 */
 
+import { randomUUID } from "crypto";
+import { Mission } from "../types/planner";
+
 export interface WorkPackage {
 
     readonly id: string;
@@ -91,11 +94,23 @@ export interface WorkPackage {
 
 export class WorkPackageGenerator {
 
-    async generate() {
-
-        throw new Error(
-            "Work Package Generation not implemented."
-        );
+    async generate(mission: Mission, evidence: readonly string[] = []): Promise<WorkPackage> {
+        if (!mission.missionId || !mission.title || !mission.capability) {
+            throw new Error("Work package generation requires a traceable mission.");
+        }
+        return {
+            id: randomUUID(),
+            missionId: mission.missionId,
+            title: mission.title,
+            acceptanceCriteria: [
+                `${mission.capability} is implemented within the selected system boundary.`,
+                "Authority, identity, and evidence lineage are preserved.",
+                "Failure and unauthorized paths are covered by tests."
+            ],
+            validationRules: ["npm run typecheck", "npm test", "npm run build"],
+            certificationRequirements: ["Passing validation evidence", "Human certification approval"],
+            evidence: [...new Set([...mission.generatedFrom, ...evidence])]
+        };
 
     }
 

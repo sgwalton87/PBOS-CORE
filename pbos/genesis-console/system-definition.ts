@@ -29,7 +29,7 @@ export const REFERENCE_SYSTEMS: readonly GenesisSystemDefinition[] = [
         domain: "Legacy Planning",
         repository: "vycoywalton/bulletproof-beneficiary-registry",
         defaultBranch: "main",
-        status: "REGISTERED",
-        capabilities: ["WORKFLOWS"]
+        status: "READY",
+        capabilities: ["IDENTITY", "WORKFLOWS", "DOCUMENTS", "EVIDENCE", "INTEGRATIONS"]
     }
 ];
