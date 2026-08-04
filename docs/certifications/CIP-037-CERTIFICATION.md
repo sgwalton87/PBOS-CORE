@@ -2,7 +2,7 @@
 
 ## Status
 
-READY FOR CERTIFICATION
+CERTIFIED
 
 ## Reproducible Application Scaffolds
 
@@ -48,3 +48,11 @@ npm run typecheck
 npm test
 npm run build
 ```
+
+## Certification Evidence
+
+- Certification date: 2026-08-04
+- `npm run typecheck`: PASS
+- `npm run test:run`: PASS — 65 test files, 207 tests
+- `npm run build`: PASS
+- `pbos/application-scaffold/tests/application-scaffold.test.ts`: PASS — 2 tests
