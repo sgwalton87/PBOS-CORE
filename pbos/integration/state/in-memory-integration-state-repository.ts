@@ -3,8 +3,8 @@ import { IntegrationEvent } from "../contracts/integration-event";
 import { SystemConnector } from "../contracts/system-connector";
 import { IdentityMapping } from "../identity/identity-mapper";
 import {
-    DurableIntegrationState, IntegrationIdempotencyRecord, IntegrationRevocation, IntegrationStateRepository,
-    IntegrationTenantState
+    DurableIntegrationState, IntegrationIdempotencyRecord, IntegrationReplayNonce, IntegrationRevocation,
+    IntegrationStateRepository, IntegrationTenantState
 } from "./contracts";
 import {
     assertExpectedRevision, assertOrganizationId, emptyIntegrationState, emptyTenant, validateIdempotency, validateRevocation
@@ -64,6 +64,19 @@ export class InMemoryIntegrationStateRepository implements IntegrationStateRepos
                 throw new Error(`Idempotency key reused with a different request: ${record.key}`);
             }
             return existing ? tenant : { ...tenant, idempotency: [...tenant.idempotency, record] };
+        });
+    }
+    consumeReplayNonce(record: IntegrationReplayNonce, expectedRevision?: number): void {
+        assertOrganizationId(record.organizationId);
+        if (!record.connectorId || !record.nonce || !Number.isFinite(record.expiresAt.getTime())) {
+            throw new Error("Replay nonce requires connector, nonce, and expiry.");
+        }
+        this.change(record.organizationId, expectedRevision, tenant => {
+            const active = (tenant.replayNonces ?? []).filter(item => item.expiresAt.getTime() > Date.now());
+            if (active.some(item => item.connectorId === record.connectorId && item.nonce === record.nonce)) {
+                throw new Error("Connector request replay detected.");
+            }
+            return { ...tenant, replayNonces: [...active, record] };
         });
     }
     snapshot(): DurableIntegrationState { return structuredClone(this.state); }
