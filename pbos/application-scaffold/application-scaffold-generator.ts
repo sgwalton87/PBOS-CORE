@@ -1,7 +1,9 @@
 import { randomUUID } from "crypto";
+import { execFile } from "child_process";
 import { mkdir, writeFile } from "fs/promises";
 import { resolve, sep } from "path";
-import { ApplicationScaffold, ScaffoldFile, ScaffoldRequest } from "./contracts";
+import { promisify } from "util";
+import { ApplicationScaffold, MaterializedScaffold, ScaffoldFile, ScaffoldMaterializationTarget, ScaffoldRequest } from "./contracts";
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
@@ -36,7 +38,15 @@ export class ApplicationScaffoldGenerator {
         if (request.includeFirstVerticalSlice && blueprint.foundation.domainPack === "@pbos/domain-legacy-planning") files.push(...this.legacySlice());
         return { scaffoldId: randomUUID(), blueprintId: blueprint.blueprintId,
             stack: { framework: "NEXTJS", language: "TYPESCRIPT", database: "SUPABASE_POSTGRES", authentication: "SUPABASE_AUTH", deployment: "VERCEL" },
-            files, securityBoundaries: ["ROW_LEVEL_SECURITY", "SIGNED_PBOS_IDENTITY", "OWNER_SCOPED_RECORDS", "PRIVATE_DOCUMENT_BUCKET", "AUDIT_PROVENANCE", "NO_CLIENT_SERVICE_ROLE_KEY"], generatedAt: new Date() };
+            files, securityBoundaries: ["ROW_LEVEL_SECURITY", "SIGNED_PBOS_IDENTITY", "OWNER_SCOPED_RECORDS", "PRIVATE_DOCUMENT_BUCKET", "AUDIT_PROVENANCE", "NO_CLIENT_SERVICE_ROLE_KEY"],
+            dependencyLock: { manager: "NPM", path: "package-lock.json", required: true }, generatedAt: new Date() };
+    }
+
+    async materialize(scaffold: ApplicationScaffold, target: ScaffoldMaterializationTarget): Promise<MaterializedScaffold> {
+        await target.writeFiles(scaffold.files);
+        if (scaffold.dependencyLock.required) await target.prepareDependencyLock(scaffold.dependencyLock.manager);
+        return { scaffoldId: scaffold.scaffoldId,
+            generatedPaths: [...new Set([...scaffold.files.map(file => file.path), scaffold.dependencyLock.path])] };
     }
 
     async write(scaffold: ApplicationScaffold, targetRoot: string): Promise<void> {
@@ -46,6 +56,9 @@ export class ApplicationScaffoldGenerator {
             if (!target.startsWith(`${root}${sep}`)) throw new Error(`Scaffold path escapes target: ${file.path}`);
             await mkdir(resolve(target, ".."), { recursive: true });
             await writeFile(target, file.content, { encoding: "utf8", flag: "wx" });
+        }
+        if (scaffold.dependencyLock.required) {
+            await promisify(execFile)("npm", ["install", "--package-lock-only", "--ignore-scripts"], { cwd: root, maxBuffer: 10 * 1024 * 1024 });
         }
     }
 

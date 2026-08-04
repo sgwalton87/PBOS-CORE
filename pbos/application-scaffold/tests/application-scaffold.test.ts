@@ -18,6 +18,22 @@ describe("application scaffold generator", () => {
         expect(paths).toContain("src/app/page.tsx");
         expect(paths).toContain("src/domain/legacy/vertical-slice.ts");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
+        expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");
+    });
+
+    it("materializes the dependency lock with TypeScript and Next.js entry files", async () => {
+        const generator = new ApplicationScaffoldGenerator();
+        const scaffold = generator.generate({ blueprint, includeFirstVerticalSlice: true });
+        const calls: string[] = [];
+        const result = await generator.materialize(scaffold, {
+            writeFiles: async files => { calls.push(`files:${files.length}`); },
+            prepareDependencyLock: async manager => { calls.push(`lock:${manager}`); }
+        });
+        expect(calls[0]).toMatch(/^files:/);
+        expect(calls[1]).toBe("lock:NPM");
+        expect(result.generatedPaths).toContain("package-lock.json");
+        expect(result.generatedPaths).toContain("tsconfig.json");
+        expect(result.generatedPaths).toContain("src/app/page.tsx");
     });
 });

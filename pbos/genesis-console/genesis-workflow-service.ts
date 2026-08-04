@@ -46,8 +46,11 @@ export class GenesisWorkflowService {
         this.report("BUILDING", `Generating the application on ${branch}…`);
         await this.gateway.createBranch(reference, branch, plan.repositoryRevision);
         const scaffold = this.scaffolds.generate({ blueprint: plan.blueprint, includeFirstVerticalSlice: true });
-        await this.gateway.applyChange(reference, scaffold.files);
-        const revision = await this.gateway.commit(reference, "feat: scaffold PBOS legacy planning vertical slice", scaffold.files.map(file => file.path));
+        const materialized = await this.scaffolds.materialize(scaffold, {
+            writeFiles: files => this.gateway.applyChange(reference, files).then(() => undefined),
+            prepareDependencyLock: () => this.gateway.prepareDependencyLock(reference)
+        });
+        const revision = await this.gateway.commit(reference, "feat: scaffold PBOS legacy planning vertical slice", materialized.generatedPaths);
         this.report("PUSHING", "Publishing the governed branch and opening a draft pull request…");
         await this.gateway.push(reference, branch);
         const pullRequest = await this.gateway.openDraftPullRequest(reference, branch,

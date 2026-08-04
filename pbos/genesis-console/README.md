@@ -8,6 +8,8 @@ The terminal uses the same control-plane contracts intended for the future PBOS 
 
 New-system intake produces a reviewable `SystemBlueprint` containing mission, users, outcomes, domain pack, capabilities, application strategy, governance, autonomy, data policy, palette, accessibility evidence, and design tokens. It does not deploy directly from questionnaire answers.
 
+Application scaffolds are materialized as one reproducible unit. PBOS writes the source, TypeScript configuration, Next.js entry point, tests, and CI configuration; generates `package-lock.json`; and commits the complete path set together so generated CI can use `npm ci` immediately.
+
 ## Partner CLI
 
 From a PBOS Core checkout:
