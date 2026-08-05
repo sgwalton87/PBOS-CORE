@@ -28,7 +28,7 @@ export const PBOS_GENESIS_BRAND: ProductBrandSpec = {
     },
     usageRules: [
         "Use this identity only for PBOS Genesis, the system factory.",
-        "Do not use the Genesis mark as the Playbook Platform app icon.",
+        "Do not use the Genesis mark as The Playbook app icon.",
         "Do not stretch, skew, recolor, crop, add effects, or rearrange the lockup.",
         "The supplied PNG is a master visual reference; production lockups require approved transparent SVG or PNG exports.",
         "Preserve the tagline punctuation and wording exactly: Create. Power. Evolve."

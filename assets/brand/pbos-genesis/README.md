@@ -8,4 +8,6 @@ The board documents the full lockup, horizontal lockup, mark, stacked lockup, mo
 
 The current hexadecimal UI palette is a visual approximation derived from the raster board. A brand owner must approve it or replace it with the original design-source values before certification.
 
-PBOS Genesis is the factory brand. Playbook Platform is an independent application brand and must have its own logo files, icon, palette, store artwork, and design card.
+PBOS Genesis is the factory brand. The Playbook is an independent application brand and must have its own logo files, icon, palette, store artwork, and design card.
+
+The corrected consumer-portal references are cataloged in `portal-mockups/README.md`. They preserve independent PBOS Genesis, The Playbook, and Bulletproof Beneficiary identities.

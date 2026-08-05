@@ -4,12 +4,22 @@
 
 SHA-256: `29e9812b37a10a09035bbc2629749993bed9fa1e184371106ca3e89e7938c472`
 
-Canonical specifications printed on the card:
+Historical specifications printed on that original source card:
 
 - Primary logo, secondary logo, winged-B submark, and favicon concept
-- Brand colors: `#D4AF37`, `#F2E3C2`, `#0D0D0F`, `#1B1B1E`, `#1E5631`
+- Original colors: `#D4AF37`, `#F2E3C2`, `#0D0D0F`, `#1B1B1E`, `#1E5631`
 - Establishment line: **EST. 2017**
 - Brand promise: **Built to Leave a Legacy.**
 - Forty domain and interface icon concepts covering family, education, finance, estate, security, community, documents, intelligence, verification, and compliance
 
 The card does not name a typeface. Logo lettering must remain approved artwork until the brand owner supplies the original font or vector source. Production and store use require SVG masters, transparent PNGs, monochrome treatments, safe-area validation, and platform-sized icons.
+
+## Canonical master
+
+`bulletproof-beneficiary-master-brand-board-v3.png` is the approved commercial identity at 1619 × 971 RGB.
+
+SHA-256: `7d515564aab3fbfb1f2a5e68b1f14d5b5fa7d1567440eb5c2f4871e06c2c5b55`
+
+The approved hybrid combines the original ornamental shield and architectural foundation with a commercially scalable circular `B` seal and clean wings. Heritage Sage is restricted to the inner seal and `EST. 2017` accent. It intentionally omits **Bulletproof Group**, **Invincible**, and **Impenetrable**.
+
+Earlier boards and candidates remain lineage evidence only; v3 is the active master reference.
