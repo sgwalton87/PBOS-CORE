@@ -10,7 +10,9 @@ class FakeCommands implements CommandRunner {
         this.calls.push({ command, args, cwd });
         if (args[0] === "rev-parse" && args[1] === "--git-dir") return { stdout: ".git\n", stderr: "" };
         if (args[0] === "rev-parse") return { stdout: "abc123\n", stderr: "" };
-        if (args[0] === "ls-tree") return { stdout: "README.md\nsrc/index.ts\n", stderr: "" };
+        if (args[0] === "ls-tree") return { stdout: ["README.md", "src/index.ts",
+            "pbos/generated/capabilities/analytics.json", "pbos/generated/capabilities/analytics.ts",
+            "pbos/generated/capabilities/analytics.test.ts"].join("\n"), stderr: "" };
         if (command === "gh") return { stdout: "https://github.com/acme/app/pull/7\n", stderr: "" };
         return { stdout: "", stderr: "" };
     }
@@ -28,6 +30,7 @@ describe("GitHub repository gateway", () => {
         expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["rev-parse", "origin/main"] }));
         expect(commands.calls.some(call => call.command === "git" && call.args[0] === "ls-tree" && call.args.at(-1) === "abc123")).toBe(true);
         expect(inspection.findings).toContain("GOVERNED_BASE:origin/main");
+        expect(inspection.findings).toContain("CAPABILITY:ANALYTICS:PRESENT");
     });
 
     it("rejects branch and file traversal outside governed boundaries", async () => {

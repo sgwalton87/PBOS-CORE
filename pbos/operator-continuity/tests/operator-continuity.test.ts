@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { GenesisWorkflowService } from "../../genesis-console";
 import { RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
-import { BackgroundMonitor, OperatorMemoService } from "../index";
+import { AutonomousBatchService, BackgroundMonitor, OperatorMemoService } from "../index";
 
 const session = {
     sessionId: "session-1", activatedAt: new Date(),
@@ -23,12 +23,19 @@ describe("operator continuity", () => {
     it("writes a durable exit memo with status, pull request, and next action", () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-memo-"));
         const state = new GenesisStateRepository(join(root, "state.json"));
+        state.appendBatchTelemetry({ eventId: "event", batchId: "batch", systemId: "SYSTEM-001", sessionId: session.sessionId,
+            type: "WORK_PACKAGE_COMPLETED", workPackageId: "wp-1", title: "Identity section", detail: "Section completed.", occurredAt: new Date().toISOString() });
+        state.saveAutonomousBatch({ batchId: "batch", systemId: "SYSTEM-001", sessionId: session.sessionId, planId: "plan", packageLimit: 10,
+            workPackages: [{ workPackageId: "wp-1", title: "Identity section" }], branch: "agent/build", pullRequestUrl: run.pullRequest.url,
+            runId: run.runId, state: "READY_FOR_CERTIFICATION", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
         const memos = new OperatorMemoService(join(root, "memos"), state);
         const record = memos.write(session, run);
         const latest = memos.latest("SYSTEM-001");
         expect(record.state).toBe("READY_FOR_CERTIFICATION");
         expect(latest?.content).toContain("## Certification Readiness");
         expect(latest?.content).toContain(run.pullRequest.url);
+        expect(latest?.content).toContain("## Build Telemetry");
+        expect(latest?.content).toContain("WORK_PACKAGE_COMPLETED");
     });
 
     it("background monitor resumes persisted work and emits the certification memo", async () => {
@@ -38,7 +45,11 @@ describe("operator continuity", () => {
         const remediation = { resume: async () => run } as unknown as ResumableRemediationEngine;
         const workflows = { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService;
         const memos = new OperatorMemoService(join(root, "memos"), state);
-        await new BackgroundMonitor(state, remediation, workflows, memos, async () => undefined).run(run.runId, session.sessionId, 0, 1);
+        const notifications: string[] = [];
+        await new BackgroundMonitor(state, remediation, workflows, memos, async () => undefined,
+            new AutonomousBatchService(state), { notify: async (_title, message) => { notifications.push(message); } })
+            .run(run.runId, session.sessionId, 0, 1);
         expect(memos.latest("SYSTEM-001")?.record.state).toBe("READY_FOR_CERTIFICATION");
+        expect(notifications[0]).toContain("ready for certification");
     });
 });

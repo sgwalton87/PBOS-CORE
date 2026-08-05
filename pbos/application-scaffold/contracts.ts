@@ -1,4 +1,4 @@
-import { SystemBlueprint } from "../system-blueprint";
+import { CapabilityKind, SystemBlueprint } from "../system-blueprint";
 
 export interface ApplicationStack {
     readonly framework: "NEXTJS";
@@ -18,7 +18,12 @@ export interface ApplicationScaffold {
     readonly dependencyLock: Readonly<{ manager: "NPM"; path: "package-lock.json"; required: boolean }>;
     readonly generatedAt: Date;
 }
-export interface ScaffoldRequest { readonly blueprint: SystemBlueprint; readonly includeFirstVerticalSlice?: boolean; }
+export interface ScaffoldRequest {
+    readonly blueprint: SystemBlueprint;
+    readonly includeFirstVerticalSlice?: boolean;
+    /** Capabilities authorized in this work-package batch. Omit only for full new-system generation. */
+    readonly capabilities?: readonly CapabilityKind[];
+}
 export interface ScaffoldMaterializationTarget {
     writeFiles(files: readonly ScaffoldFile[]): Promise<void>;
     prepareDependencyLock(manager: ApplicationScaffold["dependencyLock"]["manager"]): Promise<void>;

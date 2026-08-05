@@ -33,7 +33,8 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const revision = (await this.commands.run("git", ["rev-parse", governedBase], cwd)).stdout.trim();
         const files = (await this.commands.run("git", ["ls-tree", "-r", "--name-only", revision], cwd)).stdout.split("\n").filter(Boolean);
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
-        const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN"];
+        const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN",
+            ...this.capabilityFindings(files)];
         return { repository, revision, findings, inspectedAt: new Date() };
     }
 
@@ -139,5 +140,21 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
     }
     private assertBranch(branch: string): void {
         if (!/^agent\/[A-Za-z0-9._/-]+$/.test(branch) || branch.includes("..")) throw new Error("PBOS mutations require a valid agent/* branch.");
+    }
+    private capabilityFindings(files: readonly string[]): string[] {
+        const present = new Set<string>();
+        const marker = /^pbos\/generated\/capabilities\/([a-z-]+)\.json$/;
+        files.forEach(path => {
+            const match = marker.exec(path);
+            if (match && files.includes(`pbos/generated/capabilities/${match[1]}.ts`) &&
+                files.includes(`pbos/generated/capabilities/${match[1]}.test.ts`)) {
+                present.add(match[1].replaceAll("-", "_").toUpperCase());
+            }
+        });
+        // Compatibility evidence for the certified Scholar foundation created before capability markers existed.
+        if (files.includes("pbos/generated/security/authority.ts") &&
+            files.includes("supabase/migrations/202608050002_pbos_scholar_foundation.sql")) present.add("IDENTITY");
+        if (files.includes("pbos/generated/domain/education/scholar-journey.ts")) present.add("WORKFLOWS");
+        return [...present].sort().map(capability => `CAPABILITY:${capability}:PRESENT`);
     }
 }

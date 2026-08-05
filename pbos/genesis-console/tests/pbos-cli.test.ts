@@ -3,6 +3,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
+import { latestUnfinishedRuns } from "../pbos-cli";
+import { RemediationRun } from "../../validation-automation";
 
 describe("partner-ready CLI durable state", () => {
     it("persists the Bulletproof catalog independently of a process", () => {
@@ -23,5 +25,18 @@ describe("partner-ready CLI durable state", () => {
         expect(new GenesisStateRepository(path).systems()).toEqual([
             expect.objectContaining({ systemId: "PLAYBOOK-SYSTEM-001", name: "The Playbook" })
         ]);
+    });
+
+    it("resumes only the latest unfinished run per application", () => {
+        const run = (runId: string, systemId: string, state: RemediationRun["state"]): RemediationRun => ({
+            runId, systemId, state, headSha: "sha", attempt: 0, maximumAttempts: 5, evidence: [], blockers: [],
+            updatedAt: new Date().toISOString(), pullRequest: { number: 1, branch: `agent/${runId}`, repository: "example/app",
+                url: `https://github.com/example/app/pull/${runId}` }
+        });
+        expect(latestUnfinishedRuns([
+            run("old", "PLAYBOOK-SYSTEM-001", "REMEDIATION_REQUIRED"),
+            run("latest", "PLAYBOOK-SYSTEM-001", "WAITING_FOR_CHECKS"),
+            run("certified", "BULLETPROOF-SYSTEM-001", "READY_FOR_CERTIFICATION")
+        ]).map(item => item.runId)).toEqual(["latest"]);
     });
 });
