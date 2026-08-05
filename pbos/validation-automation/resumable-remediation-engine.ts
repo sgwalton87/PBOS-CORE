@@ -20,7 +20,9 @@ export class ResumableRemediationEngine {
     }
 
     latest(systemId: string): RemediationRun | undefined {
-        return [...this.state.remediationRuns()].reverse().find(run => run.systemId === systemId);
+        return this.state.remediationRuns().filter(run => run.systemId === systemId)
+            .sort((left, right) => right.pullRequest.number - left.pullRequest.number ||
+                right.updatedAt.localeCompare(left.updatedAt))[0];
     }
 
     async resume(runId: string, beforeApply?: (run: RemediationRun) => void): Promise<RemediationRun> {
