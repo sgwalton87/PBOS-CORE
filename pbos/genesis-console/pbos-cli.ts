@@ -25,11 +25,20 @@ const profilePath = join(stateRoot, "profile.json");
 const operatorsPath = join(stateRoot, "operators.json");
 const genesisPath = join(stateRoot, "genesis-state.json");
 
-export function latestUnfinishedRuns(runs: readonly RemediationRun[]): readonly RemediationRun[] {
+export function latestRunsBySystem(runs: readonly RemediationRun[]): readonly RemediationRun[] {
     const latestBySystem = new Map<string, RemediationRun>();
-    runs.filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state))
-        .forEach(run => latestBySystem.set(run.systemId, run));
+    runs.forEach(run => {
+        const current = latestBySystem.get(run.systemId);
+        if (!current || run.pullRequest.number > current.pullRequest.number ||
+            (run.pullRequest.number === current.pullRequest.number && run.updatedAt > current.updatedAt)) {
+            latestBySystem.set(run.systemId, run);
+        }
+    });
     return [...latestBySystem.values()];
+}
+
+export function latestUnfinishedRuns(runs: readonly RemediationRun[]): readonly RemediationRun[] {
+    return latestRunsBySystem(runs).filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state));
 }
 
 async function login(): Promise<number> {
@@ -107,13 +116,15 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
     if (args[0] === "status") {
         const local = profile();
         const state = new GenesisStateRepository(genesisPath);
-        const run = state.remediationRuns().at(-1);
-        const job = state.backgroundJobs().at(-1);
-        const batch = state.autonomousBatches().at(-1);
+        const runs = latestRunsBySystem(state.remediationRuns());
         stdout.write(`Authenticated organization: ${local.organizationId}\nGitHub account: ${local.githubLogin}\nOperator: ${local.operatorId}\n`);
-        if (run) stdout.write(`Latest validation: ${run.systemId} — ${run.state}\n`);
-        if (job) stdout.write(`Latest background monitor: ${job.status} — PID ${job.pid}\n`);
-        if (batch) stdout.write(`Latest autonomous batch: ${batch.systemId} — ${batch.state} — ${batch.workPackages.length}/${batch.packageLimit} packages\n`);
+        runs.forEach(run => {
+            stdout.write(`Validation: ${run.systemId} — PR #${run.pullRequest.number} — ${run.state}\n`);
+            const job = state.backgroundJobForRun(run.runId);
+            if (job) stdout.write(`Monitor: ${run.systemId} — ${job.status} — PID ${job.pid}\n`);
+            const batch = [...state.autonomousBatches()].reverse().find(item => item.runId === run.runId);
+            if (batch) stdout.write(`Batch: ${batch.systemId} — ${batch.state} — ${batch.workPackages.length}/${batch.packageLimit} packages\n`);
+        });
         return 0;
     }
     if (args[0] === "watch") {

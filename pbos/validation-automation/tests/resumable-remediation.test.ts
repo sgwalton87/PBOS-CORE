@@ -62,4 +62,15 @@ describe("resumable validation remediation", () => {
         expect(blocked.blockers).toContain("Remediation application failed: repository produced no diff");
         expect(state.remediationRun(started.runId)?.state).toBe("BLOCKED");
     });
+
+    it("selects the newest pull request even when an older run was appended later", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(new CheckCommands()), new RepairHandler());
+        const older = engine.start("SYSTEM-001", { repository: "acme/app", number: 49, branch: "agent/old",
+            url: "https://github.com/acme/app/pull/49" });
+        const newer = engine.start("SYSTEM-001", { repository: "acme/app", number: 50, branch: "agent/new",
+            url: "https://github.com/acme/app/pull/50" });
+        state.saveRemediationRun({ ...older, state: "BLOCKED", updatedAt: new Date(Date.now() + 1_000).toISOString() });
+        expect(engine.latest("SYSTEM-001")?.runId).toBe(newer.runId);
+    });
 });

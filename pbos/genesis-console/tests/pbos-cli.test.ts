@@ -28,15 +28,26 @@ describe("partner-ready CLI durable state", () => {
     });
 
     it("resumes only the latest unfinished run per application", () => {
-        const run = (runId: string, systemId: string, state: RemediationRun["state"]): RemediationRun => ({
+        const run = (runId: string, systemId: string, state: RemediationRun["state"], number = 1): RemediationRun => ({
             runId, systemId, state, headSha: "sha", attempt: 0, maximumAttempts: 5, evidence: [], blockers: [],
-            updatedAt: new Date().toISOString(), pullRequest: { number: 1, branch: `agent/${runId}`, repository: "example/app",
+            updatedAt: new Date().toISOString(), pullRequest: { number, branch: `agent/${runId}`, repository: "example/app",
                 url: `https://github.com/example/app/pull/${runId}` }
         });
         expect(latestUnfinishedRuns([
-            run("old", "PLAYBOOK-SYSTEM-001", "REMEDIATION_REQUIRED"),
-            run("latest", "PLAYBOOK-SYSTEM-001", "WAITING_FOR_CHECKS"),
+            run("old", "PLAYBOOK-SYSTEM-001", "REMEDIATION_REQUIRED", 48),
+            run("latest", "PLAYBOOK-SYSTEM-001", "WAITING_FOR_CHECKS", 49),
             run("certified", "BULLETPROOF-SYSTEM-001", "READY_FOR_CERTIFICATION")
         ]).map(item => item.runId)).toEqual(["latest"]);
+    });
+
+    it("does not resurrect an older unfinished run after a newer PR is certified", () => {
+        const base = { systemId: "PLAYBOOK-SYSTEM-001", headSha: "sha", attempt: 0, maximumAttempts: 5,
+            evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+        const make = (runId: string, number: number, state: RemediationRun["state"]): RemediationRun => ({ ...base, runId, state,
+            pullRequest: { number, branch: `agent/${runId}`, repository: "example/app", url: `https://github.com/example/app/pull/${number}` } });
+        expect(latestUnfinishedRuns([
+            make("pr-49", 49, "REMEDIATION_REQUIRED"),
+            make("pr-50", 50, "READY_FOR_CERTIFICATION")
+        ])).toEqual([]);
     });
 });
