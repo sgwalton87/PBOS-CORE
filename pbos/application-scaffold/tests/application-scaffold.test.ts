@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createPlaybookBlueprint } from "../../reference-systems";
-import { SystemBlueprintFactory } from "../../system-blueprint";
+import { createBulletproofBlueprint, createPlaybookBlueprint } from "../../reference-systems";
 import { ApplicationScaffoldGenerator } from "../index";
 
-const blueprint = new SystemBlueprintFactory().create({ organizationName: "Bulletproof", systemName: "Bulletproof Beneficiary", mission: "Protect family legacy.",
-    users: ["Members"], desiredOutcomes: ["Policy discovery"], domain: "LEGACY_PLANNING", capabilities: ["IDENTITY", "WORKFLOWS", "DOCUMENTS"],
-    applicationStrategy: "CONNECT_EXISTING", existingRepository: "vycoywalton/bulletproof-beneficiary-registry", autonomyMode: "HUMAN_GATED",
-    businessOwner: "Viveca", technicalOwner: "PBOS", operatingRegions: ["US"], dataClassifications: ["BENEFICIARY_DATA"], regulatoryFrameworks: ["HUMAN_REVIEW"],
-    brand: { personalities: ["TRUSTWORTHY"], visualDirection: "EXISTING_BRAND", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE",
+const bulletproof = createBulletproofBlueprint();
+const blueprint = { ...bulletproof, design: { ...bulletproof.design,
+    brand: { ...bulletproof.design.brand,
+        personalities: ["TRUSTWORTHY"] as const, visualDirection: "EXISTING_BRAND" as const,
         tagline: "Built to Leave a Legacy.", headingFont: "Inter", bodyFont: "Inter",
-        assets: [{ assetId: "BULLETPROOF-LOGO-CARD-001", kind: "LOGO_CARD",
-            location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } });
+        assets: [{ assetId: "BULLETPROOF-LOGO-CARD-001", kind: "LOGO_CARD" as const,
+            location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } } };
 
 describe("application scaffold generator", () => {
     it("generates a non-destructive Bulletproof overlay for an existing application", () => {

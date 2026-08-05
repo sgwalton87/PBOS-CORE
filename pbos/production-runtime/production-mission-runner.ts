@@ -32,6 +32,14 @@ export interface ProductionMissionRequest {
     readonly autonomousContinuation?: boolean;
     readonly maximumMissions?: number;
     readonly triggerSource?: ProductionRun["triggerSource"];
+    readonly buildChannel: Readonly<{
+        channelId: string;
+        systemId: string;
+        operatingSystemId: string;
+        connectorId: string;
+        repository: string;
+        domainRegistrationIds: readonly string[];
+    }>;
 }
 
 export interface ProductionMissionSequence {
@@ -54,6 +62,11 @@ export class ProductionMissionRunner {
         if (!/^[a-f0-9]{7,40}$/i.test(request.commit) || !request.repository.includes("/")) {
             throw new Error("Production mission requires exact repository lineage.");
         }
+        if (!request.buildChannel.channelId || request.buildChannel.systemId !== request.systemId ||
+            request.buildChannel.repository !== request.repository || !request.buildChannel.operatingSystemId ||
+            !request.buildChannel.connectorId || request.buildChannel.domainRegistrationIds.length === 0) {
+            throw new Error("Production mission requires a matching Genesis to PBOS v1 build channel.");
+        }
         const completed: ProductionRun[] = [];
         let parentRunId: string | undefined;
         for (let index = 0; index < maximumMissions; index += 1) {
@@ -73,7 +86,12 @@ export class ProductionMissionRunner {
                 triggerSource: parentRunId ? "CONTINUATION" : request.triggerSource ?? "CLI",
                 autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS" });
             this.runtime.updateMissionStatus(request.systemId, mission.missionId, "ACTIVE");
-            this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", { missionId: mission.missionId });
+            this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", {
+                missionId: mission.missionId, buildChannelId: request.buildChannel.channelId,
+                operatingSystemId: request.buildChannel.operatingSystemId,
+                connectorId: request.buildChannel.connectorId,
+                domainRegistrationIds: request.buildChannel.domainRegistrationIds
+            });
             this.runtime.transition(run.runId, "STARTING", "Authorized mission execution is starting.");
             const plan = this.plan(run.runId, mission);
             this.runtime.recordExecutionPlan(run.runId, plan);

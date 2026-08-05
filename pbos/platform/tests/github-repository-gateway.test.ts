@@ -58,4 +58,32 @@ describe("GitHub repository gateway", () => {
             .openDraftPullRequest(reference, "agent/vertical-slice", "Build slice", "Governed proposal");
         expect(result.number).toBe(7);
     });
+
+    it("reads application source only from an exact governed revision", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const commands = new FakeCommands();
+        await new GitHubRepositoryGateway(root, commands).readFileAtRevision(reference, "app/start/page.tsx", "abc1234");
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["show", "abc1234:app/start/page.tsx"] }));
+        await expect(new GitHubRepositoryGateway(root, commands)
+            .readFileAtRevision(reference, "app/start/page.tsx", "main")).rejects.toThrow("exact revision");
+    });
+
+    it("promotes a validated draft pull request only through explicit argv-safe operations", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const commands = new FakeCommands();
+        commands.run = async (command: string, args: readonly string[], cwd?: string) => {
+            commands.calls.push({ command, args, cwd });
+            if (args[0] === "rev-parse" && args[1] === "--git-dir") return { stdout: ".git\n", stderr: "" };
+            if (command === "gh" && args[1] === "view") return { stdout: "true\n", stderr: "" };
+            return { stdout: "", stderr: "" };
+        };
+        await new GitHubRepositoryGateway(root, commands).mergePullRequest({ number: 7, branch: "agent/vertical-slice",
+            repository: "acme/app", url: "https://github.com/acme/app/pull/7" });
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "gh",
+            args: ["pr", "ready", "7", "--repo", "acme/app"] }));
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "gh",
+            args: ["pr", "merge", "7", "--squash", "--delete-branch", "--repo", "acme/app"] }));
+    });
 });

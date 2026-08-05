@@ -7,6 +7,7 @@ import { BuildAuthorityService } from "../autonomous-authority";
 import { AuthenticatedOperator, GenesisStateRepository, OperatorIdentityService, PersistentAuthorityLedger,
     PersistentBuildGrantRegistry, VerifiableApproval } from "../genesis-state";
 import { GitHubRepositoryGateway } from "../platform";
+import { GenesisPbosBuildChannel } from "../platform";
 import { REFERENCE_SYSTEMS } from "./system-definition";
 import { GenesisControlPlane } from "./genesis-control-plane";
 import { GenesisSystemCatalog } from "./system-catalog";
@@ -20,10 +21,11 @@ import { createDefaultRemediationHandler, GitHubCheckCollector, RemediationRun, 
 import { NodeCommandRunner } from "../platform";
 import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
 import { ProductionRuntimeService } from "../production-runtime";
-import { GovernedMissionQueue, ProductionMissionRunner } from "../production-runtime";
+import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookFoundationExecutor, repositoryGapAnalysisExecutor } from "../application-readiness";
-import { createPlaybookBlueprint } from "../reference-systems";
+import { playbookFoundationExecutor, playbookScholarSliceExecutor, repositoryGapAnalysisExecutor } from "../application-readiness";
+import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
+    PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
 import { MissionQueueItem } from "../production-runtime";
 
@@ -135,6 +137,12 @@ export interface MissionApprovalServices {
     readonly operator: AuthenticatedOperator;
 }
 
+function connectorContracts(systemId: string) {
+    if (systemId === "PLAYBOOK-SYSTEM-001") return { connector: PLAYBOOK_CONNECTOR_MANIFEST, domains: [PLAYBOOK_DOMAIN_MANIFEST] };
+    if (systemId === "BULLETPROOF-SYSTEM-001") return { connector: BULLETPROOF_CONNECTOR_MANIFEST, domains: [BULLETPROOF_DOMAIN_MANIFEST] };
+    throw new Error(`No PBOS v1 connector contract is registered for ${systemId}.`);
+}
+
 export function durableMissionApproval(services: MissionApprovalServices,
     mission: MissionQueueItem): VerifiableApproval | undefined {
     for (const event of [...services.state.audit()].reverse()) {
@@ -214,7 +222,14 @@ async function runNextProductionMission(target?: string): Promise<number> {
         message => stdout.write(`[READINESS] ${message}\n`));
     const candidates = services.state.missionQueue(selectedSystemId);
     const next = new GovernedMissionQueue().next(candidates);
-    if (!next) throw new Error("No eligible production mission. PBOS found no dependency-satisfied work in the governed readiness queue.");
+    if (!next) {
+        const incomplete = candidates.filter(item => item.status !== "COMPLETE");
+        if (candidates.length > 0 && incomplete.length === 0) {
+            stdout.write("PBOS BUILD MISSION QUEUE COMPLETE\nAll governed missions are complete. Review exact-commit web/mobile previews and release certification before public launch.\n");
+            return 0;
+        }
+        throw new Error(`No eligible production mission. ${incomplete.length} queued or blocked mission(s) have unsatisfied dependencies.`);
+    }
     const system = services.state.systems().find(item => item.systemId === next.systemId);
     if (!system) throw new Error(`Registered system not found for mission ${next.missionId}.`);
     const [owner, name] = system.repository.split("/");
@@ -241,31 +256,101 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`[AUTHORIZED] ${next.title}${missionApproval ? ` — signed mission approval ${missionApproval.approvalId}` : ""}\n`);
     const runner = new ProductionMissionRunner(services.state, services.production,
         (stage, message) => stdout.write(`[${stage}] ${message}\n`));
-    const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === next.systemId && item.grant.mode !== "READ_ONLY");
+    const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === next.systemId && item.grant.mode !== "READ_ONLY" &&
+        !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
+    if (!session) throw new Error(`No active governed build session exists for ${system.name}. Run: pbos build ${target ?? "playbook"}`);
+    const contracts = connectorContracts(next.systemId);
+    const channel = new GenesisPbosBuildChannel().open({
+        target: { systemId: system.systemId, operatingSystemId: system.operatingSystemId,
+            repository: system.repository, defaultBranch: system.defaultBranch },
+        session: { sessionId: session.sessionId, systemId: session.system.systemId, repository: session.system.repository },
+        grant: { grantId: session.grant.grantId, systemId: session.grant.systemId,
+            repository: session.grant.repository, mode: session.grant.mode },
+        connector: contracts.connector, domains: contracts.domains
+    });
+    stdout.write(`[BUILD_CHANNEL] ${channel.factory} → ${channel.runtime} → ${system.name}\n`);
+    stdout.write(`[PBOS_V1] ${channel.operatingSystemId} | ${channel.connectorId} | domains ${channel.domainRegistrationIds.join(", ")}\n`);
+    stdout.write(`[REPOSITORY] ${channel.repository}@${inspection.revision} | branch boundary agent/*\n`);
     const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
+    const adapters = new ProductionMissionAdapterRegistry()
+        .register("PLAYBOOK-SYSTEM-001", "048-repository-gap-analysis", () => repositoryGapAnalysisExecutor(services.gateway, repository, inspection))
+        .register("PLAYBOOK-SYSTEM-001", "048-foundation", () => playbookFoundationExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
+            startMonitor: validation => {
+                const job = background.launch(next.systemId, session.sessionId, validation.runId);
+                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+            } }))
+        .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => playbookScholarSliceExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
+            startMonitor: validation => {
+                const job = background.launch(next.systemId, session.sessionId, validation.runId);
+                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+            } }));
+    const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
+    stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,
         authorizationArtifactId: approval.approvalId, repository: system.repository, branch: system.defaultBranch,
         commit: inspection.revision, approvedMissionIds: missionApproval ? [next.missionId] : [], autonomousContinuation: true,
-        triggerSource: "CLI" }, mission => {
-        if (mission.missionId === "048-repository-gap-analysis") return repositoryGapAnalysisExecutor(services.gateway, repository, inspection);
-        if (mission.missionId === "048-foundation") {
-            if (!session) throw new Error("The Playbook foundation mission requires an active Human-Gated or Delegated Autonomous Build session.");
-            return playbookFoundationExecutor({ gateway: services.gateway, remediation: services.remediation, session,
-                authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
-                startMonitor: validation => {
-                    const job = background.launch(next.systemId, session.sessionId, validation.runId);
-                    stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
-                } });
-        }
-        return undefined;
-    });
+        triggerSource: "CLI", buildChannel: channel }, mission => adapters.resolve(mission));
     sequence.runs.forEach(run => stdout.write(`[RESULT] ${run.runId} — ${run.status} — ${run.durationMs ?? 0}ms\n`));
     stdout.write(`AUTONOMOUS STOP: ${sequence.stopReason}\n`);
+    let continueAfterApproval = false;
     if (sequence.stopReason === "VALIDATION_IN_PROGRESS") {
         stdout.write("PBOS CONTINUES: GitHub validation and bounded remediation are running durably.\n");
         stdout.write("Live telemetry remains attached in this terminal. Press Ctrl-C only if you want to detach; background monitoring will continue.\n");
         const activeRun = sequence.runs.at(-1);
-        if (activeRun) await streamProductionTelemetry(services.state, activeRun.runId);
+        if (activeRun) {
+            const telemetryResult = await streamProductionTelemetry(services.state, activeRun.runId);
+            if (telemetryResult === "AWAITING_APPROVAL") {
+                const remediationId = services.production.run(activeRun.runId)?.evidenceIds
+                    .find(item => item.startsWith("remediation-run:"))?.slice("remediation-run:".length);
+                const remediationRun = remediationId ? services.state.remediationRun(remediationId) : undefined;
+                if (!remediationRun || remediationRun.state !== "READY_FOR_CERTIFICATION") {
+                    throw new Error("Production validation reached approval without matching green pull-request evidence.");
+                }
+                const io = new NodeTerminalIO();
+                let promote = false;
+                try {
+                    io.write("");
+                    io.write("PBOS PROTECTED RELEASE CHECKPOINT");
+                    io.write(`Mission: ${next.title}`);
+                    io.write(`Validated pull request: ${remediationRun.pullRequest.url}`);
+                    io.write("This decision certifies the mission and merges its validated application change. Production deployment remains separate.");
+                    const answer = (await io.prompt("Certify and merge this validated mission now? [y/N] ")).trim().toLowerCase();
+                    promote = answer === "y" || answer === "yes";
+                    if (!promote) io.write("Validated work remains unmerged and ready for later certification.");
+                } finally {
+                    io.close();
+                }
+                if (promote) {
+                    const certificationApproval = services.identities.approve(services.operator, "CERTIFY_PRODUCTION_MISSION", activeRun.runId, 15);
+                    const mergeApproval = services.identities.approve(services.operator, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url, 15);
+                    if (!services.identities.verify(certificationApproval, "CERTIFY_PRODUCTION_MISSION", activeRun.runId) ||
+                        !services.identities.verify(mergeApproval, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url)) {
+                        throw new Error("Protected promotion approval signature verification failed.");
+                    }
+                    const certificationDecision = services.control.authorizeAction(session.sessionId, "CERTIFY_SYSTEM", "HIGH",
+                        remediationRun.pullRequest.branch, certificationApproval.approvalId);
+                    const mergeDecision = services.control.authorizeAction(session.sessionId, "MERGE_MAIN", "HIGH",
+                        remediationRun.pullRequest.branch, mergeApproval.approvalId);
+                    if (!certificationDecision.allowed || !mergeDecision.allowed) {
+                        throw new Error(`Protected promotion denied: ${!certificationDecision.allowed ? certificationDecision.reason : mergeDecision.reason}`);
+                    }
+                    services.state.appendAudit({ eventId: certificationApproval.approvalId, type: "VERIFIABLE_APPROVAL",
+                        actorId: services.operator.operatorId, resource: activeRun.runId, occurredAt: certificationApproval.issuedAt,
+                        evidence: { approval: certificationApproval, purpose: "CERTIFY_PRODUCTION_MISSION" } });
+                    services.state.appendAudit({ eventId: mergeApproval.approvalId, type: "VERIFIABLE_APPROVAL",
+                        actorId: services.operator.operatorId, resource: remediationRun.pullRequest.url, occurredAt: mergeApproval.issuedAt,
+                        evidence: { approval: mergeApproval, purpose: "MERGE_VALIDATED_PULL_REQUEST" } });
+                    await services.gateway.mergePullRequest(remediationRun.pullRequest);
+                    runner.certify(activeRun.runId, certificationApproval.approvalId);
+                    stdout.write(`[CERTIFIED] ${next.title}\n[MERGED] ${remediationRun.pullRequest.url}\n`);
+                    return runNextProductionMission(target);
+                }
+            }
+        }
     }
     if (sequence.nextMission) {
         stdout.write(`NEXT MISSION: ${sequence.nextMission.title}\n`);
@@ -276,9 +361,9 @@ async function runNextProductionMission(target?: string): Promise<number> {
             try {
                 const nextApproval = await promptForMissionApproval(io, services, sequence.nextMission);
                 if (nextApproval) {
-                    io.write("PBOS ENGINEERING CHECKPOINT: the mission is authorized, but its certified execution adapter must be registered before work can start.");
-                    io.write("No additional approval command is required while this signed decision remains valid.");
-                    io.write("Execution has not started; PBOS will never confuse authorization with active work.");
+                    io.write("PBOS CONTINUES: the signed mission decision is durable and its execution adapter is registered.");
+                    io.write("The same terminal will now advance into governed execution; no additional command is required.");
+                    continueAfterApproval = true;
                 }
             } finally {
                 io.close();
@@ -289,7 +374,40 @@ async function runNextProductionMission(target?: string): Promise<number> {
         stdout.write("PBOS EXECUTION BLOCKED: this authorized mission does not yet have a certified execution adapter.\n");
         stdout.write("No repository changes were started and the approval remains auditable.\n");
     }
+    if (continueAfterApproval) return runNextProductionMission(target);
     return sequence.stopReason === "NO_EXECUTION_ADAPTER" ? 1 : 0;
+}
+
+async function buildApplication(target: string): Promise<number> {
+    const systemId = systemIdFor(target);
+    if (!systemId) throw new Error("Build target must be playbook or bulletproof.");
+    const services = runtime();
+    const system = services.state.systems().find(item => item.systemId === systemId);
+    if (!system) throw new Error(`Registered application not found: ${systemId}`);
+    const reusable = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
+        item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
+    stdout.write("PBOS GENESIS AUTONOMOUS APPLICATION BUILD\n");
+    stdout.write(`Factory: PBOS Genesis\nOperating system: ${system.operatingSystemId} on PBOS v1\nApplication: ${system.name}\nRepository: ${system.repository}\n`);
+    if (reusable) {
+        stdout.write(`Authority: reusing ${reusable.grant.mode} session ${reusable.sessionId}\n`);
+    } else {
+        stdout.write("Authority requested: Delegated Autonomous Build\n");
+        stdout.write("Protected gates: merge, production deployment, secrets, destructive migration, certification, and cross-repository work\n");
+        const io = new NodeTerminalIO();
+        try {
+            const answer = (await io.prompt("Authorize the governed build channel and run to the next protected gate? [y/N] ")).trim().toLowerCase();
+            if (answer !== "y" && answer !== "yes") {
+                io.write("Build channel not authorized. No repository changes were started.");
+                return 0;
+            }
+            const identity = await services.sessionAuthority.authorize(systemId);
+            const session = services.control.activateSystem(systemId, "DELEGATED_AUTONOMY", identity.operatorId, identity.approvalId);
+            io.write(`Build channel authorized: session ${session.sessionId}`);
+        } finally {
+            io.close();
+        }
+    }
+    return runNextProductionMission(target);
 }
 
 async function launch(preselectedSystemId?: string): Promise<number> {
@@ -364,6 +482,10 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(next ? `${next.missionId} — ${next.title}\nReason: ${next.rationale}\nApproval required: ${next.approvalRequired ? "YES" : "NO"}\n` : "No eligible mission.\n"); return 0;
     }
     if (args[0] === "run") return runNextProductionMission(args[1]);
+    if (args[0] === "build") {
+        if (!args[1]) throw new Error("Build requires an application target: playbook or bulletproof.");
+        return buildApplication(args[1]);
+    }
     if (["pause", "resume", "cancel"].includes(args[0] ?? "")) {
         const local = profile(); const runId = args[1]; if (!runId) throw new Error(`${args[0]} requires a run ID.`);
         const production = new ProductionRuntimeService(new GenesisStateRepository(genesisPath));

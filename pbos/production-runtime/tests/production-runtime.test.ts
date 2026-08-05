@@ -15,7 +15,10 @@ const runtime = (clock = new Date("2026-08-05T00:00:00.000Z")) => {
 
 const input = { systemId: "PLAYBOOK-SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
     repository: "sgwalton87/playbook-platform", branch: "agent/run", commit: "5dda9e7",
-    objective: "Build The Playbook", mission: "Scholar journey", rationale: "First eligible mission" } as const;
+    objective: "Build The Playbook", mission: "Scholar journey", rationale: "First eligible mission",
+    buildChannel: { channelId: "channel-1", systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001",
+        connectorId: "PLAYBOOK-CONNECTOR-001", repository: "sgwalton87/playbook-platform",
+        domainRegistrationIds: ["PLAYBOOK-SCHOLAR-REGISTRATION-001"] } } as const;
 
 describe("canonical PBOS production runtime", () => {
     it("enforces transitions and persists timing, stages, events, heartbeat, and lease release", () => {
@@ -99,6 +102,8 @@ describe("canonical PBOS production runtime", () => {
         expect(sequence.stopReason).toBe("APPROVAL_REQUIRED");
         expect(sequence.runs).toHaveLength(1);
         expect(sequence.runs[0]).toMatchObject({ status: "COMPLETED", runType: "READINESS" });
+        expect(fixture.state.productionEvents(sequence.runs[0].runId).some(event =>
+            event.payload.buildChannelId === "channel-1" && event.payload.connectorId === "PLAYBOOK-CONNECTOR-001")).toBe(true);
         expect(fixture.state.missionQueue(input.systemId).map(mission => [mission.missionId, mission.status]))
             .toEqual([["048-repository-gap-analysis", "COMPLETE"], ["048-foundation", "ELIGIBLE"]]);
         expect(fixture.state.executionLeases().at(-1)?.status).toBe("RELEASED");
@@ -117,5 +122,14 @@ describe("canonical PBOS production runtime", () => {
         expect(sequence.runs.at(-1)?.status).toBe("VALIDATING");
         expect(sequence.runs.at(-1)?.evidenceIds).toContain("remediation-run:validation-048");
         expect(fixture.state.executionLeases().at(-1)?.status).toBe("ACTIVE");
+    });
+
+    it("refuses mission execution when the Genesis to PBOS v1 channel crosses repositories", async () => {
+        const fixture = runtime();
+        await expect(new ProductionMissionRunner(fixture.state, fixture.runtime).run({ ...input,
+            buildChannel: { ...input.buildChannel, repository: "another/application" } }, () => async () => ({
+            outputs: {}, evidenceIds: [], validations: []
+        }))).rejects.toThrow("matching Genesis to PBOS v1 build channel");
+        expect(fixture.state.productionRuns()).toHaveLength(0);
     });
 });

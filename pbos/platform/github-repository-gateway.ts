@@ -67,6 +67,13 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         return changes.map(change => change.path);
     }
 
+    async readFileAtRevision(repository: RepositoryReference, path: string, revision: string): Promise<string> {
+        const cwd = await this.checkout(repository);
+        this.safePath(cwd, path);
+        if (!/^[a-f0-9]{7,40}$/i.test(revision)) throw new Error("Repository file reads require an exact revision.");
+        return (await this.commands.run("git", ["show", `${revision}:${path}`], cwd)).stdout;
+    }
+
     async commit(repository: RepositoryReference, message: string, paths: readonly string[]): Promise<string> {
         const cwd = await this.checkout(repository);
         if (!message.trim() || paths.length === 0) throw new Error("Commit requires a message and explicit paths.");
@@ -97,6 +104,20 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const number = Number.parseInt(basename(new URL(url).pathname), 10);
         if (!Number.isInteger(number)) throw new Error("GitHub did not return a pull request URL.");
         return { url, number, branch, repository: `${repository.owner}/${repository.name}` };
+    }
+
+    async mergePullRequest(pullRequest: PullRequestReference): Promise<void> {
+        const [owner, name] = pullRequest.repository.split("/");
+        if (!owner || !name) throw new Error("Pull request merge requires a valid repository identity.");
+        const repository: RepositoryReference = { owner, name, defaultBranch: "main" };
+        this.assertBranch(pullRequest.branch);
+        const cwd = await this.checkout(repository);
+        const view = await this.commands.run("gh", ["pr", "view", String(pullRequest.number), "--repo", pullRequest.repository,
+            "--json", "isDraft", "--jq", ".isDraft"], cwd);
+        if (view.stdout.trim() === "true") {
+            await this.commands.run("gh", ["pr", "ready", String(pullRequest.number), "--repo", pullRequest.repository], cwd);
+        }
+        await this.commands.run("gh", ["pr", "merge", String(pullRequest.number), "--squash", "--delete-branch", "--repo", pullRequest.repository], cwd);
     }
 
     async dispatch(proposal: RepositoryChangeProposal, approval: RepositoryApproval): Promise<RepositoryDispatch> {
