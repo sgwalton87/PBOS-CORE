@@ -9,6 +9,7 @@ import { ResumableRemediationEngine } from "../validation-automation";
 import { BackgroundMonitorJob } from "./contracts";
 import { OperatorMemoService } from "./operator-memo-service";
 import { AutonomousBatchService } from "./autonomous-batch-service";
+import { ProductionRuntimeService } from "../production-runtime";
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -47,7 +48,7 @@ export class BackgroundMonitor {
         private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
         private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier()) {}
 
-    async run(runId: string, sessionId: string, intervalMs = 30_000, maximumPolls = 120): Promise<void> {
+    async run(runId: string, sessionId: string, intervalMs = 10_000, maximumPolls = 360): Promise<void> {
         const session = this.state.sessions().find(item => item.sessionId === sessionId);
         if (!session) throw new Error(`Background session not found: ${sessionId}`);
         try {
@@ -55,11 +56,12 @@ export class BackgroundMonitor {
                 const result = await this.remediation.resume(runId, run => this.workflows.authorizeRemediation(session, run.pullRequest.branch));
                 this.memos.write(session, result);
                 const batch = this.batches.updateForValidation(runId, result.state);
+                this.reconcileProductionMission(runId, result.state);
                 if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(result.state)) {
                     this.completeJob(runId, result.state === "BLOCKED" ? "BLOCKED" : "COMPLETED");
                     const label = result.state === "READY_FOR_CERTIFICATION" ? "ready for certification" : "blocked";
                     await this.notify("PBOS Genesis — Build update",
-                        `${session.system.name}: ${batch?.workPackages.length ?? 0} work packages ${label}. ${result.pullRequest.url}`);
+                        `${session.system.name}: ${batch ? `${batch.workPackages.length} work packages` : "foundation mission"} ${label}. ${result.pullRequest.url}`);
                     return;
                 }
                 await this.wait(intervalMs);
@@ -81,5 +83,31 @@ export class BackgroundMonitor {
     private completeJob(runId: string, status: BackgroundMonitorJob["status"]): void {
         const job = this.state.backgroundJobForRun(runId);
         if (job) this.state.saveBackgroundJob({ ...job, status, updatedAt: new Date().toISOString() });
+    }
+
+    private reconcileProductionMission(remediationRunId: string, validation: import("../validation-automation").RemediationState): void {
+        const production = new ProductionRuntimeService(this.state);
+        const run = [...this.state.productionRuns()].reverse().find(item =>
+            item.evidenceIds.includes(`remediation-run:${remediationRunId}`));
+        if (!run || run.status !== "VALIDATING") return;
+        production.heartbeat(run.runId);
+        if (validation === "READY_FOR_CERTIFICATION") {
+            production.completeActiveStage(run.runId, { validation: "PASSED", remediationRunId },
+                [`remediation-run:${remediationRunId}`]);
+            production.recordValidation(run.runId, "GitHub Actions validation", true, 0,
+                `remediation-run:${remediationRunId}`);
+            production.transition(run.runId, "AWAITING_APPROVAL",
+                "Foundation validation passed; human certification and merge approval are required.");
+        } else if (validation === "BLOCKED") {
+            production.completeActiveStage(run.runId, { validation: "BLOCKED", remediationRunId },
+                [`remediation-run:${remediationRunId}`]);
+            production.transition(run.runId, "BLOCKED", "Foundation validation requires human intervention.");
+        } else if (validation === "REMEDIATION_REQUIRED" || validation === "REMEDIATION_PUSHED") {
+            production.completeActiveStage(run.runId, { validation, remediationRunId });
+            production.transition(run.runId, "REPAIRING", "Deterministic validation remediation is active.");
+            production.recordRepairAttempt(run.runId, `Validation state ${validation}`, "STARTED");
+            production.transition(run.runId, "VALIDATING", "Validation resumed after deterministic remediation.");
+            production.startStage(run.runId, "VALIDATION", "Revalidate Playbook foundation", { remediationRunId });
+        }
     }
 }

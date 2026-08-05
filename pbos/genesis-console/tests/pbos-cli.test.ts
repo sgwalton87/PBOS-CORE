@@ -3,11 +3,12 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
-import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForMissionApproval } from "../pbos-cli";
+import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
 import { GitHubRepositoryGateway } from "../../platform";
+import { ProductionRuntimeService } from "../../production-runtime";
 
 class ApprovalIO {
     readonly output: string[] = [];
@@ -122,5 +123,23 @@ describe("partner-ready CLI durable state", () => {
         expect(state.audit()).toHaveLength(0);
         expect(state.missionQueue(mission.systemId)[0]).toMatchObject({ status: "ELIGIBLE", evidenceIds: [] });
         expect(io.output).toContain("MISSION NOT AUTHORIZED");
+    });
+
+    it("keeps same-terminal telemetry attached until validation reaches human approval", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-cli-telemetry-")), "state.json"));
+        const production = new ProductionRuntimeService(state);
+        const run = production.begin({ systemId: "PLAYBOOK-SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
+            repository: "sgwalton87/playbook-platform", branch: "agent/foundation", commit: "abcdef1",
+            objective: "Foundation", mission: "Foundation", rationale: "Ready" });
+        production.transition(run.runId, "QUEUED", "Queued");
+        production.transition(run.runId, "STARTING", "Starting");
+        production.transition(run.runId, "RUNNING", "Running");
+        production.transition(run.runId, "VALIDATING", "Validating");
+        production.transition(run.runId, "AWAITING_APPROVAL", "Ready for approval");
+        const output: string[] = [];
+        const result = await streamProductionTelemetry(state, run.runId, message => output.push(message), async () => undefined, 0, 1);
+        expect(result).toBe("AWAITING_APPROVAL");
+        expect(output.some(line => line.includes("HUMAN APPROVAL REQUIRED"))).toBe(true);
+        expect(output.some(line => line.includes("RUN_AWAITING_APPROVAL"))).toBe(true);
     });
 });

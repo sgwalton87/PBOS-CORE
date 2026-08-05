@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { chmod, mkdir, writeFile } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
@@ -18,7 +18,7 @@ export class NodeCommandRunner implements CommandRunner {
     }
 }
 
-export interface RepositoryFileChange { readonly path: string; readonly content: string; }
+export interface RepositoryFileChange { readonly path: string; readonly content: string; readonly executable?: boolean; }
 export interface PullRequestReference { readonly url: string; readonly number: number; readonly branch: string; readonly repository: string; }
 
 /** Concrete GitHub implementation. Every process invocation uses argv arrays; no repository value enters a shell. */
@@ -62,6 +62,7 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
             const target = this.safePath(cwd, change.path);
             await mkdir(resolve(target, ".."), { recursive: true });
             await writeFile(target, change.content, "utf8");
+            if (change.executable) await chmod(target, 0o755);
         }
         return changes.map(change => change.path);
     }

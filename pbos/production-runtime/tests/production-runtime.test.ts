@@ -103,4 +103,19 @@ describe("canonical PBOS production runtime", () => {
             .toEqual([["048-repository-gap-analysis", "COMPLETE"], ["048-foundation", "ELIGIBLE"]]);
         expect(fixture.state.executionLeases().at(-1)?.status).toBe("RELEASED");
     });
+
+    it("keeps a human-gated mission in validation while external checks are running", async () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "048-foundation", systemId: input.systemId,
+            title: "Complete foundations", dependencies: [], status: "QUEUED", rationale: "Approved gap analysis.",
+            approvalRequired: true, evidenceIds: [] }]);
+        const sequence = await new ProductionMissionRunner(fixture.state, fixture.runtime).run({ ...input,
+            approvedMissionIds: ["048-foundation"] }, () => async () => ({ outputs: { pullRequest: 52 },
+            evidenceIds: ["pull-request:52"], validations: [{ name: "PR created", passed: true, durationMs: 1, evidenceId: "pull-request:52" }],
+            deferredValidation: { remediationRunId: "validation-048", pullRequestUrl: "https://github.com/example/app/pull/52" } }));
+        expect(sequence.stopReason).toBe("VALIDATION_IN_PROGRESS");
+        expect(sequence.runs.at(-1)?.status).toBe("VALIDATING");
+        expect(sequence.runs.at(-1)?.evidenceIds).toContain("remediation-run:validation-048");
+        expect(fixture.state.executionLeases().at(-1)?.status).toBe("ACTIVE");
+    });
 });

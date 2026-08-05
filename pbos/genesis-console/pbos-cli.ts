@@ -22,7 +22,7 @@ import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, O
 import { ProductionRuntimeService } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { repositoryGapAnalysisExecutor } from "../application-readiness";
+import { playbookFoundationExecutor, repositoryGapAnalysisExecutor } from "../application-readiness";
 import { createPlaybookBlueprint } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
 import { MissionQueueItem } from "../production-runtime";
@@ -175,6 +175,35 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     return approval;
 }
 
+export async function streamProductionTelemetry(state: GenesisStateRepository, runId: string,
+    write: (message: string) => void = message => stdout.write(`${message}\n`),
+    wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
+    intervalMs = 5_000, maximumPolls = 720): Promise<"AWAITING_APPROVAL" | "BLOCKED" | "DETACHED"> {
+    const seen = new Set<string>();
+    for (let poll = 0; poll < maximumPolls; poll += 1) {
+        const production = new ProductionRuntimeService(state);
+        production.events(runId).filter(event => !seen.has(event.eventId)).forEach(event => {
+            seen.add(event.eventId);
+            write(`${event.timestamp} ${event.type}: ${event.summary}`);
+        });
+        const run = production.run(runId);
+        if (!run) throw new Error(`Production telemetry run not found: ${runId}`);
+        const stage = run.activeStageId ? state.productionStages(runId).find(item => item.stageId === run.activeStageId) : undefined;
+        write(`ACTIVE: ${run.status} — ${stage?.title ?? "transitioning"} — elapsed ${Math.max(0, Date.now() - Date.parse(run.startedAt))}ms — heartbeat ${run.lastHeartbeatAt}`);
+        if (run.status === "AWAITING_APPROVAL") {
+            write("HUMAN APPROVAL REQUIRED: validation passed; review the certification memo and draft pull request.");
+            return "AWAITING_APPROVAL";
+        }
+        if (["BLOCKED", "FAILED", "CANCELLED"].includes(run.status)) {
+            write(`PBOS STOPPED: ${run.status} — ${run.terminalSummary ?? "operator review required"}`);
+            return "BLOCKED";
+        }
+        await wait(intervalMs);
+    }
+    write("PBOS monitoring remains active in the background; this terminal detached after the foreground polling limit.");
+    return "DETACHED";
+}
+
 async function runNextProductionMission(target?: string): Promise<number> {
     const services = runtime();
     const requestedSystemId = systemIdFor(target);
@@ -212,13 +241,32 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`[AUTHORIZED] ${next.title}${missionApproval ? ` — signed mission approval ${missionApproval.approvalId}` : ""}\n`);
     const runner = new ProductionMissionRunner(services.state, services.production,
         (stage, message) => stdout.write(`[${stage}] ${message}\n`));
+    const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === next.systemId && item.grant.mode !== "READ_ONLY");
+    const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,
         authorizationArtifactId: approval.approvalId, repository: system.repository, branch: system.defaultBranch,
         commit: inspection.revision, approvedMissionIds: missionApproval ? [next.missionId] : [], autonomousContinuation: true,
-        triggerSource: "CLI" }, mission => mission.missionId === "048-repository-gap-analysis"
-        ? repositoryGapAnalysisExecutor(services.gateway, repository, inspection) : undefined);
+        triggerSource: "CLI" }, mission => {
+        if (mission.missionId === "048-repository-gap-analysis") return repositoryGapAnalysisExecutor(services.gateway, repository, inspection);
+        if (mission.missionId === "048-foundation") {
+            if (!session) throw new Error("The Playbook foundation mission requires an active Human-Gated or Delegated Autonomous Build session.");
+            return playbookFoundationExecutor({ gateway: services.gateway, remediation: services.remediation, session,
+                authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
+                startMonitor: validation => {
+                    const job = background.launch(next.systemId, session.sessionId, validation.runId);
+                    stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+                } });
+        }
+        return undefined;
+    });
     sequence.runs.forEach(run => stdout.write(`[RESULT] ${run.runId} — ${run.status} — ${run.durationMs ?? 0}ms\n`));
     stdout.write(`AUTONOMOUS STOP: ${sequence.stopReason}\n`);
+    if (sequence.stopReason === "VALIDATION_IN_PROGRESS") {
+        stdout.write("PBOS CONTINUES: GitHub validation and bounded remediation are running durably.\n");
+        stdout.write("Live telemetry remains attached in this terminal. Press Ctrl-C only if you want to detach; background monitoring will continue.\n");
+        const activeRun = sequence.runs.at(-1);
+        if (activeRun) await streamProductionTelemetry(services.state, activeRun.runId);
+    }
     if (sequence.nextMission) {
         stdout.write(`NEXT MISSION: ${sequence.nextMission.title}\n`);
         stdout.write(`WHY: ${sequence.nextMission.rationale}\n`);

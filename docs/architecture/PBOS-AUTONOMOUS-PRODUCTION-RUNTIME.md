@@ -91,7 +91,9 @@ The reconciled CLI capabilities are:
 
 Pause, resume, and cancel require the authenticated operator to own the run. Repository mutation, certification, merge, secrets, deployment, and destructive migration remain protected by existing authority contracts.
 
-`pbos run` selects one dependency-eligible mission, creates a signed operator authorization artifact, records a machine-readable execution plan, and runs only a registered mission adapter. The first registered adapter performs the read-only CIP-048 Playbook repository gap analysis. Autonomous continuation stops before the next human approval boundary or any mission without a certified execution adapter.
+`pbos run` selects one dependency-eligible mission, creates a signed operator authorization artifact, records a machine-readable execution plan, and runs only a registered mission adapter. The repository-gap adapter performs read-only CIP-048 analysis. The `048-foundation` adapter then uses the signed Playbook build session to create an `agent/*` branch, compose the existing identity mapper, owner authority, Scholar RLS foundation, and canonical design tokens into application code, prepare the dependency lock, commit, push, open a draft pull request, start validation/remediation, and attach live telemetry. It cannot merge, deploy production, manage secrets, execute destructive migrations, certify, or mutate another repository.
+
+Foundation validation is deferred to the application repository's GitHub checks. The production run remains canonically `VALIDATING` with an active lease while the durable background monitor collects evidence and applies bounded registered remediations. A green result moves the run to `AWAITING_APPROVAL`; a non-remediable result moves it to `BLOCKED`. Closing the foreground terminal does not erase or restart the validation run.
 
 When the durable readiness queue does not yet exist, `pbos next` and `pbos run` inspect the governed Playbook default branch and initialize the queue only after every blueprint capability has repository evidence. They never require a separate interactive readiness-review command and never bootstrap from a stale local completion label.
 

@@ -1,9 +1,10 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { chmod, mkdir, writeFile } from "fs/promises";
 import { resolve, sep } from "path";
 import { promisify } from "util";
 import { ApplicationScaffold, MaterializedScaffold, ScaffoldFile, ScaffoldMaterializationTarget, ScaffoldRequest } from "./contracts";
+import { applicationArchivistFiles } from "../archivist/application-archivist-template";
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
 
@@ -31,7 +32,7 @@ export class ApplicationScaffoldGenerator {
             { path: "src/app/page.tsx", content: `import { designTokens } from "@/design/tokens";\nexport default function Home() { return <main><p className="eyebrow">PBOS v1 · ${this.domainLabel(blueprint.foundation.domainPack)}</p><h1>${blueprint.identity.systemName}</h1><p>${blueprint.mission}</p><a href="#start" style={{ background: designTokens.colors.primary }}>Begin your journey</a></main>; }\n` },
             { path: "src/app/styles.css", content: ":root { color-scheme: light dark; font-family: Inter, system-ui, sans-serif; } body { margin: 0; background: #f7f9fc; color: #111827; } main { max-width: 720px; margin: 12vh auto; padding: 3rem; } h1 { font-size: clamp(2.5rem, 7vw, 5rem); line-height: 1; } a { display: inline-block; margin-top: 1rem; padding: .85rem 1.2rem; border-radius: 14px; color: white; text-decoration: none; } .eyebrow { letter-spacing: .12em; text-transform: uppercase; }\n" },
             { path: "vitest.config.ts", content: "import { defineConfig } from \"vitest/config\";\nexport default defineConfig({ test: { environment: \"node\" } });\n" },
-            { path: "PBOS.yaml", content: `systemId: ${blueprint.identity.proposedSystemId}\noperatingSystemId: ${blueprint.identity.proposedOperatingSystemId}\npbosVersion: ${blueprint.foundation.pbosVersion}\ndomainPack: ${blueprint.foundation.domainPack}\nblueprintId: ${blueprint.blueprintId}\n` },
+            { path: "PBOS.yaml", content: `systemId: ${blueprint.identity.proposedSystemId}\noperatingSystemId: ${blueprint.identity.proposedOperatingSystemId}\npbosVersion: ${blueprint.foundation.pbosVersion}\ndomainPack: ${blueprint.foundation.domainPack}\nblueprintId: ${blueprint.blueprintId}\nplatformCapabilities:\n  - PBOS_ENGINEERING_MEMORY\n` },
             { path: "src/design/tokens.ts", content: `export const designTokens = ${json(blueprint.design.tokens).trimEnd()} as const;\n` },
             { path: "src/design/brand-source.json", content: json({
                 sourceBlueprintId: blueprint.blueprintId,
@@ -49,6 +50,7 @@ export class ApplicationScaffoldGenerator {
             { path: ".env.example", content: "NEXT_PUBLIC_SUPABASE_URL=\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\nSUPABASE_SERVICE_ROLE_KEY=\nPBOS_API_URL=\nPBOS_CONNECTOR_ID=\n" },
             { path: "README.md", content: `# ${blueprint.identity.systemName}\n\nGenerated from PBOS blueprint \`${blueprint.blueprintId}\`. Validation, certification, and deployment remain human-controlled gates.\n` }
         ];
+        files.push(...applicationArchivistFiles(blueprint));
         files.push(...selectedCapabilities.flatMap(capability => this.capabilityFoundation(blueprint, capability)));
         const includesJourney = selectedCapabilities.some(capability => capability === "IDENTITY" || capability === "WORKFLOWS");
         if (request.includeFirstVerticalSlice && includesJourney && blueprint.foundation.domainPack === "@pbos/domain-legacy-planning") files.push(...this.legacySlice(connected));
@@ -57,6 +59,7 @@ export class ApplicationScaffoldGenerator {
             stack: { framework: "NEXTJS", language: "TYPESCRIPT", database: "SUPABASE_POSTGRES", authentication: "SUPABASE_AUTH", deployment: "VERCEL" },
             mode: connected ? "EXISTING_APPLICATION_OVERLAY" : "NEW_APPLICATION",
             files, securityBoundaries: this.securityBoundaries(blueprint.foundation.domainPack),
+            platformCapabilities: ["PBOS_ENGINEERING_MEMORY"],
             // Existing applications must be reproducible too. The lock is prepared as part
             // of the governed change so `npm ci` never depends on an operator's workspace.
             dependencyLock: { manager: "NPM", path: "package-lock.json", required: true }, generatedAt: new Date() };
@@ -76,6 +79,7 @@ export class ApplicationScaffoldGenerator {
             if (!target.startsWith(`${root}${sep}`)) throw new Error(`Scaffold path escapes target: ${file.path}`);
             await mkdir(resolve(target, ".."), { recursive: true });
             await writeFile(target, file.content, { encoding: "utf8", flag: "wx" });
+            if (file.executable) await chmod(target, 0o755);
         }
         if (scaffold.dependencyLock.required) {
             await promisify(execFile)("npm", ["install", "--package-lock-only", "--ignore-scripts"], { cwd: root, maxBuffer: 10 * 1024 * 1024 });
@@ -101,7 +105,7 @@ export class ApplicationScaffoldGenerator {
 
     private existingApplicationOverlay(blueprint: ScaffoldRequest["blueprint"]): ScaffoldFile[] {
         return [
-            { path: "PBOS.yaml", content: `systemId: ${blueprint.identity.proposedSystemId}\noperatingSystemId: ${blueprint.identity.proposedOperatingSystemId}\npbosVersion: ${blueprint.foundation.pbosVersion}\ndomainPack: ${blueprint.foundation.domainPack}\nblueprintId: ${blueprint.blueprintId}\n` },
+            { path: "PBOS.yaml", content: `systemId: ${blueprint.identity.proposedSystemId}\noperatingSystemId: ${blueprint.identity.proposedOperatingSystemId}\npbosVersion: ${blueprint.foundation.pbosVersion}\ndomainPack: ${blueprint.foundation.domainPack}\nblueprintId: ${blueprint.blueprintId}\nplatformCapabilities:\n  - PBOS_ENGINEERING_MEMORY\n` },
             { path: "pbos/generated/design/tokens.ts", content: `export const designTokens = ${json(blueprint.design.tokens).trimEnd()} as const;\n` },
             { path: "pbos/generated/design/brand-source.json", content: json({
                 sourceBlueprintId: blueprint.blueprintId, systemId: blueprint.identity.proposedSystemId,

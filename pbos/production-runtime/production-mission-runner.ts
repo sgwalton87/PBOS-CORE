@@ -16,6 +16,7 @@ export interface MissionExecutionResult {
     readonly files?: Readonly<{ added?: readonly string[]; modified?: readonly string[]; deleted?: readonly string[] }>;
     readonly commands?: readonly Readonly<{ command: string; exitCode: number; durationMs: number; output?: string }>[];
     readonly validations: readonly Readonly<{ name: string; passed: boolean; durationMs: number; evidenceId: string }>[];
+    readonly deferredValidation?: Readonly<{ remediationRunId: string; pullRequestUrl: string }>;
 }
 
 export type ProductionMissionExecutor = (context: MissionExecutionContext) => Promise<MissionExecutionResult>;
@@ -35,7 +36,7 @@ export interface ProductionMissionRequest {
 
 export interface ProductionMissionSequence {
     readonly runs: readonly ProductionRun[];
-    readonly stopReason: "APPROVAL_REQUIRED" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
+    readonly stopReason: "APPROVAL_REQUIRED" | "VALIDATION_IN_PROGRESS" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
     readonly nextMission?: MissionQueueItem;
 }
 
@@ -89,6 +90,14 @@ export class ProductionMissionRunner {
                 const validationStage = this.runtime.startStage(run.runId, "VALIDATION", `Validate ${mission.title}`);
                 result.validations.forEach(item => this.runtime.recordValidation(run.runId, item.name, item.passed, item.durationMs, item.evidenceId));
                 const failed = result.validations.filter(item => !item.passed);
+                if (result.deferredValidation && failed.length === 0) {
+                    this.runtime.recordValidation(run.runId, "GitHub Actions validation monitor started", true, 0,
+                        `remediation-run:${result.deferredValidation.remediationRunId}`);
+                    run = this.runtime.run(run.runId)!;
+                    completed.push(run);
+                    this.report("VALIDATING", `External validation is active for ${result.deferredValidation.pullRequestUrl}.`);
+                    return { runs: completed, stopReason: "VALIDATION_IN_PROGRESS" };
+                }
                 this.runtime.completeStage(validationStage.stageId, { passed: failed.length === 0, validations: result.validations.length },
                     result.validations.map(item => item.evidenceId));
                 if (failed.length) {

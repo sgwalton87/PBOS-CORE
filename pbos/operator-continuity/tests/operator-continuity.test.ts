@@ -6,6 +6,7 @@ import { GenesisStateRepository } from "../../genesis-state";
 import { GenesisWorkflowService } from "../../genesis-console";
 import { RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
 import { AutonomousBatchService, BackgroundMonitor, OperatorMemoService } from "../index";
+import { ProductionRuntimeService } from "../../production-runtime";
 
 const session = {
     sessionId: "session-1", activatedAt: new Date(),
@@ -51,5 +52,29 @@ describe("operator continuity", () => {
             .run(run.runId, session.sessionId, 0, 1);
         expect(memos.latest("SYSTEM-001")?.record.state).toBe("READY_FOR_CERTIFICATION");
         expect(notifications[0]).toContain("ready for certification");
+    });
+
+    it("moves a deferred production mission to human approval when GitHub validation passes", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-production-monitor-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        state.saveSession(session);
+        const production = new ProductionRuntimeService(state);
+        const productionRun = production.begin({ systemId: "SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
+            repository: "example/app", branch: "agent/build", commit: "abcdef1", objective: "Foundation", mission: "Foundation", rationale: "Ready" });
+        production.transition(productionRun.runId, "QUEUED", "Queued");
+        production.transition(productionRun.runId, "STARTING", "Starting");
+        production.transition(productionRun.runId, "RUNNING", "Running");
+        const execution = production.startStage(productionRun.runId, "EXECUTION", "Build foundation");
+        production.completeStage(execution.stageId, {}, ["pull-request:1"]);
+        production.transition(productionRun.runId, "VALIDATING", "Validating");
+        production.startStage(productionRun.runId, "VALIDATION", "Validate foundation");
+        production.recordValidation(productionRun.runId, "Validation monitor started", true, 0, "remediation-run:run-1");
+        const remediation = { resume: async () => run } as unknown as ResumableRemediationEngine;
+        const workflows = { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService;
+        await new BackgroundMonitor(state, remediation, workflows, new OperatorMemoService(join(root, "memos"), state),
+            async () => undefined, new AutonomousBatchService(state), { notify: async () => undefined })
+            .run(run.runId, session.sessionId, 0, 1);
+        expect(production.run(productionRun.runId)?.status).toBe("AWAITING_APPROVAL");
+        expect(state.executionLeases().find(item => item.runId === productionRun.runId)?.status).toBe("RELEASED");
     });
 });

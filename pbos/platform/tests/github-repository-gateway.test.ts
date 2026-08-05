@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync } from "fs";
+import { mkdtempSync, mkdirSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -40,6 +40,15 @@ describe("GitHub repository gateway", () => {
         const gateway = new GitHubRepositoryGateway(root, new FakeCommands());
         await expect(gateway.createBranch(reference, "main", "abc123")).rejects.toThrow("agent/*");
         await expect(gateway.applyChange(reference, [{ path: "../secret", content: "no" }])).rejects.toThrow("escapes checkout");
+    });
+
+    it("preserves executable intent for portable application automation", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        const checkout = join(root, "acme--app");
+        mkdirSync(checkout);
+        const gateway = new GitHubRepositoryGateway(root, new FakeCommands());
+        await gateway.applyChange(reference, [{ path: ".githooks/pbos-archivist-post-commit", content: "#!/bin/sh\n", executable: true }]);
+        expect(statSync(join(checkout, ".githooks/pbos-archivist-post-commit")).mode & 0o111).not.toBe(0);
     });
 
     it("opens draft pull requests for an agent branch", async () => {

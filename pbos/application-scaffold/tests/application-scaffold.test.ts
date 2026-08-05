@@ -26,6 +26,16 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("supabase/migrations/001_foundation.sql");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
         expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
+        expect(scaffold.platformCapabilities).toEqual(["PBOS_ENGINEERING_MEMORY"]);
+        expect(paths).toContain(".pbos/archivist.json");
+        expect(paths).toContain(".githooks/pbos-archivist-post-commit");
+        expect(paths).toContain(".github/workflows/pbos-engineering-memory.yml");
+        expect(scaffold.files.find(file => file.path === ".githooks/pbos-archivist-post-commit")?.executable).toBe(true);
+        expect(paths).not.toContain("docs/project-management/milestones/index.md");
+        const archivist = scaffold.files.find(file => file.path === ".pbos/archivist.json")?.content ?? "";
+        expect(archivist).toContain("BULLETPROOF-SYSTEM-001");
+        expect(archivist).toContain("vycoywalton/bulletproof-beneficiary-registry");
+        expect(scaffold.files.find(file => file.path === "PBOS.yaml")?.content).toContain("PBOS_ENGINEERING_MEMORY");
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");
         const tokens = scaffold.files.find(file => file.path === "pbos/generated/design/tokens.ts")?.content;
         expect(tokens).toMatch(/\}\s+as const;\n$/);
@@ -48,6 +58,7 @@ describe("application scaffold generator", () => {
         expect(result.generatedPaths).toContain("package-lock.json");
         expect(result.generatedPaths).toContain("tsconfig.json");
         expect(result.generatedPaths).toContain("src/app/page.tsx");
+        expect(result.generatedPaths).toContain("docs/project-management/milestones/index.md");
     });
 
     it("prepares a reproducible dependency lock for an existing application", async () => {
@@ -73,6 +84,11 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("src/app/page.tsx");
         expect(paths).not.toContain("package.json");
         expect(scaffold.securityBoundaries).not.toContain("PRIVATE_DOCUMENT_BUCKET");
+        expect(paths).toContain("scripts/pbos-archive-milestone.mjs");
+        expect(paths).toContain("scripts/pbos-install-archivist.mjs");
+        const archivist = scaffold.files.find(file => file.path === ".pbos/archivist.json")?.content ?? "";
+        expect(archivist).toContain("PLAYBOOK-SYSTEM-001");
+        expect(archivist).not.toContain("BULLETPROOF-SYSTEM-001");
     });
 
     it("materializes only the authorized capability package and its durable evidence marker", () => {
