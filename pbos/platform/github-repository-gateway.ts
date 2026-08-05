@@ -34,6 +34,9 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const files = (await this.commands.run("git", ["ls-tree", "-r", "--name-only", revision], cwd)).stdout.split("\n").filter(Boolean);
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
         const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN",
+            files.includes("package.json")
+                ? files.includes("package-lock.json") ? "DEPENDENCY_LOCK:PRESENT" : "DEPENDENCY_LOCK:MISSING"
+                : "DEPENDENCY_MANIFEST:NOT_APPLICABLE",
             ...this.capabilityFindings(files)];
         return { repository, revision, findings, inspectedAt: new Date(), files };
     }

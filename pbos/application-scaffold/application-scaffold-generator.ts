@@ -57,7 +57,9 @@ export class ApplicationScaffoldGenerator {
             stack: { framework: "NEXTJS", language: "TYPESCRIPT", database: "SUPABASE_POSTGRES", authentication: "SUPABASE_AUTH", deployment: "VERCEL" },
             mode: connected ? "EXISTING_APPLICATION_OVERLAY" : "NEW_APPLICATION",
             files, securityBoundaries: this.securityBoundaries(blueprint.foundation.domainPack),
-            dependencyLock: { manager: "NPM", path: "package-lock.json", required: !connected }, generatedAt: new Date() };
+            // Existing applications must be reproducible too. The lock is prepared as part
+            // of the governed change so `npm ci` never depends on an operator's workspace.
+            dependencyLock: { manager: "NPM", path: "package-lock.json", required: true }, generatedAt: new Date() };
     }
 
     async materialize(scaffold: ApplicationScaffold, target: ScaffoldMaterializationTarget): Promise<MaterializedScaffold> {

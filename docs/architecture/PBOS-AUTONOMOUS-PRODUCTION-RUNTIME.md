@@ -52,7 +52,9 @@ Production events are append-only, ordered by a durable sequence, correlated by 
 
 ## Preview evidence
 
-`GovernedPreviewPipeline` creates commit-bound preview manifests. Experience-changing work requires desktop and mobile viewports and remains `REQUESTED` until a live URL or screenshot evidence exists. Nonvisual work is labeled `NONVISUAL`. Seeded or simulated evidence is never represented as live.
+`GovernedPreviewPipeline` creates commit-bound preview manifests. Experience-changing work requires desktop and mobile viewports and remains `REQUESTED` until both a usable desktop web URL and a usable mobile URL exist. Screenshots are supporting visual evidence; they cannot make an application usable and therefore cannot make delivery `READY`. Nonvisual work is labeled `NONVISUAL`. Seeded or simulated evidence is never represented as live.
+
+The operator contract is App-Store-like: one authenticated build authorization starts a durable mission sequence. PBOS owns discovery, planning, implementation, pull-request publication, validation monitoring, bounded deterministic remediation, preview deployment, and telemetry until the sequence reaches usable delivery or a genuinely protected decision. A completed application delivery must render two explicit actions in Mission Control: **Open desktop web app** and **Open mobile app**. Merge, production deployment, secrets, destructive migration, store submission, and certification remain separately protected.
 
 The repository currently has no PBOS Core browser-capture dependency. Screenshot capture must therefore execute through the application repository's established browser tooling when its readiness mission runs; PBOS Core records and verifies the resulting manifest.
 
@@ -90,6 +92,10 @@ The reconciled CLI capabilities are:
 Pause, resume, and cancel require the authenticated operator to own the run. Repository mutation, certification, merge, secrets, deployment, and destructive migration remain protected by existing authority contracts.
 
 `pbos run` selects one dependency-eligible mission, creates a signed operator authorization artifact, records a machine-readable execution plan, and runs only a registered mission adapter. The first registered adapter performs the read-only CIP-048 Playbook repository gap analysis. Autonomous continuation stops before the next human approval boundary or any mission without a certified execution adapter.
+
+When the durable readiness queue does not yet exist, `pbos next` and `pbos run` inspect the governed Playbook default branch and initialize the queue only after every blueprint capability has repository evidence. They never require a separate interactive readiness-review command and never bootstrap from a stale local completion label.
+
+When autonomous continuation reaches a human-gated mission, the same `pbos run` terminal presents a plain-language approval checkpoint. The checkpoint identifies the mission, explains why it is eligible, repeats the protected actions that remain excluded, and asks the authenticated operator for a yes/no decision. An affirmative decision is signed as `START_PRODUCTION_MISSION`, written to the durable audit ledger, and attached to the mission as evidence. A declined decision leaves the mission eligible and does not begin repository work. Mission authorization and post-validation certification remain separate decisions, and PBOS does not report a mission as running merely because authorization exists.
 
 ## Recovery and verification
 

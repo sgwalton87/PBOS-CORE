@@ -15,6 +15,8 @@ describe("PBOS founder Mission Control", () => {
         expect(html).toContain("Live Activity");
         expect(html).toContain("Health & Metrics");
         expect(html).toContain("Result Preview");
+        expect(html).toContain("Open desktop web app");
+        expect(html).toContain("Open mobile app");
         expect(html).toContain("Historical Runs");
         expect(html).toContain('aria-live="polite"');
         expect(html).toContain("DISCONNECTED · STATE UNKNOWN");

@@ -157,7 +157,10 @@ export interface PreviewManifest {
     readonly branch: string;
     readonly commit: string;
     readonly status: "REQUESTED" | "READY" | "FAILED" | "NOT_APPLICABLE";
+    /** @deprecated Use webUrl for application delivery evidence. */
     readonly url?: string;
+    readonly webUrl?: string;
+    readonly mobileUrl?: string;
     readonly routes: readonly string[];
     readonly personas: readonly string[];
     readonly viewports: readonly string[];
