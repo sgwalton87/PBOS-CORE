@@ -23,11 +23,21 @@ export const PLAYBOOK_PLATFORM_BRAND: ProductBrandSpec = {
         clearSpaceRule: "Keep clear space equal to the inner counter width of the P mark on every side.",
         backgroundRules: ["Prefer Playbook Black.", "Use cream only for approved light treatments.", "Maintain readable contrast and an uncluttered field."]
     },
+    logoAsset: {
+        assetId: "THE-PLAYBOOK-HORIZONTAL-LOCKUP-001",
+        product: "The Playbook", role: "HORIZONTAL_LOCKUP",
+        sourcePath: "assets/brand/playbook-platform/the-playbook-standalone-logo.png",
+        width: 1774, height: 887, format: "PNG",
+        approvedSurfaces: ["FACTORY_PORTAL", "DOCUMENTATION", "SOCIAL", "APP_LAUNCHER"],
+        minimumWidth: 320,
+        clearSpaceRule: "Keep clear space equal to the inner counter width of the P mark on every side.",
+        backgroundRules: ["Prefer Playbook Black or another approved high-contrast field.", "Preserve the transparent canvas and supplied safe area."]
+    },
     usageRules: [
         "Use this identity only for The Playbook and its approved application surfaces.",
         "Do not label The Playbook as PBOS Genesis.",
         "Do not stretch, skew, crop, recolor, or rearrange the approved lockups.",
         "Preserve the tagline exactly: Connect. Empower. Achieve.",
-        "The supplied board is a reference; store and production use require approved transparent exports."
+        "Use the standalone transparent PNG for production logo placeholders; retain the master board as reference canon only."
     ]
 };

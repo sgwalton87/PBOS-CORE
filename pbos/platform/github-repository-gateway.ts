@@ -28,10 +28,12 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
     inspect(repository: RepositoryReference): Promise<RepositoryInspection> { return this.inspectRepository(repository); }
     async inspectRepository(repository: RepositoryReference): Promise<RepositoryInspection> {
         const cwd = await this.checkout(repository);
-        const revision = (await this.commands.run("git", ["rev-parse", "HEAD"], cwd)).stdout.trim();
-        const files = (await this.commands.run("git", ["ls-files"], cwd)).stdout.split("\n").filter(Boolean);
+        await this.commands.run("git", ["fetch", "origin", repository.defaultBranch], cwd);
+        const governedBase = `origin/${repository.defaultBranch}`;
+        const revision = (await this.commands.run("git", ["rev-parse", governedBase], cwd)).stdout.trim();
+        const files = (await this.commands.run("git", ["ls-tree", "-r", "--name-only", revision], cwd)).stdout.split("\n").filter(Boolean);
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
-        const findings = [`TRACKED_FILES:${files.length}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN"];
+        const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN"];
         return { repository, revision, findings, inspectedAt: new Date() };
     }
 

@@ -43,7 +43,13 @@ export class ResumableRemediationEngine {
         const changes = await this.handler.propose(requiringRemediation);
         if (!changes) return this.save({ ...requiringRemediation, state: "BLOCKED", blockers: ["No deterministic remediation is registered for the collected failure evidence."] });
         beforeApply?.(requiringRemediation);
-        const revision = await this.handler.apply(requiringRemediation, changes);
+        let revision: string;
+        try {
+            revision = await this.handler.apply(requiringRemediation, changes);
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            return this.save({ ...requiringRemediation, state: "BLOCKED", blockers: [`Remediation application failed: ${reason}`] });
+        }
         return this.save({ ...requiringRemediation, attempt: current.attempt + 1, state: "REMEDIATION_PUSHED",
             remediationRevision: revision, blockers: [], updatedAt: new Date().toISOString() });
     }

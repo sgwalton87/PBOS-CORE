@@ -26,11 +26,24 @@ export const PBOS_GENESIS_BRAND: ProductBrandSpec = {
         clearSpaceRule: "Keep clear space equal to the inner counter width of the P mark on every side.",
         backgroundRules: ["Prefer Genesis Midnight or Genesis Ink.", "Use the light-background treatment only on warm ivory.", "Maintain strong contrast and never place over a busy image."]
     },
+    logoAsset: {
+        assetId: "PBOS-GENESIS-HORIZONTAL-LOCKUP-001",
+        product: "PBOS Genesis",
+        role: "HORIZONTAL_LOCKUP",
+        sourcePath: "assets/brand/pbos-genesis/pbos-genesis-standalone-logo.png",
+        width: 1774,
+        height: 887,
+        format: "PNG",
+        approvedSurfaces: ["GENESIS_CONSOLE", "FACTORY_PORTAL", "DOCUMENTATION", "SOCIAL", "APP_LAUNCHER"],
+        minimumWidth: 320,
+        clearSpaceRule: "Keep clear space equal to the inner counter width of the P mark on every side.",
+        backgroundRules: ["Use over Genesis Midnight, Genesis Ink, or another approved high-contrast field.", "Preserve the transparent canvas and supplied safe area."]
+    },
     usageRules: [
         "Use this identity only for PBOS Genesis, the system factory.",
         "Do not use the Genesis mark as The Playbook app icon.",
         "Do not stretch, skew, recolor, crop, add effects, or rearrange the lockup.",
-        "The supplied PNG is a master visual reference; production lockups require approved transparent SVG or PNG exports.",
+        "Use the standalone transparent PNG for production logo placeholders; retain the master board as reference canon only.",
         "Preserve the tagline punctuation and wording exactly: Create. Power. Evolve."
     ]
 };

@@ -33,7 +33,7 @@ export function heroComponent(model: GenesisPortalModel, factoryBrand: ProductBr
   </div>
   <div class="factory-orbit" aria-label="PBOS Genesis approved brand reference">
     <span class="orbit orbit-one"></span><span class="orbit orbit-two"></span>
-    <img class="factory-reference" src="${assetUrl(factoryBrand.asset.sourcePath)}" alt="PBOS Genesis approved master brand reference">
+    <img class="factory-reference" src="${assetUrl(factoryBrand.logoAsset.sourcePath)}" alt="PBOS Genesis logo">
   </div>
 </section>`;
 }
@@ -42,7 +42,7 @@ export function applicationCardComponent(application: PortalApplication): string
     const colors = application.brand.colors;
     return `<article class="application-card" style="--app-accent:${colors[3]?.value ?? colors[0].value};--app-surface:${colors[0].value};--app-text:${colors[1]?.value ?? "#fff"}">
   <div class="application-brand">
-    <img src="${assetUrl(application.brand.asset.sourcePath)}" alt="${escapeHtml(application.name)} approved brand reference" loading="lazy">
+    <img src="${assetUrl(application.brand.logoAsset.sourcePath)}" alt="${escapeHtml(application.name)} logo" loading="lazy">
   </div>
   <div class="application-copy">
     <p class="eyebrow">PBOS-powered application</p>

@@ -47,4 +47,19 @@ describe("resumable validation remediation", () => {
         await engine.resume(started.runId);
         expect((await engine.resume(started.runId)).state).toBe("BLOCKED");
     });
+
+    it("persists a blocker when remediation application fails", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new CheckCommands();
+        const handler: RemediationHandler = {
+            async propose() { return { summary: "attempt repair", files: [{ path: "fix.ts", content: "export {};" }] }; },
+            async apply() { throw new Error("repository produced no diff"); }
+        };
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), handler);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build", url: "https://github.com/acme/app/pull/1" });
+        const blocked = await engine.resume(started.runId);
+        expect(blocked.state).toBe("BLOCKED");
+        expect(blocked.blockers).toContain("Remediation application failed: repository produced no diff");
+        expect(state.remediationRun(started.runId)?.state).toBe("BLOCKED");
+    });
 });
