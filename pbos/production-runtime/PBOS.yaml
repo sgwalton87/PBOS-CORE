@@ -1,0 +1,18 @@
+id: PBOS-PRODUCTION-RUNTIME-001
+name: PBOS Autonomous Production Runtime
+classification: canonical-runtime
+authority: PBOS-AUTONOMOUS-PRODUCTION-AND-MISSION-CONTROL-001
+owner: pbos/production-runtime
+persistence: PBOS_STATE_HOME/genesis-state.json
+consumers:
+  - pbos/genesis-console
+  - pbos/operator-continuity
+  - pbos/mission-control
+contracts:
+  - ProductionRun
+  - ProductionStage
+  - ProductionEvent
+  - ExecutionLease
+  - MissionQueueItem
+  - PreviewManifest
+status: READY_FOR_VALIDATION

@@ -134,8 +134,13 @@ describe("Genesis terminal control plane", () => {
             launchBackground: () => ({ pid: 42, logPath: "/tmp/existing.log" }),
             summarize: () => ({ lines: [] })
         } as unknown as OperatorContinuityService;
-        const batches = ({ latest: () => ({ batchId: "batch-active", state: "VALIDATING",
-            pullRequestUrl: "https://github.com/example/app/pull/1" }) }) as unknown as AutonomousBatchService;
+        let latestCalls = 0;
+        const batches = ({
+            latest: () => ({ batchId: "batch-active",
+                state: latestCalls++ === 0 ? "VALIDATING" : "READY_FOR_CERTIFICATION",
+                pullRequestUrl: "https://github.com/example/app/pull/1" }),
+            telemetry: () => []
+        }) as unknown as AutonomousBatchService;
         const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io,
             undefined, undefined, workflows, undefined, continuity, batches);
         expect(await terminal.run()).toBe(0);
@@ -159,5 +164,61 @@ describe("Genesis terminal control plane", () => {
         expect(await terminal.run()).toBe(0);
         expect(io.output).toContain("PRIOR BATCH IS GREEN AND AWAITING HUMAN CERTIFICATION/MERGE");
         expect(io.output).toContain("NEXT HUMAN STEP: certify and merge the prior batch. PBOS will recognize it from the governed default branch on the next launch.");
+    });
+
+    it("launches readiness review after merged capability evidence without repeating historical certification", async () => {
+        const io = new FakeTerminal(["1", "1", "3", "y"]);
+        const blueprint = createPlaybookBlueprint();
+        const findings = blueprint.capabilities.map(capability => `CAPABILITY:${capability}:PRESENT`);
+        const plan = { planId: "readiness", status: "READY_FOR_APPROVAL", blockers: [], workPackages: [], blueprint,
+            inspection: { findings, revision: "5dda9e7", repository: {
+                owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, inspectedAt: new Date() },
+            repositoryRevision: "5dda9e7" };
+        const workflows = { inspectAndPlan: async () => plan } as unknown as GenesisWorkflowService;
+        const continuity = {
+            summarize: () => { throw new Error("historical remediation summary must not be rendered"); }
+        } as unknown as OperatorContinuityService;
+        const batches = ({ latest: () => ({ batchId: "batch-certified", state: "READY_FOR_CERTIFICATION",
+            pullRequestUrl: "https://github.com/sgwalton87/playbook-platform/pull/51",
+            workPackages: blueprint.capabilities.map(capability => ({
+                workPackageId: `PLAYBOOK-SYSTEM-001:${capability}`, title: `Implement ${capability.toLowerCase()}`
+            })) }) }) as unknown as AutonomousBatchService;
+        const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io,
+            undefined, undefined, workflows, undefined, continuity, batches);
+
+        expect(await terminal.run()).toBe(0);
+        expect(io.output).toContain("APPLICATION READINESS REVIEW");
+        expect(io.output).toContain("Governed revision: 5dda9e7");
+        expect(io.output).toContain("Capability foundation: 7/7 complete");
+        expect(io.output).toContain("Readiness state: READY_FOR_GAP_ANALYSIS");
+        expect(io.output).not.toContain("Status: READY_FOR_CERTIFICATION");
+        expect(io.output).not.toContain("Draft PR: https://github.com/sgwalton87/playbook-platform/pull/51");
+    });
+
+    it("streams autonomous telemetry in the launch terminal until human approval is required", async () => {
+        const io = new FakeTerminal(["1", "1", "3", "y"]);
+        const event = { eventId: "event-1", batchId: "batch-live", systemId: "PLAYBOOK-SYSTEM-001",
+            sessionId: "session", type: "BATCH_READY_FOR_APPROVAL", title: "Entire batch ready for human approval",
+            detail: "One work package completed validation.", occurredAt: new Date().toISOString() } as const;
+        let latestCalls = 0;
+        const batches = ({
+            latest: () => ({ batchId: "batch-live", systemId: "PLAYBOOK-SYSTEM-001",
+                state: latestCalls++ === 0 ? "VALIDATING" : "READY_FOR_CERTIFICATION",
+                pullRequestUrl: "https://github.com/sgwalton87/playbook-platform/pull/52", workPackages: [] }),
+            telemetry: () => [event]
+        }) as unknown as AutonomousBatchService;
+        const continuity = {
+            launchBackground: () => ({ pid: 42, logPath: "/tmp/live.log" }),
+            summarize: () => ({ lines: [] })
+        } as unknown as OperatorContinuityService;
+        const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io,
+            undefined, undefined, { inspectAndPlan: async () => { throw new Error("active batch must resume"); } } as unknown as GenesisWorkflowService,
+            undefined, continuity, batches);
+
+        expect(await terminal.run()).toBe(0);
+        expect(io.output).toContain("LIVE BUILD TELEMETRY");
+        expect(io.output).toContain(`${event.occurredAt} BATCH_READY_FOR_APPROVAL: Entire batch ready for human approval`);
+        expect(io.output).toContain("BATCH STATE: READY_FOR_CERTIFICATION");
+        expect(io.output).toContain("TELEMETRY COMPLETE: the entire batch is ready for human certification.");
     });
 });

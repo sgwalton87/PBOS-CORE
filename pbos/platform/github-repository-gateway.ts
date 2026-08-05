@@ -35,7 +35,7 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
         const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN",
             ...this.capabilityFindings(files)];
-        return { repository, revision, findings, inspectedAt: new Date() };
+        return { repository, revision, findings, inspectedAt: new Date(), files };
     }
 
     async createBranch(repository: RepositoryReference, branch: string, baseRevision: string): Promise<string> {

@@ -12,6 +12,7 @@ export interface RepositoryInspection {
     readonly revision: string;
     readonly findings: readonly string[];
     readonly inspectedAt: Date;
+    readonly files?: readonly string[];
 }
 
 export interface RepositoryChangeProposal {

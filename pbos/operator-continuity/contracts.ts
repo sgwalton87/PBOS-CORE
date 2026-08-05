@@ -56,7 +56,8 @@ export interface BatchTelemetryEvent {
 }
 
 export interface BatchTelemetryReporter {
-    beginBatch(systemId: string, sessionId: string, workPackages: readonly { readonly id: string; readonly title: string }[]): string;
+    beginBatch(systemId: string, sessionId: string, workPackages: readonly { readonly id: string; readonly title: string }[],
+        context?: Readonly<{ repository: string; branch: string; commit: string; objective: string; mission: string }>): string;
     packageStarted(batchId: string, systemId: string, sessionId: string, workPackageId: string, title: string): void;
     packageCompleted(batchId: string, systemId: string, sessionId: string, workPackageId: string, title: string): void;
 }

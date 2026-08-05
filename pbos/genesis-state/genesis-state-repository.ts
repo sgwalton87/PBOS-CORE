@@ -5,6 +5,7 @@ import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
 import type { RemediationRun } from "../validation-automation/contracts";
 import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
+import type { ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRun, ProductionStage } from "../production-runtime/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -26,6 +27,12 @@ interface DurableGenesisState {
     readonly backgroundJobs?: readonly BackgroundMonitorJob[];
     readonly autonomousBatches?: readonly AutonomousBuildBatch[];
     readonly batchTelemetry?: readonly BatchTelemetryEvent[];
+    readonly productionRuns?: readonly ProductionRun[];
+    readonly productionStages?: readonly ProductionStage[];
+    readonly productionEvents?: readonly ProductionEvent[];
+    readonly executionLeases?: readonly ExecutionLease[];
+    readonly missionQueue?: readonly MissionQueueItem[];
+    readonly previewManifests?: readonly PreviewManifest[];
 }
 
 const dateKeys = new Set(["createdAt", "activatedAt", "issuedAt", "expiresAt", "revokedAt", "decidedAt", "requestedAt"]);
@@ -88,5 +95,41 @@ export class GenesisStateRepository {
     }
     appendBatchTelemetry(event: BatchTelemetryEvent): void {
         this.store.update(state => ({ ...state, batchTelemetry: [...(state.batchTelemetry ?? []), event] }));
+    }
+
+    productionRuns(): readonly ProductionRun[] { return [...(this.store.read().productionRuns ?? [])]; }
+    productionRun(runId: string): ProductionRun | undefined { return this.productionRuns().find(run => run.runId === runId); }
+    saveProductionRun(run: ProductionRun): void {
+        this.store.update(state => ({ ...state, productionRuns: [...(state.productionRuns ?? []).filter(item => item.runId !== run.runId), run] }));
+    }
+    productionStages(runId?: string): readonly ProductionStage[] {
+        return [...(this.store.read().productionStages ?? [])].filter(stage => !runId || stage.runId === runId);
+    }
+    saveProductionStage(stage: ProductionStage): void {
+        this.store.update(state => ({ ...state, productionStages: [...(state.productionStages ?? []).filter(item => item.stageId !== stage.stageId), stage] }));
+    }
+    productionEvents(runId?: string): readonly ProductionEvent[] {
+        return [...(this.store.read().productionEvents ?? [])].filter(event => !runId || event.runId === runId)
+            .sort((left, right) => left.sequence - right.sequence);
+    }
+    appendProductionEvent(event: ProductionEvent): void {
+        if ((this.store.read().productionEvents ?? []).some(item => item.eventId === event.eventId)) return;
+        this.store.update(state => ({ ...state, productionEvents: [...(state.productionEvents ?? []), event] }));
+    }
+    executionLeases(): readonly ExecutionLease[] { return [...(this.store.read().executionLeases ?? [])]; }
+    saveExecutionLease(lease: ExecutionLease): void {
+        this.store.update(state => ({ ...state, executionLeases: [...(state.executionLeases ?? []).filter(item => item.leaseId !== lease.leaseId), lease] }));
+    }
+    missionQueue(systemId?: string): readonly MissionQueueItem[] {
+        return [...(this.store.read().missionQueue ?? [])].filter(item => !systemId || item.systemId === systemId);
+    }
+    saveMissionQueue(items: readonly MissionQueueItem[], systemId: string): void {
+        this.store.update(state => ({ ...state, missionQueue: [...(state.missionQueue ?? []).filter(item => item.systemId !== systemId), ...items] }));
+    }
+    previewManifests(runId?: string): readonly PreviewManifest[] {
+        return [...(this.store.read().previewManifests ?? [])].filter(item => !runId || item.runId === runId);
+    }
+    savePreviewManifest(manifest: PreviewManifest): void {
+        this.store.update(state => ({ ...state, previewManifests: [...(state.previewManifests ?? []).filter(item => item.previewId !== manifest.previewId), manifest] }));
     }
 }

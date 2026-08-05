@@ -1,9 +1,9 @@
-import { mkdtempSync } from "fs";
+import { existsSync, mkdtempSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { BuildAuthorityService } from "../../autonomous-authority";
-import { GenesisStateRepository, OperatorIdentityService, PersistentAuthorityLedger, PersistentBuildGrantRegistry } from "../index";
+import { GenesisStateRepository, JsonStateStore, OperatorIdentityService, PersistentAuthorityLedger, PersistentBuildGrantRegistry } from "../index";
 
 describe("durable Genesis state and operator identity", () => {
     it("authenticates operators and detects approval tampering", () => {
@@ -27,5 +27,15 @@ describe("durable Genesis state and operator identity", () => {
         serviceA.revoke(grant.grantId, "Operator revoked cross-process grant.");
         expect(serviceB.authorize({ grantId: grant.grantId, systemId: grant.systemId, repository: grant.repository,
             branch: "agent/audit", action: "INSPECT_REPOSITORY", risk: "LOW", requestedAt: new Date() }).allowed).toBe(false);
+    });
+
+    it("recovers a stale state lock before applying an atomic update", () => {
+        const path = join(mkdtempSync(join(tmpdir(), "pbos-state-lock-")), "state.json");
+        const lock = `${path}.lock`;
+        writeFileSync(lock, "orphaned\n");
+        const old = new Date(Date.now() - 31_000); utimesSync(lock, old, old);
+        const store = new JsonStateStore(path, () => ({ count: 0 }));
+        expect(store.update(current => ({ count: current.count + 1 }))).toEqual({ count: 1 });
+        expect(existsSync(lock)).toBe(false);
     });
 });
