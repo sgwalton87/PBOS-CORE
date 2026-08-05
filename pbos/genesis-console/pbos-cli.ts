@@ -51,7 +51,7 @@ function runtime() {
     const identities = new OperatorIdentityService(operatorsPath);
     const operator = identities.authenticate(local.operatorId, local.credential);
     const state = new GenesisStateRepository(genesisPath);
-    if (state.systems().length === 0) REFERENCE_SYSTEMS.forEach(system => state.saveSystem(system));
+    REFERENCE_SYSTEMS.forEach(system => state.saveSystem(system));
     const grants = new PersistentBuildGrantRegistry(state);
     const authority = new BuildAuthorityService(grants, new PersistentAuthorityLedger(state));
     const control = new GenesisControlPlane(new GenesisSystemCatalog(state.systems()), authority, state);
@@ -74,14 +74,14 @@ function runtime() {
     return { state, control, sessionAuthority, workflows, remediation, memos };
 }
 
-async function launch(): Promise<number> {
+async function launch(preselectedSystemId?: string): Promise<number> {
     const services = runtime();
     const unfinished = services.state.remediationRuns().filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state));
     if (unfinished.length) stdout.write(`Unfinished build detected: ${unfinished.at(-1)!.systemId} (${unfinished.at(-1)!.state}). Activate that system and choose validation/remediation to resume.\n`);
     const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
     const continuity = new OperatorContinuityService(services.remediation, services.memos, background);
     return new GenesisTerminal(services.control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => services.state.saveBlueprint(blueprint)),
-        services.sessionAuthority, services.workflows, services.remediation, continuity).run();
+        services.sessionAuthority, services.workflows, services.remediation, continuity).run(preselectedSystemId);
 }
 
 export async function runPbosCli(args = process.argv.slice(2)): Promise<number> {
@@ -109,6 +109,14 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const services = runtime();
         await new BackgroundMonitor(services.state, services.remediation, services.workflows, services.memos).run(runId, sessionId);
         return 0;
+    }
+    if (args[0] === "activate") {
+        const target = args[1]?.toLowerCase();
+        const systemId = target === "playbook" || target === "the-playbook" || target === "playbook-system-001"
+            ? "PLAYBOOK-SYSTEM-001"
+            : target === "bulletproof" || target === "bulletproof-system-001" ? "BULLETPROOF-SYSTEM-001" : undefined;
+        if (!systemId) throw new Error("Activation target must be playbook or bulletproof.");
+        return launch(systemId);
     }
     if (args.length > 0) throw new Error(`Unknown PBOS command: ${args.join(" ")}`);
     return launch();

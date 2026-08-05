@@ -27,24 +27,28 @@ export class GenesisTerminal {
         private readonly continuity?: OperatorContinuityService
     ) {}
 
-    async run(): Promise<number> {
+    async run(preselectedSystemId?: string): Promise<number> {
         try {
             this.io.write("PBOS GENESIS");
             this.io.write("System Factory Console\n");
-            this.io.write("1. Activate Registered System");
-            this.io.write("2. Create New Operating System");
-            const operation = this.selection(await this.io.prompt("\nChoose an operation: "), 2);
-            if (operation === 1) {
-                await this.intake.collect(this.io);
-                return 0;
-            }
+            if (!preselectedSystemId) {
+                this.io.write("1. Activate Registered System");
+                this.io.write("2. Create New Operating System");
+                const operation = this.selection(await this.io.prompt("\nChoose an operation: "), 2);
+                if (operation === 1) {
+                    await this.intake.collect(this.io);
+                    return 0;
+                }
+            } else this.io.write(`Governed activation: ${preselectedSystemId}\n`);
             const systems = this.controlPlane.listSystems();
             systems.forEach((system, index) => {
                 this.io.write(`${index + 1}. ${system.name}`);
                 this.io.write(`   ${system.systemId} | ${system.domain} | ${system.status}`);
             });
-            const systemIndex = this.selection(await this.io.prompt("\nSelect a registered system: "), systems.length);
-            const system = systems[systemIndex];
+            const system = preselectedSystemId
+                ? systems.find(candidate => candidate.systemId === preselectedSystemId)
+                : systems[this.selection(await this.io.prompt("\nSelect a registered system: "), systems.length)];
+            if (!system) throw new Error(`Registered system not found: ${preselectedSystemId}`);
 
             this.io.write("\nSelect authority mode:");
             MODES.forEach((entry, index) => this.io.write(`${index + 1}. ${entry.label}`));

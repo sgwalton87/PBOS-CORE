@@ -14,7 +14,8 @@ export interface ApplicationScaffold {
     readonly stack: ApplicationStack;
     readonly files: readonly ScaffoldFile[];
     readonly securityBoundaries: readonly string[];
-    readonly dependencyLock: Readonly<{ manager: "NPM"; path: "package-lock.json"; required: true }>;
+    readonly mode: "NEW_APPLICATION" | "EXISTING_APPLICATION_OVERLAY";
+    readonly dependencyLock: Readonly<{ manager: "NPM"; path: "package-lock.json"; required: boolean }>;
     readonly generatedAt: Date;
 }
 export interface ScaffoldRequest { readonly blueprint: SystemBlueprint; readonly includeFirstVerticalSlice?: boolean; }

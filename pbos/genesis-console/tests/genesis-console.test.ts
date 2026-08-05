@@ -46,6 +46,15 @@ describe("Genesis terminal control plane", () => {
         expect(io.output).toContain("Authority: Read Only");
     });
 
+    it("preselects The Playbook while preserving authority approval", async () => {
+        const io = new FakeTerminal(["3", "yes"]);
+        const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io);
+        expect(await terminal.run("PLAYBOOK-SYSTEM-001")).toBe(0);
+        expect(io.output).toContain("Governed activation: PLAYBOOK-SYSTEM-001\n");
+        expect(io.output).toContain("System: The Playbook");
+        expect(io.output).toContain("Authority: Delegated Autonomous Build");
+    });
+
     it("creates an enforceable grant for the selected system", () => {
         const control = new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS));
         const session = control.activateSystem(

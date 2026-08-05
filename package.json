@@ -19,6 +19,8 @@
     "pbos:login": "tsx pbos/genesis-console/entrypoint.ts login",
     "pbos:status": "tsx pbos/genesis-console/entrypoint.ts status",
     "pbos:memo": "tsx pbos/genesis-console/entrypoint.ts memo",
+    "pbos:portal": "tsx pbos/consumer-portal/server.ts",
+    "pbos:build:playbook": "tsx pbos/genesis-console/entrypoint.ts activate playbook",
     "pbos:activate:playbook": "tsx pbos/tools/playbook-staging-activation.ts",
     "pbos:verify:playbook-recovery": "tsx pbos/tools/playbook-staging-recovery.ts",
     "pbos:evidence:playbook-lifecycle": "tsx pbos/tools/playbook-staging-lifecycle.ts",
