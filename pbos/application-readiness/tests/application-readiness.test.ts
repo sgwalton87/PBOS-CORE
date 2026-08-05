@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ApplicationJourney, ApplicationReadinessCompiler, ApplicationSurface, JourneyEvidence } from "../index";
+import { ApplicationJourney, ApplicationReadinessCompiler, ApplicationSurface, JourneyEvidence, RepositoryReadinessInventoryCompiler } from "../index";
 
 const journeys: ApplicationJourney[] = ["IDENTITY_ONBOARDING", "DASHBOARD", "ACADEMIC", "OPPORTUNITY", "APPLICATIONS", "SUPPORT_NETWORK", "MESSAGING", "DOCUMENTS", "NOTIFICATIONS"];
 const evidence = (surface: ApplicationSurface, journey: ApplicationJourney): JourneyEvidence => ({ journey, surface,
@@ -35,5 +35,19 @@ describe("CIP-048 and CIP-049 application readiness", () => {
             units: [{ unitId: "unowned-engine", paths: ["lib/unowned-engine"], journeys: [] }], evidence: [] });
         expect(report.unmappedUnits).toEqual(["unowned-engine"]);
         expect(report.complete).toBe(false);
+    });
+
+    it("derives a conservative governed inventory without claiming unproven quality attributes", () => {
+        const inventory = new RepositoryReadinessInventoryCompiler().compile({
+            repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, revision: "5dda9e7",
+            inspectedAt: new Date(), findings: [], files: [
+                "src/app/dashboard/page.tsx", "tests/dashboard.test.tsx", "supabase/migrations/001_scholar.sql",
+                "src/lib/unmapped-engine.ts"
+            ]
+        });
+        const dashboard = inventory.evidence.find(item => item.journey === "DASHBOARD");
+        expect(inventory).toMatchObject({ repository: "sgwalton87/playbook-platform", revision: "5dda9e7", routeCount: 1, testCount: 1, databaseFileCount: 1 });
+        expect(dashboard).toMatchObject({ surface: "WEB", responsive: false, accessible: false });
+        expect(inventory.units.some(unit => unit.unitId.includes("unmapped-engine") && unit.journeys.length === 0)).toBe(true);
     });
 });

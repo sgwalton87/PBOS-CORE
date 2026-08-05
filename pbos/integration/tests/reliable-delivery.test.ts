@@ -1,4 +1,4 @@
-import { mkdtempSync } from "fs";
+import { existsSync, mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -15,6 +15,7 @@ describe("CIP-042 reliable delivery", () => {
         const engine = new ReliableDeliveryEngine(new FileDeliveryRepository(path), policy, new CircuitBreaker(5),
             new ConcurrencyBulkhead(2), () => "RETRYABLE", () => 0.5, async delay => { delays.push(delay); });
         const queued = engine.enqueue("ORG-001", "CONNECTOR-001", "DATA_EXCHANGE", "exchange-1", { value: 1 });
+        expect(existsSync(`${path}.lock`)).toBe(false);
         let calls = 0;
         const delivered = await engine.deliver(queued.deliveryId, async () => { calls += 1; if (calls < 3) throw new Error("temporary"); });
         expect(delivered).toMatchObject({ state: "DELIVERED", attempts: 3 });

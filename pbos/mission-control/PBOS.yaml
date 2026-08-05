@@ -1,0 +1,9 @@
+id: PBOS-MISSION-CONTROL-001
+name: PBOS Genesis Mission Control
+classification: derived-founder-read-model
+authority: PBOS-AUTONOMOUS-PRODUCTION-AND-MISSION-CONTROL-001
+owner: pbos/mission-control
+source: PBOS-PRODUCTION-RUNTIME-001
+transport: authenticated-local-polling
+bind: 127.0.0.1
+status: READY_FOR_VALIDATION

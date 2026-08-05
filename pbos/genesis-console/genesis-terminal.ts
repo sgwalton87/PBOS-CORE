@@ -95,10 +95,12 @@ export class GenesisTerminal {
             this.io.write(`Grant: ${session.grant.grantId}`);
             this.io.write(`Expires: ${session.grant.expiresAt.toISOString()}`);
             this.io.write("Available: inspect, status, plan, propose, build, test preparation, documentation, commit, push, draft PR");
-            const backgroundStarted = this.workflows
+            const workflowOutcome = this.workflows
                 ? selectedMode.mode === "DELEGATED_AUTONOMY" ? await this.runDelegatedWorkflow(session) : await this.runWorkflow(session, 1)
                 : false;
-            if (this.continuity) {
+            const readinessReviewComplete = workflowOutcome === "READINESS_REVIEW";
+            const backgroundStarted = workflowOutcome === true;
+            if (this.continuity && !readinessReviewComplete) {
                 const summary = this.continuity.summarize(session);
                 this.io.write("");
                 summary.lines.forEach(line => this.io.write(line));
@@ -147,7 +149,7 @@ export class GenesisTerminal {
                 const remediation = this.remediation?.start(session.system.systemId, build.pullRequest);
                 if (remediation) this.io.write(`Validation run: ${remediation.runId}`);
                 if (remediation && this.batches) {
-                    const batch = this.batches.start(session, build.plan, packageLimit, build.pullRequest, remediation.runId, build.batchId);
+                    const batch = this.batches.start(session, build.plan, packageLimit, build.pullRequest, remediation.runId, build.batchId, build.revision, build.generatedPaths);
                     this.io.write(`Batch: ${batch.batchId}`);
                     this.io.write(`Work packages queued: ${batch.workPackages.length}/${batch.packageLimit}`);
                 }
@@ -157,7 +159,7 @@ export class GenesisTerminal {
                     if (job) {
                         this.io.write(`Autonomous monitoring started: PID ${job.pid}`);
                         this.io.write("PBOS will monitor, remediate when deterministic, update the memo, and notify you when the batch is ready or blocked.");
-                        this.io.write(`Watch live: pbos watch ${session.system.systemId}`);
+                        this.io.write(`Watch live: npm run pbos:watch -- ${session.system.systemId}`);
                         return true;
                     }
                 }
@@ -194,7 +196,7 @@ export class GenesisTerminal {
         }
     }
 
-    private async runDelegatedWorkflow(session: import("./genesis-control-plane").GenesisBuildSession): Promise<boolean> {
+    private async runDelegatedWorkflow(session: import("./genesis-control-plane").GenesisBuildSession): Promise<boolean | "READINESS_REVIEW"> {
         const existingBatch = this.batches?.latest(session.system.systemId);
         let preparedPlan: Awaited<ReturnType<GenesisWorkflowService["inspectAndPlan"]>> | undefined;
         const legacyRun = this.remediation?.latest(session.system.systemId);
@@ -233,7 +235,8 @@ export class GenesisTerminal {
             this.io.write("PBOS will not create a duplicate batch while this package set remains active.");
             const job = this.continuity?.launchBackground(session);
             if (job) this.io.write(`Monitoring: PID ${job.pid} — ${job.logPath}`);
-            this.io.write(`Watch live: pbos watch ${session.system.systemId}`);
+            if (job && this.batches) await this.streamBatchTelemetry(session.system.systemId, existingBatch.batchId);
+            else this.io.write(`Watch live: npm run pbos:watch -- ${session.system.systemId}`);
             return Boolean(job);
         }
         if (existingBatch?.state === "BLOCKED") {
@@ -252,6 +255,10 @@ export class GenesisTerminal {
                 this.io.write("NEXT HUMAN STEP: certify and merge the prior batch. PBOS will recognize it from the governed default branch on the next launch.");
                 return false;
             }
+            // Older adapters and focused test doubles predate the production-runtime
+            // certification hook. Governed repository evidence remains authoritative;
+            // invoke the durable lifecycle transition when the adapter supports it.
+            this.batches?.certify?.(existingBatch.batchId, `governed-merge:${preparedPlan.repositoryRevision}`);
             this.io.write(`Prior batch ${existingBatch.batchId} is now proven on the governed default branch. Continuing to the next incomplete packages.`);
         }
         this.io.write("");
@@ -266,8 +273,24 @@ export class GenesisTerminal {
         }
         const available = Math.min(plan.workPackages.length, 10);
         if (available === 0) {
-            this.io.write("No incomplete work packages were discovered. The system is ready for readiness review.");
-            return false;
+            const nextMission = this.batches?.prepareReadinessQueue?.(session.system.systemId, plan.repositoryRevision);
+            this.io.write("No incomplete capability work packages were discovered.");
+            this.io.write("");
+            this.io.write("APPLICATION READINESS REVIEW");
+            this.io.write(`Repository: ${session.system.repository}`);
+            this.io.write(`Governed revision: ${plan.repositoryRevision}`);
+            this.io.write(`Capability foundation: ${completed.length}/${plan.blueprint.capabilities.length} complete`);
+            this.io.write("Required delivery surfaces: WEB, IOS, ANDROID");
+            this.io.write("Readiness streams:");
+            this.io.write("1. CIP-048 — Web journeys, durable data, authority, responsive UX, accessibility, and staging");
+            this.io.write("2. CIP-049 — Shared mobile foundation, native journeys, store preparation, and release certification");
+            this.io.write("3. CIP-050 — Independent multi-platform evidence and ecosystem certification");
+            this.io.write("Readiness state: READY_FOR_GAP_ANALYSIS");
+            this.io.write(`NEXT MISSION: ${nextMission?.title ?? "Compile journey-level web and mobile gaps into governed implementation packages"}`);
+            this.io.write(`SELECTION REASON: ${nextMission?.rationale ?? "The certified capability foundation satisfies the readiness-review dependency."}`);
+            this.io.write(`APPROVAL REQUIRED: ${nextMission?.approvalRequired ? "YES" : "NO"}`);
+            this.io.write("Historical PR certification is complete and is not current session work.");
+            return "READINESS_REVIEW";
         }
         this.io.write(`${plan.workPackages.length} incomplete work package${plan.workPackages.length === 1 ? "" : "s"} discovered.`);
         plan.workPackages.slice(0, 10).forEach((item, index) => this.io.write(`${index + 1}. ${item.title}`));
@@ -301,8 +324,10 @@ export class GenesisTerminal {
         if (!this.remediation) throw new Error("Validation automation is not configured.");
         const remediation = this.remediation.start(session.system.systemId, build.pullRequest);
         this.io.write(`Validation run: ${remediation.runId}`);
+        let activeBatchId: string | undefined;
         if (this.batches) {
-            const batch = this.batches.start(session, build.plan, packageLimit, build.pullRequest, remediation.runId, build.batchId);
+            const batch = this.batches.start(session, build.plan, packageLimit, build.pullRequest, remediation.runId, build.batchId, build.revision, build.generatedPaths);
+            activeBatchId = batch.batchId;
             this.io.write(`Batch: ${batch.batchId}`);
             this.io.write(`Work packages queued: ${batch.workPackages.length}/${batch.packageLimit}`);
         }
@@ -311,9 +336,64 @@ export class GenesisTerminal {
         if (!job) throw new Error("Autonomous validation monitor could not be started.");
         this.io.write(`Autonomous monitoring started: PID ${job.pid}`);
         this.io.write(`Monitor log: ${job.logPath}`);
-        this.io.write(`Watch live: pbos watch ${session.system.systemId}`);
-        this.io.write("NEXT HUMAN STEP: Wait for the PBOS notification, then review the certification memo. No repeated terminal selections are required.");
+        if (activeBatchId && this.batches) {
+            await this.streamBatchTelemetry(session.system.systemId, activeBatchId);
+            this.io.write("NEXT HUMAN STEP: Review the certification memo and approve or reject the completed batch.");
+        } else {
+            this.io.write(`Watch live: npm run pbos:watch -- ${session.system.systemId}`);
+            this.io.write("NEXT HUMAN STEP: Wait for the PBOS notification, then review the certification memo. No repeated terminal selections are required.");
+        }
         return true;
+    }
+
+    private async streamBatchTelemetry(systemId: string, batchId: string): Promise<void> {
+        if (!this.batches) return;
+        this.io.write("");
+        this.io.write("LIVE BUILD TELEMETRY");
+        this.io.write("This terminal is attached to the autonomous build. Press Ctrl-C to detach; background execution will continue.");
+        const seen = new Set<string>();
+        const seenProductionEvents = new Set<string>();
+        let priorState = "";
+        for (;;) {
+            const batch = this.batches.latest(systemId);
+            if (!batch || batch.batchId !== batchId) throw new Error(`Active telemetry batch not found: ${batchId}`);
+            for (const event of this.batches.telemetry(batchId)) {
+                if (seen.has(event.eventId)) continue;
+                seen.add(event.eventId);
+                const scope = event.workPackageId ? ` [${event.workPackageId}]` : "";
+                this.io.write(`${event.occurredAt} ${event.type}${scope}: ${event.title}`);
+                this.io.write(`  ${event.detail}`);
+            }
+            for (const event of this.batches.productionTelemetry?.(batchId) ?? []) {
+                if (seenProductionEvents.has(event.eventId)) continue;
+                seenProductionEvents.add(event.eventId);
+                this.io.write(`${event.timestamp} ${event.type}: ${event.summary}`);
+            }
+            this.batches.heartbeat?.(batchId);
+            const production = this.batches.productionState?.(batchId);
+            if (production?.run) {
+                const elapsed = Math.max(0, Date.now() - Date.parse(production.run.startedAt));
+                this.io.write(`ACTIVE: ${production.run.status} · ${production.stage?.title ?? "transitioning"} · elapsed ${this.humanDuration(elapsed)} · heartbeat ${production.run.lastHeartbeatAt}`);
+            }
+            if (batch.state !== priorState) {
+                this.io.write(`BATCH STATE: ${batch.state}`);
+                priorState = batch.state;
+            }
+            if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(batch.state)) {
+                this.io.write(batch.state === "READY_FOR_CERTIFICATION"
+                    ? "TELEMETRY COMPLETE: the entire batch is ready for human certification."
+                    : "TELEMETRY STOPPED: the batch requires human intervention.");
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 5_000));
+        }
+    }
+
+    private humanDuration(milliseconds: number): string {
+        const seconds = Math.floor(milliseconds / 1_000);
+        if (seconds < 60) return `${seconds}s`;
+        const minutes = Math.floor(seconds / 60);
+        return `${minutes}m ${seconds % 60}s`;
     }
 
     private selection(value: string, count: number): number {
