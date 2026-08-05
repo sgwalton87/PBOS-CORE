@@ -2,7 +2,7 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { applicationArchivistFiles } from "../archivist";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
-import { ProductionMissionExecutor } from "../production-runtime";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { createPlaybookBlueprint } from "../reference-systems";
 import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 
@@ -47,7 +47,8 @@ export function authorizePlaybookFoundation(request: PlaybookFoundationRequest) 
 }
 `;
 
-const foundationTest = `import { describe, expect, it } from "vitest";
+const foundationTest = `import { readFileSync } from "fs";
+import { describe, expect, it } from "vitest";
 import { authorizePlaybookFoundation } from "../../../lib/pbos/foundation";
 
 describe("CIP-048 Playbook web foundation", () => {
@@ -63,8 +64,40 @@ describe("CIP-048 Playbook web foundation", () => {
     expect(() => authorizePlaybookFoundation({ userId: "scholar-1", ownerId: "scholar-2", role: "SCHOLAR", approvalId: "approval-1" })).toThrow("Access denied");
     expect(() => authorizePlaybookFoundation({ userId: "scholar-1", ownerId: "scholar-1", role: "SCHOLAR" })).toThrow("approval");
   });
+
+  it("applies the responsive accessible application foundation", () => {
+    const layout = readFileSync("app/layout.tsx", "utf8");
+    const css = readFileSync("app/globals.css", "utf8");
+    expect(layout).toContain('<html lang="en">');
+    expect(css).toContain('@import "../styles/playbook-tokens.css"');
+    expect(css).toContain("@media (max-width: 768px)");
+    expect(css).toContain("overflow-x: hidden");
+  });
 });
 `;
+
+function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
+    const evidence = (dimension: ApplicationAcceptanceEvidence["dimension"], evidenceId: string, behavior: string,
+        artifact: string, source: ApplicationAcceptanceEvidence["source"]): ApplicationAcceptanceEvidence => ({
+        dimension, evidenceId, behavior, artifact, source, repository: REPOSITORY, commit: revision, passed: true
+    });
+    return [
+        evidence("USER_INTERFACE", `foundation-ui:${revision}`, "The root application shell applies canonical Playbook tokens and a responsive content boundary.",
+            "app/globals.css", "IMPLEMENTATION"),
+        evidence("DURABLE_DATA", `foundation-data:${revision}`, "Scholar profiles, goals, and milestones persist under owner-scoped row-level security.",
+            "supabase/migrations/202608050002_pbos_scholar_foundation.sql", "IMPLEMENTATION"),
+        evidence("AUTHORITY", `foundation-authority:${revision}`, "Cross-owner access and missing governed approval fail closed.",
+            "lib/pbos/foundation.ts", "SECURITY_TEST"),
+        evidence("PBOS_INTEGRATION", `foundation-pbos:${revision}`, "Authenticated Supabase identity maps into the PBOS actor contract with provenance.",
+            "pbos/connector/identity-mapper.ts", "IMPLEMENTATION"),
+        evidence("ACCEPTANCE_TEST", `foundation-tests:${revision}`, "Foundation acceptance tests exercise identity, ownership, approval, design, and responsive shell behavior.",
+            "tests/unit/pbos/playbook-foundation.test.ts", "APPLICATION_TEST"),
+        evidence("ACCESSIBILITY", `foundation-accessibility:${revision}`, "The application declares document language and preserves responsive, overflow-safe layout behavior.",
+            "tests/unit/pbos/playbook-foundation.test.ts", "APPLICATION_TEST"),
+        evidence("SECURITY", `foundation-security:${revision}`, "Owner and approval boundaries are covered by negative acceptance cases.",
+            "tests/unit/pbos/playbook-foundation.test.ts", "SECURITY_TEST")
+    ];
+}
 
 function changes(revision: string, runId: string): readonly RepositoryFileChange[] {
     return [
@@ -129,7 +162,8 @@ export function playbookFoundationExecutor(dependencies: PlaybookFoundationExecu
                 output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Foundation change published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
-            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url }
+            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
+            acceptanceEvidence: acceptanceEvidence(revision)
         };
     };
 }

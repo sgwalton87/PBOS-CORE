@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
 import { GovernedMissionQueue } from "./mission-queue";
-import { MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { ApplicationAcceptanceEvidence, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 import { ProductionRuntimeService } from "./production-runtime-service";
 
 export interface MissionExecutionContext {
@@ -17,6 +18,7 @@ export interface MissionExecutionResult {
     readonly commands?: readonly Readonly<{ command: string; exitCode: number; durationMs: number; output?: string }>[];
     readonly validations: readonly Readonly<{ name: string; passed: boolean; durationMs: number; evidenceId: string }>[];
     readonly deferredValidation?: Readonly<{ remediationRunId: string; pullRequestUrl: string }>;
+    readonly acceptanceEvidence?: readonly ApplicationAcceptanceEvidence[];
 }
 
 export type ProductionMissionExecutor = (context: MissionExecutionContext) => Promise<MissionExecutionResult>;
@@ -101,6 +103,11 @@ export class ProductionMissionRunner {
 
             try {
                 const result = await executor({ run: this.runtime.run(run.runId)!, mission, report: this.report });
+                const revision = typeof result.outputs.revision === "string" ? result.outputs.revision : undefined;
+                if (revision && /^[a-f0-9]{7,40}$/i.test(revision)) this.runtime.updateRepositoryPosition(run.runId, request.branch, revision);
+                const verifier = new FunctionalAcceptanceVerifier();
+                verifier.assertImplementationEvidence(mission, result.acceptanceEvidence ?? [], request.repository, revision ?? request.commit);
+                if (result.acceptanceEvidence?.length) this.runtime.recordAcceptanceEvidence(run.runId, result.acceptanceEvidence);
                 result.commands?.forEach(item => this.runtime.recordCommand(run.runId, item.command, item.exitCode, item.durationMs, item.output));
                 if (result.files) this.runtime.recordFiles(run.runId, result.files);
                 this.runtime.completeStage(stage.stageId, result.outputs, result.evidenceIds);
@@ -161,8 +168,12 @@ export class ProductionMissionRunner {
         if (!run || run.status !== "AWAITING_APPROVAL") throw new Error(`Run ${runId} is not awaiting approval.`);
         const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission && item.status === "ACTIVE");
         if (!mission) throw new Error(`Active mission for run ${runId} was not found.`);
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run);
+        const certified = this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", {
+            approvalId, missionId: mission.missionId
+        });
         this.runtime.updateMissionStatus(run.systemId, mission.missionId, "COMPLETE", [`approval:${approvalId}`]);
-        return this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", { approvalId, missionId: mission.missionId });
+        return certified;
     }
 
     private plan(runId: string, mission: MissionQueueItem): ProductionExecutionPlan {

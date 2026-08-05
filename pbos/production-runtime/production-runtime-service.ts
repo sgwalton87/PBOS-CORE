@@ -1,10 +1,11 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ExecutionLease, MissionControlSnapshot, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun,
-    ProductionStage, ProductionStatus, RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
+import { ApplicationAcceptanceEvidence, ExecutionLease, MissionControlSnapshot, MissionQueueItem, PreviewManifest, ProductionEvent,
+    ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus, RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
 import { GovernedMissionQueue } from "./mission-queue";
+import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 
 export interface BeginProductionRun {
     readonly runId?: string;
@@ -46,7 +47,8 @@ export class ProductionRuntimeService {
             requestedObjective: input.objective, selectedMission: input.mission, selectionRationale: input.rationale,
             dependencySnapshot: input.dependencies ?? [], status: "AUTHORIZED", startedAt: timestamp, lastHeartbeatAt: timestamp,
             stageIds: [], retryCount: 0, repairAttempts: 0, filesAdded: [], filesModified: [], filesDeleted: [],
-            commandsExecuted: [], testsExecuted: [], validationResults: [], previewArtifactIds: [], evidenceIds: [], blockers: [],
+            commandsExecuted: [], testsExecuted: [], validationResults: [], previewArtifactIds: [], evidenceIds: [],
+            acceptanceEvidence: [], blockers: [],
             autonomousContinuation: input.autonomousContinuation ?? true
         };
         this.state.saveProductionRun(run);
@@ -58,6 +60,10 @@ export class ProductionRuntimeService {
     transition(runId: string, status: ProductionStatus, summary: string, payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
         const current = this.requireRun(runId);
         assertProductionTransition(current.status, status);
+        if (["AWAITING_APPROVAL", "COMPLETED", "CERTIFIED"].includes(status)) {
+            const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+            if (mission) new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        }
         const timestamp = this.now().toISOString();
         const terminal = isTerminalProductionStatus(status);
         const updated: ProductionRun = { ...current, status, lastHeartbeatAt: timestamp,
@@ -169,6 +175,19 @@ export class ProductionRuntimeService {
         return updated;
     }
 
+    recordAcceptanceEvidence(runId: string, evidence: readonly ApplicationAcceptanceEvidence[]): ProductionRun {
+        if (!evidence.length) return this.requireRun(runId);
+        const run = this.heartbeat(runId);
+        const byId = new Map((run.acceptanceEvidence ?? []).map(item => [item.evidenceId, item]));
+        for (const item of evidence) byId.set(item.evidenceId, item);
+        const updated: ProductionRun = { ...run, acceptanceEvidence: [...byId.values()] };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "ACCEPTANCE_EVIDENCE_RECORDED", "Functional application acceptance evidence recorded.", {
+            evidenceIds: evidence.map(item => item.evidenceId), dimensions: [...new Set(evidence.map(item => item.dimension))]
+        });
+        return updated;
+    }
+
     recordRepairAttempt(runId: string, classification: string, outcome: "STARTED" | "SUCCEEDED" | "FAILED", maximumAttempts = 5): ProductionRun {
         const run = this.heartbeat(runId);
         const attempts = outcome === "STARTED" ? run.repairAttempts + 1 : run.repairAttempts;
@@ -197,6 +216,12 @@ export class ProductionRuntimeService {
         const items = this.state.missionQueue(systemId);
         const current = items.find(item => item.missionId === missionId);
         if (!current) throw new Error(`Mission not found: ${missionId}`);
+        if (status === "COMPLETE" && current.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+            const run = [...this.state.productionRuns()].reverse().find(item =>
+                item.systemId === systemId && item.selectedMission === current.title);
+            if (!run) throw new Error(`Functional mission ${missionId} has no production run acceptance evidence.`);
+            new FunctionalAcceptanceVerifier().assertCertificationEvidence(current, this.normalizeRun(run));
+        }
         const updated = { ...current, status, evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])] };
         this.reconcileQueue(systemId, items.map(item => item.missionId === missionId ? updated : item));
         return this.state.missionQueue(systemId).find(item => item.missionId === missionId)!;
@@ -209,10 +234,14 @@ export class ProductionRuntimeService {
     }
 
     activeRun(repository?: string): ProductionRun | undefined {
-        return [...this.state.productionRuns()].reverse().find(run => ACTIVE.includes(run.status) && (!repository || run.repository === repository));
+        const run = [...this.state.productionRuns()].reverse().find(item => ACTIVE.includes(item.status) && (!repository || item.repository === repository));
+        return run ? this.normalizeRun(run) : undefined;
     }
-    run(runId: string): ProductionRun | undefined { return this.state.productionRun(runId); }
-    history(): readonly ProductionRun[] { return [...this.state.productionRuns()].reverse(); }
+    run(runId: string): ProductionRun | undefined {
+        const run = this.state.productionRun(runId);
+        return run ? this.normalizeRun(run) : undefined;
+    }
+    history(): readonly ProductionRun[] { return [...this.state.productionRuns()].reverse().map(run => this.normalizeRun(run)); }
     events(runId?: string, afterSequence = 0): readonly ProductionEvent[] {
         return this.state.productionEvents(runId).filter(event => event.sequence > afterSequence);
     }
@@ -332,7 +361,14 @@ export class ProductionRuntimeService {
     private activeLease(runId: string): ExecutionLease | undefined {
         return [...this.state.executionLeases()].reverse().find(lease => lease.runId === runId && lease.status === "ACTIVE");
     }
-    private requireRun(runId: string): ProductionRun { const run = this.state.productionRun(runId); if (!run) throw new Error(`Production run not found: ${runId}`); return run; }
+    private requireRun(runId: string): ProductionRun {
+        const run = this.state.productionRun(runId);
+        if (!run) throw new Error(`Production run not found: ${runId}`);
+        return this.normalizeRun(run);
+    }
+    private normalizeRun(run: ProductionRun): ProductionRun {
+        return { ...run, acceptanceEvidence: run.acceptanceEvidence ?? [] };
+    }
     private requireActor(runId: string, actorId: string): ProductionRun {
         const run = this.requireRun(runId);
         if (run.actorId !== actorId) throw new Error(`Operator ${actorId} does not own run ${runId}.`);

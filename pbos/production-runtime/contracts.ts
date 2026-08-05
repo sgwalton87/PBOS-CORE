@@ -68,6 +68,7 @@ export interface ProductionRun {
     readonly validationResults: readonly string[];
     readonly previewArtifactIds: readonly string[];
     readonly evidenceIds: readonly string[];
+    readonly acceptanceEvidence: readonly ApplicationAcceptanceEvidence[];
     readonly certificationResult?: "GRANTED" | "WITHHELD";
     readonly blockers: readonly string[];
     readonly resumeCheckpoint?: string;
@@ -148,6 +149,28 @@ export interface MissionQueueItem {
     readonly rationale: string;
     readonly approvalRequired: boolean;
     readonly evidenceIds: readonly string[];
+    readonly completionPolicy?: MissionCompletionPolicy;
+}
+
+export type ApplicationAcceptanceDimension = "ROUTE" | "USER_INTERFACE" | "DURABLE_DATA" | "AUTHORITY" |
+    "PBOS_INTEGRATION" | "ACCEPTANCE_TEST" | "ACCESSIBILITY" | "SECURITY" | "INDEPENDENT_VALIDATION" | "PREVIEW";
+
+export interface ApplicationAcceptanceEvidence {
+    readonly evidenceId: string;
+    readonly dimension: ApplicationAcceptanceDimension;
+    readonly behavior: string;
+    readonly repository: string;
+    readonly commit: string;
+    readonly artifact: string;
+    readonly passed: boolean;
+    readonly source: "IMPLEMENTATION" | "APPLICATION_TEST" | "RUNTIME_PROBE" | "ACCESSIBILITY_AUDIT" |
+        "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
+}
+
+export interface MissionCompletionPolicy {
+    readonly kind: "PLATFORM_ARTIFACT" | "FUNCTIONAL_APPLICATION";
+    readonly requiredDimensions: readonly ApplicationAcceptanceDimension[];
+    readonly acceptanceCriteria: readonly string[];
 }
 
 export interface PreviewManifest {

@@ -81,6 +81,10 @@ describe("partner-ready CLI durable state", () => {
         expect(inspections).toBe(1);
         expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-repository-gap-analysis")?.status)
             .toBe("ELIGIBLE");
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-academic-journey")?.dependencies)
+            .toEqual(["048-scholar-slice"]);
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-product-journeys")?.status)
+            .toBe("BLOCKED");
     });
 
     it("prompts for the next human-gated mission and persists a verifiable decision", async () => {

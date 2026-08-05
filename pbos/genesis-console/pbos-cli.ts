@@ -23,7 +23,8 @@ import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, O
 import { ProductionRuntimeService } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookFoundationExecutor, playbookScholarSliceExecutor, repositoryGapAnalysisExecutor } from "../application-readiness";
+import { playbookAcademicJourneyExecutor, playbookFoundationExecutor, playbookScholarSliceExecutor,
+    repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
@@ -113,10 +114,17 @@ function systemIdFor(value?: string): string | undefined {
 
 export async function ensureReadinessQueue(services: Pick<ReturnType<typeof runtime>, "state" | "batches" | "gateway">,
     systemId = "PLAYBOOK-SYSTEM-001", report: (message: string) => void = () => undefined): Promise<RepositoryInspection | undefined> {
-    if (services.state.missionQueue(systemId).length) return undefined;
     if (systemId !== "PLAYBOOK-SYSTEM-001") throw new Error(`No certified readiness queue compiler is registered for ${systemId}.`);
     const system = services.state.systems().find(item => item.systemId === systemId);
     if (!system) throw new Error(`Registered system not found: ${systemId}`);
+    const existing = services.state.missionQueue(systemId);
+    if (existing.length) {
+        const revision = existing.find(item => item.missionId === "playbook-capability-foundation")?.evidenceIds
+            .find(item => item.startsWith("repository:"))?.slice("repository:".length) ?? "UNKNOWN";
+        services.batches.prepareReadinessQueue(systemId, revision);
+        report("Readiness queue synchronized with the current evidence-gated mission architecture.");
+        return undefined;
+    }
     const [owner, name] = system.repository.split("/");
     if (!owner || !name) throw new Error(`Invalid repository identity: ${system.repository}`);
     report(`No durable readiness queue exists. Verifying ${system.repository} before initialization…`);
@@ -282,6 +290,13 @@ async function runNextProductionMission(target?: string): Promise<number> {
                 stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
             } }))
         .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => playbookScholarSliceExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
+            startMonitor: validation => {
+                const job = background.launch(next.systemId, session.sessionId, validation.runId);
+                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+            } }))
+        .register("PLAYBOOK-SYSTEM-001", "048-academic-journey", () => playbookAcademicJourneyExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
             startMonitor: validation => {

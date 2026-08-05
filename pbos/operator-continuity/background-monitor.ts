@@ -9,7 +9,8 @@ import { ResumableRemediationEngine } from "../validation-automation";
 import { BackgroundMonitorJob } from "./contracts";
 import { OperatorMemoService } from "./operator-memo-service";
 import { AutonomousBatchService } from "./autonomous-batch-service";
-import { ProductionRuntimeService } from "../production-runtime";
+import { ApplicationAcceptanceEvidence, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun } from "../validation-automation";
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -54,9 +55,9 @@ export class BackgroundMonitor {
         try {
             for (let poll = 0; poll < maximumPolls; poll += 1) {
                 const result = await this.remediation.resume(runId, run => this.workflows.authorizeRemediation(session, run.pullRequest.branch));
+                this.reconcileProductionMission(result);
                 this.memos.write(session, result);
                 const batch = this.batches.updateForValidation(runId, result.state);
-                this.reconcileProductionMission(runId, result.state);
                 if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(result.state)) {
                     this.completeJob(runId, result.state === "BLOCKED" ? "BLOCKED" : "COMPLETED");
                     const label = result.state === "READY_FOR_CERTIFICATION" ? "ready for certification" : "blocked";
@@ -85,19 +86,51 @@ export class BackgroundMonitor {
         if (job) this.state.saveBackgroundJob({ ...job, status, updatedAt: new Date().toISOString() });
     }
 
-    private reconcileProductionMission(remediationRunId: string, validation: import("../validation-automation").RemediationState): void {
+    private reconcileProductionMission(remediation: RemediationRun): void {
+        const remediationRunId = remediation.runId;
+        const validation = remediation.state;
         const production = new ProductionRuntimeService(this.state);
         const run = [...this.state.productionRuns()].reverse().find(item =>
             item.evidenceIds.includes(`remediation-run:${remediationRunId}`));
         if (!run || run.status !== "VALIDATING") return;
         production.heartbeat(run.runId);
         if (validation === "READY_FOR_CERTIFICATION") {
-            production.completeActiveStage(run.runId, { validation: "PASSED", remediationRunId },
-                [`remediation-run:${remediationRunId}`]);
-            production.recordValidation(run.runId, "GitHub Actions validation", true, 0,
-                `remediation-run:${remediationRunId}`);
-            production.transition(run.runId, "AWAITING_APPROVAL",
-                "Foundation validation passed; human certification and merge approval are required.");
+            try {
+                if (!/^[a-f0-9]{7,40}$/i.test(remediation.headSha) || remediation.headSha !== run.currentCommit) {
+                    throw new Error(`Validation lineage mismatch: PBOS built ${run.currentCommit}, but GitHub validated ${remediation.headSha}.`);
+                }
+                const checkNames = remediation.evidence.filter(item => item.state === "PASSED").map(item => item.name);
+                const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+                if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION" && checkNames.length === 0) {
+                    throw new Error("Functional completion requires at least one independent application check on the exact revision.");
+                }
+                const validationEvidence: ApplicationAcceptanceEvidence = {
+                    evidenceId: `independent-validation:${remediation.headSha}`,
+                    dimension: "INDEPENDENT_VALIDATION",
+                    behavior: `Independent GitHub checks passed for the exact application revision: ${checkNames.join(", ") || "governed check suite"}.`,
+                    repository: run.repository,
+                    commit: remediation.headSha,
+                    artifact: `${remediation.pullRequest.url}#checks`,
+                    passed: true,
+                    source: "CI_VALIDATION"
+                };
+                production.recordAcceptanceEvidence(run.runId, [validationEvidence]);
+                production.completeActiveStage(run.runId, { validation: "PASSED", remediationRunId },
+                    [`remediation-run:${remediationRunId}`]);
+                production.recordValidation(run.runId, "GitHub Actions validation", true, 0,
+                    `remediation-run:${remediationRunId}`);
+                production.transition(run.runId, "AWAITING_APPROVAL",
+                    "Exact-revision functional acceptance evidence passed; human certification and merge approval are required.");
+            } catch (error) {
+                const current = production.run(run.runId);
+                if (current?.activeStageId) production.completeActiveStage(run.runId, { validation: "BLOCKED", remediationRunId });
+                if (current && !["BLOCKED", "FAILED", "CANCELLED"].includes(current.status)) {
+                    production.transition(run.runId, "BLOCKED", "Functional acceptance evidence is incomplete or has invalid lineage.", {
+                        remediationRunId, reason: error instanceof Error ? error.message : String(error)
+                    });
+                }
+                throw error;
+            }
         } else if (validation === "BLOCKED") {
             production.completeActiveStage(run.runId, { validation: "BLOCKED", remediationRunId },
                 [`remediation-run:${remediationRunId}`]);

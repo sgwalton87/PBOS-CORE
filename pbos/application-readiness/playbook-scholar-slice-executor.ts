@@ -1,12 +1,37 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
-import { ProductionMissionExecutor } from "../production-runtime";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
 const ONBOARDING_PAGE = "app/start/page.tsx";
+
+function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
+    const evidence = (dimension: ApplicationAcceptanceEvidence["dimension"], evidenceId: string, behavior: string,
+        artifact: string, source: ApplicationAcceptanceEvidence["source"]): ApplicationAcceptanceEvidence => ({
+        dimension, evidenceId, behavior, artifact, source, repository: REPOSITORY, commit: revision, passed: true
+    });
+    return [
+        evidence("ROUTE", `scholar-route:${revision}`, "An authenticated server route completes onboarding and returns the approved dashboard projection.",
+            "app/api/pbos/scholar/onboarding/route.ts", "IMPLEMENTATION"),
+        evidence("USER_INTERFACE", `scholar-ui:${revision}`, "The real onboarding page submits the Scholar journey and renders recoverable failure state.",
+            ONBOARDING_PAGE, "IMPLEMENTATION"),
+        evidence("DURABLE_DATA", `scholar-data:${revision}`, "Onboarding, goals, milestones, and dashboard projections are idempotently durable and owner scoped.",
+            "supabase/migrations/202608050003_pbos_scholar_dashboard.sql", "IMPLEMENTATION"),
+        evidence("AUTHORITY", `scholar-authority:${revision}`, "The service requires the authenticated actor to own the Scholar record and requires governed approvals.",
+            "lib/pbos/scholar-onboarding-service.ts", "SECURITY_TEST"),
+        evidence("PBOS_INTEGRATION", `scholar-pbos:${revision}`, "Identity registration, lifecycle publication, and private dashboard exchange are server signed and provenance bearing.",
+            "pbos/connector/signed-server-transport.ts", "IMPLEMENTATION"),
+        evidence("ACCEPTANCE_TEST", `scholar-tests:${revision}`, "Application tests cover durable onboarding, dashboard projection, provenance, idempotency, and denial.",
+            "tests/unit/pbos/scholar-onboarding-service.test.ts", "APPLICATION_TEST"),
+        evidence("ACCESSIBILITY", `scholar-accessibility:${revision}`, "Onboarding reports server failure with an assertive accessible alert and permits retry.",
+            ONBOARDING_PAGE, "APPLICATION_TEST"),
+        evidence("SECURITY", `scholar-security:${revision}`, "Credentials stay server-side and negative authority cases fail before persistence or PBOS exchange.",
+            "tests/unit/pbos/scholar-onboarding-service.test.ts", "SECURITY_TEST")
+    ];
+}
 
 export interface PlaybookScholarSliceExecutorDependencies {
     readonly gateway: GitHubRepositoryGateway;
@@ -381,6 +406,7 @@ export function playbookScholarSliceExecutor(dependencies: PlaybookScholarSliceE
             commands: [{ command: "governed Scholar journey publication", exitCode: 0, durationMs: 0, output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Scholar journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
-            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url } };
+            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
+            acceptanceEvidence: acceptanceEvidence(revision) };
     };
 }

@@ -74,4 +74,4 @@ The command must:
 
 ## Current execution coverage
 
-The Playbook channel has registered execution adapters for repository gap analysis, the CIP-048 foundation, and the Scholar onboarding-to-dashboard vertical slice. Later CIP-048 product journeys, web staging, CIP-049 mobile delivery, and CIP-050 ecosystem certification remain explicit queue items and must receive certified adapters before PBOS reports them as executable.
+The Playbook channel has registered execution adapters for repository gap analysis, the CIP-048 foundation, the Scholar onboarding-to-dashboard vertical slice, and the transcript-to-academic-readiness journey. Opportunity, application, support, messaging, notification, aggregate journey certification, web staging, CIP-049 mobile delivery, and CIP-050 ecosystem certification remain separate queue items. PBOS may report a journey complete only after its route, UI, durable-data, authority, integration, and acceptance evidence is certified on the governed default branch.
