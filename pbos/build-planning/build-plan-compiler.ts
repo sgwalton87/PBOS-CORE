@@ -20,7 +20,11 @@ export class GenesisBuildPlanCompiler {
         const gaps = blueprint.capabilities.filter(capability =>
             !inspection.findings.includes(`CAPABILITY:${capability}:PRESENT`)).map(capability => this.gap(capability, inspection));
         const missions = gaps.map(gap => this.mission(gap, blueprint));
-        const workPackages = await Promise.all(missions.map(mission => this.packages.generate(mission, [inspection.revision, blueprint.blueprintId])));
+        const generatedPackages = await Promise.all(missions.map(mission => this.packages.generate(mission, [inspection.revision, blueprint.blueprintId])));
+        const workPackages = generatedPackages.map((workPackage, index) => ({
+            ...workPackage,
+            id: `${blueprint.identity.proposedSystemId}:${gaps[index].capability}`
+        }));
         const blockers = [...blueprint.unresolvedDecisions];
         return {
             planId: randomUUID(), blueprintId: blueprint.blueprintId, repositoryRevision: inspection.revision,

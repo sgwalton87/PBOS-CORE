@@ -4,7 +4,7 @@ import { GenesisSystemDefinition } from "../genesis-console/system-definition";
 import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
 import type { RemediationRun } from "../validation-automation/contracts";
-import type { BackgroundMonitorJob, OperatorMemoRecord } from "../operator-continuity/contracts";
+import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -24,6 +24,8 @@ interface DurableGenesisState {
     readonly remediationRuns?: readonly RemediationRun[];
     readonly memos?: readonly OperatorMemoRecord[];
     readonly backgroundJobs?: readonly BackgroundMonitorJob[];
+    readonly autonomousBatches?: readonly AutonomousBuildBatch[];
+    readonly batchTelemetry?: readonly BatchTelemetryEvent[];
 }
 
 const dateKeys = new Set(["createdAt", "activatedAt", "issuedAt", "expiresAt", "revokedAt", "decidedAt", "requestedAt"]);
@@ -75,5 +77,16 @@ export class GenesisStateRepository {
     }
     backgroundJobForRun(runId: string): BackgroundMonitorJob | undefined {
         return [...this.backgroundJobs()].reverse().find(job => job.runId === runId);
+    }
+    autonomousBatches(): readonly AutonomousBuildBatch[] { return [...(this.store.read().autonomousBatches ?? [])]; }
+    saveAutonomousBatch(batch: AutonomousBuildBatch): void {
+        this.store.update(state => ({ ...state, autonomousBatches: [...(state.autonomousBatches ?? [])
+            .filter(item => item.batchId !== batch.batchId), batch] }));
+    }
+    batchTelemetry(batchId?: string): readonly BatchTelemetryEvent[] {
+        return [...(this.store.read().batchTelemetry ?? [])].filter(item => !batchId || item.batchId === batchId);
+    }
+    appendBatchTelemetry(event: BatchTelemetryEvent): void {
+        this.store.update(state => ({ ...state, batchTelemetry: [...(state.batchTelemetry ?? []), event] }));
     }
 }

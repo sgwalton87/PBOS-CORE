@@ -74,4 +74,15 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("package.json");
         expect(scaffold.securityBoundaries).not.toContain("PRIVATE_DOCUMENT_BUCKET");
     });
+
+    it("materializes only the authorized capability package and its durable evidence marker", () => {
+        const scaffold = new ApplicationScaffoldGenerator().generate({ blueprint: createPlaybookBlueprint(),
+            includeFirstVerticalSlice: true, capabilities: ["ANALYTICS"] });
+        const paths = scaffold.files.map(file => file.path);
+        expect(paths).toContain("pbos/generated/capabilities/analytics.ts");
+        expect(paths).toContain("pbos/generated/capabilities/analytics.test.ts");
+        expect(paths).toContain("pbos/generated/capabilities/analytics.json");
+        expect(paths).not.toContain("pbos/generated/capabilities/identity.json");
+        expect(paths).not.toContain("pbos/generated/domain/education/scholar-journey.ts");
+    });
 });

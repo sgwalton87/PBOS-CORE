@@ -15,15 +15,22 @@ import { NodeTerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
-import { createDefaultRemediationHandler, GitHubCheckCollector, ResumableRemediationEngine } from "../validation-automation";
+import { createDefaultRemediationHandler, GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
-import { BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
+import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
 const profilePath = join(stateRoot, "profile.json");
 const operatorsPath = join(stateRoot, "operators.json");
 const genesisPath = join(stateRoot, "genesis-state.json");
+
+export function latestUnfinishedRuns(runs: readonly RemediationRun[]): readonly RemediationRun[] {
+    const latestBySystem = new Map<string, RemediationRun>();
+    runs.filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state))
+        .forEach(run => latestBySystem.set(run.systemId, run));
+    return [...latestBySystem.values()];
+}
 
 async function login(): Promise<number> {
     const run = promisify(execFile);
@@ -64,24 +71,35 @@ function runtime() {
     } };
     const commands = new NodeCommandRunner();
     const gateway = new GitHubRepositoryGateway(join(stateRoot, "repositories"), commands);
+    const batches = new AutonomousBatchService(state);
     const workflows = new GenesisWorkflowService(
         gateway, undefined, undefined,
         (session, action, risk, branch) => control.authorizeAction(session.sessionId, action, risk, branch),
-        (stage, message) => stdout.write(`[${stage}] ${message}\n`)
+        (stage, message) => stdout.write(`[${stage}] ${message}\n`), batches
     );
     const remediation = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), createDefaultRemediationHandler(gateway));
     const memos = new OperatorMemoService(join(stateRoot, "memos"), state);
-    return { state, control, sessionAuthority, workflows, remediation, memos };
+    return { state, control, sessionAuthority, workflows, remediation, memos, batches };
 }
 
 async function launch(preselectedSystemId?: string): Promise<number> {
     const services = runtime();
-    const unfinished = services.state.remediationRuns().filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state));
-    if (unfinished.length) stdout.write(`Unfinished build detected: ${unfinished.at(-1)!.systemId} (${unfinished.at(-1)!.state}). Activate that system and choose validation/remediation to resume.\n`);
+    const unfinished = latestUnfinishedRuns(services.state.remediationRuns());
+    if (unfinished.length) stdout.write(`Unfinished build detected: ${unfinished.at(-1)!.systemId} (${unfinished.at(-1)!.state}). PBOS will resume durable monitoring automatically.\n`);
     const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
+    for (const run of unfinished) {
+        const batch = [...services.state.autonomousBatches()].reverse().find(item => item.runId === run.runId);
+        const session = batch
+            ? services.state.sessions().find(item => item.sessionId === batch!.sessionId)
+            : [...services.state.sessions()].reverse().find(item => item.system.systemId === run.systemId);
+        if (session) {
+            const job = background.launch(run.systemId, session.sessionId, run.runId);
+            stdout.write(`${batch ? "Resumed autonomous batch monitor" : "Resumed pre-batch validation without inferring package completion"} for ${run.systemId}: PID ${job.pid}\n`);
+        }
+    }
     const continuity = new OperatorContinuityService(services.remediation, services.memos, background);
     return new GenesisTerminal(services.control, new NodeTerminalIO(), new SystemIntakeTerminal(undefined, blueprint => services.state.saveBlueprint(blueprint)),
-        services.sessionAuthority, services.workflows, services.remediation, continuity).run(preselectedSystemId);
+        services.sessionAuthority, services.workflows, services.remediation, continuity, services.batches).run(preselectedSystemId);
 }
 
 export async function runPbosCli(args = process.argv.slice(2)): Promise<number> {
@@ -91,10 +109,35 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const state = new GenesisStateRepository(genesisPath);
         const run = state.remediationRuns().at(-1);
         const job = state.backgroundJobs().at(-1);
+        const batch = state.autonomousBatches().at(-1);
         stdout.write(`Authenticated organization: ${local.organizationId}\nGitHub account: ${local.githubLogin}\nOperator: ${local.operatorId}\n`);
         if (run) stdout.write(`Latest validation: ${run.systemId} — ${run.state}\n`);
         if (job) stdout.write(`Latest background monitor: ${job.status} — PID ${job.pid}\n`);
+        if (batch) stdout.write(`Latest autonomous batch: ${batch.systemId} — ${batch.state} — ${batch.workPackages.length}/${batch.packageLimit} packages\n`);
         return 0;
+    }
+    if (args[0] === "watch") {
+        profile();
+        const requested = args[1];
+        let last = "";
+        const seenEvents = new Set<string>();
+        for (;;) {
+            const state = new GenesisStateRepository(genesisPath);
+            const batch = [...state.autonomousBatches()].reverse().find(item => !requested || item.systemId === requested);
+            if (!batch) throw new Error("No autonomous batch is available to watch.");
+            const run = state.remediationRun(batch.runId);
+            const line = `[${new Date().toISOString()}] ${batch.systemId} — ${batch.state} — ${batch.workPackages.length}/${batch.packageLimit} packages — validation ${run?.state ?? "UNKNOWN"}`;
+            if (line.replace(/^\[[^\]]+\] /, "") !== last) {
+                stdout.write(`${line}\nPR: ${batch.pullRequestUrl}\n`);
+                last = line.replace(/^\[[^\]]+\] /, "");
+            }
+            state.batchTelemetry(batch.batchId).filter(event => !seenEvents.has(event.eventId)).forEach(event => {
+                seenEvents.add(event.eventId);
+                stdout.write(`${event.occurredAt} ${event.type}${event.workPackageId ? ` [${event.workPackageId}]` : ""}: ${event.title}\n  ${event.detail}\n`);
+            });
+            if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(batch.state)) return batch.state === "BLOCKED" ? 1 : 0;
+            await new Promise(resolve => setTimeout(resolve, 5_000));
+        }
     }
     if (args[0] === "memo") {
         profile();

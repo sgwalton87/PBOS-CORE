@@ -11,6 +11,10 @@ export class ApplicationScaffoldGenerator {
     generate(request: ScaffoldRequest): ApplicationScaffold {
         const { blueprint } = request;
         if (blueprint.status !== "READY_FOR_APPROVAL") throw new Error("Application scaffolding requires an approval-ready blueprint.");
+        const selectedCapabilities = [...new Set(request.capabilities ?? blueprint.capabilities)];
+        if (selectedCapabilities.some(capability => !blueprint.capabilities.includes(capability))) {
+            throw new Error("Scaffold capability scope must be declared by the system blueprint.");
+        }
         const connected = blueprint.application.strategy === "CONNECT_EXISTING";
         const files: ScaffoldFile[] = connected ? this.existingApplicationOverlay(blueprint) : [
             { path: "package.json", content: json({ name: blueprint.identity.proposedSystemId.toLowerCase(), version: "0.1.0", private: true,
@@ -45,8 +49,10 @@ export class ApplicationScaffoldGenerator {
             { path: ".env.example", content: "NEXT_PUBLIC_SUPABASE_URL=\nNEXT_PUBLIC_SUPABASE_ANON_KEY=\nSUPABASE_SERVICE_ROLE_KEY=\nPBOS_API_URL=\nPBOS_CONNECTOR_ID=\n" },
             { path: "README.md", content: `# ${blueprint.identity.systemName}\n\nGenerated from PBOS blueprint \`${blueprint.blueprintId}\`. Validation, certification, and deployment remain human-controlled gates.\n` }
         ];
-        if (request.includeFirstVerticalSlice && blueprint.foundation.domainPack === "@pbos/domain-legacy-planning") files.push(...this.legacySlice(connected));
-        if (request.includeFirstVerticalSlice && blueprint.foundation.domainPack === "@pbos/domain-education") files.push(...this.educationSlice(connected));
+        files.push(...selectedCapabilities.flatMap(capability => this.capabilityFoundation(blueprint, capability)));
+        const includesJourney = selectedCapabilities.some(capability => capability === "IDENTITY" || capability === "WORKFLOWS");
+        if (request.includeFirstVerticalSlice && includesJourney && blueprint.foundation.domainPack === "@pbos/domain-legacy-planning") files.push(...this.legacySlice(connected));
+        if (request.includeFirstVerticalSlice && includesJourney && blueprint.foundation.domainPack === "@pbos/domain-education") files.push(...this.educationSlice(connected));
         return { scaffoldId: randomUUID(), blueprintId: blueprint.blueprintId,
             stack: { framework: "NEXTJS", language: "TYPESCRIPT", database: "SUPABASE_POSTGRES", authentication: "SUPABASE_AUTH", deployment: "VERCEL" },
             mode: connected ? "EXISTING_APPLICATION_OVERLAY" : "NEW_APPLICATION",
@@ -77,6 +83,18 @@ export class ApplicationScaffoldGenerator {
     private foundationSql(domainPack: string): string {
         if (domainPack === "@pbos/domain-education") return this.educationFoundationSql();
         return `create extension if not exists pgcrypto;\n\ncreate table profiles (id uuid primary key references auth.users(id), display_name text not null, identity_status text not null default 'PENDING', created_at timestamptz not null default now());\ncreate table beneficiary_searches (id uuid primary key default gen_random_uuid(), owner_id uuid not null references profiles(id), beneficiary_name text not null, relationship text not null, status text not null default 'DRAFT', provenance jsonb not null default '[]', created_at timestamptz not null default now());\ncreate table legacy_policy_records (id uuid primary key default gen_random_uuid(), search_id uuid not null references beneficiary_searches(id), owner_id uuid not null references profiles(id), carrier text, policy_reference text, status text not null, provenance jsonb not null default '[]');\ncreate table secure_documents (id uuid primary key default gen_random_uuid(), owner_id uuid not null references profiles(id), policy_id uuid references legacy_policy_records(id), storage_key text not null unique, classification text not null, sha256 text not null, created_at timestamptz not null default now());\n\nalter table profiles enable row level security;\nalter table beneficiary_searches enable row level security;\nalter table legacy_policy_records enable row level security;\nalter table secure_documents enable row level security;\ncreate policy \"profiles-own\" on profiles using (auth.uid() = id);\ncreate policy \"searches-own\" on beneficiary_searches using (auth.uid() = owner_id) with check (auth.uid() = owner_id);\ncreate policy \"policies-own\" on legacy_policy_records using (auth.uid() = owner_id) with check (auth.uid() = owner_id);\ncreate policy \"documents-own\" on secure_documents using (auth.uid() = owner_id) with check (auth.uid() = owner_id);\n`;
+    }
+
+    private capabilityFoundation(blueprint: ScaffoldRequest["blueprint"], capability: ScaffoldRequest["blueprint"]["capabilities"][number]): ScaffoldFile[] {
+        const slug = capability.toLowerCase().replaceAll("_", "-");
+        const symbol = capability.toLowerCase().split("_").map(part => `${part[0].toUpperCase()}${part.slice(1)}`).join("");
+        return [
+            { path: `pbos/generated/capabilities/${slug}.ts`, content: `export interface ${symbol}Execution { actorId: string; approvalId: string; provenance: readonly string[] }\nexport function execute${symbol}(input: ${symbol}Execution): ${symbol}Execution {\n  if (!input.actorId) throw new Error("Authenticated actor required.");\n  if (!input.approvalId) throw new Error("Governed approval required.");\n  if (input.provenance.length === 0) throw new Error("Evidence provenance required.");\n  return { ...input, provenance: [...input.provenance, input.approvalId] };\n}\n` },
+            { path: `pbos/generated/capabilities/${slug}.test.ts`, content: `import { describe, expect, it } from "vitest";\nimport { execute${symbol} } from "./${slug}";\ndescribe("${capability} governed capability", () => { it("requires authority and provenance", () => { expect(() => execute${symbol}({ actorId: "actor", approvalId: "", provenance: ["source"] })).toThrow("approval"); expect(execute${symbol}({ actorId: "actor", approvalId: "approval", provenance: ["source"] }).provenance).toContain("approval"); }); });\n` },
+            { path: `pbos/generated/capabilities/${slug}.json`, content: json({ systemId: blueprint.identity.proposedSystemId,
+                capability, blueprintId: blueprint.blueprintId, state: "IMPLEMENTED_PENDING_CERTIFICATION",
+                implementation: `pbos/generated/capabilities/${slug}.ts`, validation: `pbos/generated/capabilities/${slug}.test.ts` }) }
+        ];
     }
 
     private existingApplicationOverlay(blueprint: ScaffoldRequest["blueprint"]): ScaffoldFile[] {
