@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createPlaybookBlueprint } from "../../reference-systems";
 import { SystemBlueprintFactory } from "../../system-blueprint";
 import { ApplicationScaffoldGenerator } from "../index";
 
@@ -12,29 +13,31 @@ const blueprint = new SystemBlueprintFactory().create({ organizationName: "Bulle
             location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } });
 
 describe("application scaffold generator", () => {
-    it("generates stack, security, CI, deployment, and Bulletproof vertical slice", () => {
+    it("generates a non-destructive Bulletproof overlay for an existing application", () => {
         const scaffold = new ApplicationScaffoldGenerator().generate({ blueprint, includeFirstVerticalSlice: true });
         const paths = scaffold.files.map(file => file.path);
-        expect(paths).toContain("supabase/migrations/001_foundation.sql");
-        expect(paths).toContain(".github/workflows/ci.yml");
-        expect(paths).toContain("tsconfig.json");
-        expect(paths).toContain("src/app/page.tsx");
-        expect(paths).toContain("src/design/brand-source.json");
-        expect(paths).toContain("src/domain/legacy/vertical-slice.ts");
+        expect(scaffold.mode).toBe("EXISTING_APPLICATION_OVERLAY");
+        expect(paths).toContain("pbos/generated/design/brand-source.json");
+        expect(paths).toContain("pbos/generated/domain/legacy/vertical-slice.ts");
+        expect(paths).not.toContain("package.json");
+        expect(paths).not.toContain("package-lock.json");
+        expect(paths).not.toContain("tsconfig.json");
+        expect(paths).not.toContain("README.md");
+        expect(paths).not.toContain("supabase/migrations/001_foundation.sql");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
-        expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
+        expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: false });
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");
-        const tokens = scaffold.files.find(file => file.path === "src/design/tokens.ts")?.content;
+        const tokens = scaffold.files.find(file => file.path === "pbos/generated/design/tokens.ts")?.content;
         expect(tokens).toMatch(/\}\s+as const;\n$/);
         expect(tokens).not.toContain("}\n as const");
-        const brandSource = scaffold.files.find(file => file.path === "src/design/brand-source.json")?.content ?? "";
+        const brandSource = scaffold.files.find(file => file.path === "pbos/generated/design/brand-source.json")?.content ?? "";
         expect(brandSource).toContain("BULLETPROOF-LOGO-CARD-001");
         expect(brandSource).toContain("Built to Leave a Legacy.");
     });
 
-    it("materializes the dependency lock with TypeScript and Next.js entry files", async () => {
+    it("materializes a reproducible new application with its dependency lock", async () => {
         const generator = new ApplicationScaffoldGenerator();
-        const scaffold = generator.generate({ blueprint, includeFirstVerticalSlice: true });
+        const scaffold = generator.generate({ blueprint: { ...blueprint, application: { strategy: "CREATE_NEW" } }, includeFirstVerticalSlice: true });
         const calls: string[] = [];
         const result = await generator.materialize(scaffold, {
             writeFiles: async files => { calls.push(`files:${files.length}`); },
@@ -45,5 +48,30 @@ describe("application scaffold generator", () => {
         expect(result.generatedPaths).toContain("package-lock.json");
         expect(result.generatedPaths).toContain("tsconfig.json");
         expect(result.generatedPaths).toContain("src/app/page.tsx");
+    });
+
+    it("does not regenerate a dependency lock for an existing application", async () => {
+        const generator = new ApplicationScaffoldGenerator();
+        const scaffold = generator.generate({ blueprint, includeFirstVerticalSlice: true });
+        const calls: string[] = [];
+        const result = await generator.materialize(scaffold, {
+            writeFiles: async () => { calls.push("files"); },
+            prepareDependencyLock: async () => { calls.push("lock"); }
+        });
+        expect(calls).toEqual(["files"]);
+        expect(result.generatedPaths).not.toContain("package-lock.json");
+    });
+
+    it("generates The Playbook education foundation without legacy-domain leakage", () => {
+        const scaffold = new ApplicationScaffoldGenerator().generate({ blueprint: createPlaybookBlueprint(), includeFirstVerticalSlice: true });
+        const paths = scaffold.files.map(file => file.path);
+        expect(paths).toContain("pbos/generated/domain/education/scholar-journey.ts");
+        expect(paths).not.toContain("src/domain/legacy/vertical-slice.ts");
+        const migration = scaffold.files.find(file => file.path === "supabase/migrations/202608050002_pbos_scholar_foundation.sql")?.content ?? "";
+        expect(migration).toContain("scholar_profiles");
+        expect(migration).not.toContain("beneficiary_searches");
+        expect(paths).not.toContain("src/app/page.tsx");
+        expect(paths).not.toContain("package.json");
+        expect(scaffold.securityBoundaries).not.toContain("PRIVATE_DOCUMENT_BUCKET");
     });
 });
