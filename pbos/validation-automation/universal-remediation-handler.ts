@@ -21,9 +21,11 @@ export class UniversalRemediationHandler implements RemediationHandler {
             if (existing !== undefined && existing !== file.content) throw new Error(`Remediation packs conflict on path: ${file.path}`);
             files.set(file.path, file.content);
         }
+        const prepareDependencyLock = results.some(result => result.prepareDependencyLock);
+        if (files.size === 0 && !prepareDependencyLock) return undefined;
         return { summary: results.map(result => result.summary).join("; "),
             files: [...files].map(([path, content]) => ({ path, content })),
-            prepareDependencyLock: results.some(result => result.prepareDependencyLock) };
+            prepareDependencyLock };
     }
 
     async apply(run: RemediationRun, changes: RemediationChangeSet): Promise<string> {

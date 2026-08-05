@@ -7,6 +7,8 @@ describe("PBOS Genesis brand contract", () => {
         expect(PBOS_GENESIS_BRAND.product).toBe("PBOS Genesis");
         expect(PBOS_GENESIS_BRAND.tagline).toBe("Create. Power. Evolve.");
         expect(PBOS_GENESIS_BRAND.asset).toMatchObject({ width: 1536, height: 1024, format: "PNG" });
+        expect(PBOS_GENESIS_BRAND.logoAsset).toMatchObject({ role: "HORIZONTAL_LOCKUP", width: 1774, height: 887, format: "PNG" });
+        expect(PBOS_GENESIS_BRAND.logoAsset.sourcePath).toContain("pbos-genesis-standalone-logo.png");
         expect(PBOS_GENESIS_BRAND.colors.map(color => color.name)).toContain("Genesis Copper");
     });
 
@@ -14,6 +16,7 @@ describe("PBOS Genesis brand contract", () => {
         expect(PBOS_GENESIS_BRAND.usageRules).toContain("Do not use the Genesis mark as The Playbook app icon.");
         expect(PLAYBOOK_PLATFORM_BRAND.product).toBe("The Playbook");
         expect(PLAYBOOK_PLATFORM_BRAND.asset.sourcePath).toContain("the-playbook-master-brand-board-v2.png");
+        expect(PLAYBOOK_PLATFORM_BRAND.logoAsset.sourcePath).toContain("the-playbook-standalone-logo.png");
         expect(PLAYBOOK_PLATFORM_BRAND.tagline).toBe("Connect. Empower. Achieve.");
         expect(PLAYBOOK_PLATFORM_BRAND.colors.map(color => color.value)).toEqual([
             "#0D0D0F", "#F2E6D0", "#8B4A1F", "#D4AF37", "#C8B089"
@@ -29,6 +32,7 @@ describe("PBOS Genesis brand contract", () => {
         expect(BULLETPROOF_BENEFICIARY_ICON_SUITE).toContain("COMPLIANCE_AUDIT");
         expect(BULLETPROOF_BENEFICIARY_BRAND.brandId).not.toBe(PLAYBOOK_PLATFORM_BRAND.brandId);
         expect(BULLETPROOF_BENEFICIARY_BRAND.asset.sourcePath).toContain("master-brand-board-v3.png");
+        expect(BULLETPROOF_BENEFICIARY_BRAND.logoAsset.sourcePath).toContain("bulletproof-beneficiary-standalone-logo.png");
         expect(BULLETPROOF_BENEFICIARY_BRAND.usageRules).toContain("Do not use the name Bulletproof Group in this product identity.");
     });
 

@@ -8,9 +8,10 @@ describe("PBOS Genesis consumer portal", () => {
         ]);
         const html = renderGenesisConsumerPortal();
         expect(html).toContain("PBOS Genesis — the operating system factory");
-        expect(html).toContain("pbos-genesis-master-brand-board.png");
-        expect(html).toContain("the-playbook-master-brand-board-v2.png");
-        expect(html).toContain("bulletproof-beneficiary-master-brand-board-v3.png");
+        expect(html).toContain("pbos-genesis-standalone-logo.png");
+        expect(html).toContain("the-playbook-standalone-logo.png");
+        expect(html).toContain("bulletproof-beneficiary-standalone-logo.png");
+        expect(html).not.toContain("master-brand-board");
         expect(html).not.toContain("Playbook Platform");
         expect(html).not.toContain("Bulletproof Group");
     });

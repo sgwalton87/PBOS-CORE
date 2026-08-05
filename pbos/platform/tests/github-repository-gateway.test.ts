@@ -10,7 +10,7 @@ class FakeCommands implements CommandRunner {
         this.calls.push({ command, args, cwd });
         if (args[0] === "rev-parse" && args[1] === "--git-dir") return { stdout: ".git\n", stderr: "" };
         if (args[0] === "rev-parse") return { stdout: "abc123\n", stderr: "" };
-        if (args[0] === "ls-files") return { stdout: "README.md\nsrc/index.ts\n", stderr: "" };
+        if (args[0] === "ls-tree") return { stdout: "README.md\nsrc/index.ts\n", stderr: "" };
         if (command === "gh") return { stdout: "https://github.com/acme/app/pull/7\n", stderr: "" };
         return { stdout: "", stderr: "" };
     }
@@ -24,7 +24,10 @@ describe("GitHub repository gateway", () => {
         const commands = new FakeCommands();
         const inspection = await new GitHubRepositoryGateway(root, commands).inspectRepository(reference);
         expect(inspection.revision).toBe("abc123");
-        expect(commands.calls.some(call => call.command === "git" && call.args[0] === "ls-files")).toBe(true);
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["fetch", "origin", "main"] }));
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["rev-parse", "origin/main"] }));
+        expect(commands.calls.some(call => call.command === "git" && call.args[0] === "ls-tree" && call.args.at(-1) === "abc123")).toBe(true);
+        expect(inspection.findings).toContain("GOVERNED_BASE:origin/main");
     });
 
     it("rejects branch and file traversal outside governed boundaries", async () => {

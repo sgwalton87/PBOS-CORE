@@ -55,6 +55,15 @@ describe("universal remediation pack registry", () => {
         expect(changes?.files).toEqual([]);
     });
 
+    it("returns no deterministic remediation when a matching pack produces no scoped files", async () => {
+        const { packs, projects } = configured();
+        projects.register({ systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform",
+            remediationPackIds: ["@pbos/remediation-nextjs"], createBlueprint: createPlaybookBlueprint });
+        const changes = await new UniversalRemediationHandler({} as GitHubRepositoryGateway, packs, projects)
+            .propose(failedRun("PLAYBOOK-SYSTEM-001", "sgwalton87/playbook-platform", "npm run typecheck failed"));
+        expect(changes).toBeUndefined();
+    });
+
     it("refuses unregistered projects and unknown packs", async () => {
         const { packs, projects } = configured();
         const handler = new UniversalRemediationHandler({} as GitHubRepositoryGateway, packs, projects);

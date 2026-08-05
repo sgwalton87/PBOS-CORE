@@ -35,6 +35,16 @@ export const BULLETPROOF_BENEFICIARY_BRAND: ProductBrandSpec = {
         clearSpaceRule: "Keep clear space equal to the crown height on every side of an approved lockup.",
         backgroundRules: ["Prefer Registry Black.", "Use Legacy Cream only for an approved light treatment.", "Reserve Heritage Sage for the central seal and establishment accent."]
     },
+    logoAsset: {
+        assetId: "BULLETPROOF-BENEFICIARY-HORIZONTAL-LOCKUP-001",
+        product: "Bulletproof Beneficiary & Legacy Registry", role: "STACKED_LOCKUP",
+        sourcePath: "assets/brand/bulletproof-beneficiary/bulletproof-beneficiary-standalone-logo.png",
+        width: 1659, height: 948, format: "PNG",
+        approvedSurfaces: ["FACTORY_PORTAL", "DOCUMENTATION", "SOCIAL", "APP_LAUNCHER"],
+        minimumWidth: 320,
+        clearSpaceRule: "Keep clear space equal to the seal ribbon height on every side.",
+        backgroundRules: ["Prefer Registry Black or Registry Charcoal.", "Preserve the transparent canvas and supplied safe area.", "Reserve Heritage Sage for the approved seal and establishment accents."]
+    },
     usageRules: [
         "Use this identity only for Bulletproof Beneficiary & Legacy Registry.",
         "Do not use the name Bulletproof Group in this product identity.",
@@ -43,6 +53,6 @@ export const BULLETPROOF_BENEFICIARY_BRAND: ProductBrandSpec = {
         "Preserve the clean wings, registry name, establishment date, and approved proportions.",
         "Do not add Invincible or Impenetrable to the approved crest.",
         "Do not stretch, skew, crop, recolor, or rebuild the logo lettering with an unapproved font.",
-        "Production and store use require approved transparent and vector exports."
+        "Use the standalone transparent PNG for production logo placeholders; retain the master board as reference canon only."
     ]
 };

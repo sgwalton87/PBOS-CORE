@@ -5,3 +5,6 @@ assets/brand/pbos-genesis/portal-mockups/04-genesis-long-form-landing-v3.png fil
 assets/brand/pbos-genesis/portal-mockups/05-genesis-operations-suite-v3.png filter=lfs diff=lfs merge=lfs -text
 assets/brand/bulletproof-beneficiary/bulletproof-beneficiary-master-brand-board-v3.png filter=lfs diff=lfs merge=lfs -text
 assets/brand/playbook-platform/the-playbook-master-brand-board-v2.png filter=lfs diff=lfs merge=lfs -text
+assets/brand/pbos-genesis/pbos-genesis-standalone-logo.png filter=lfs diff=lfs merge=lfs -text
+assets/brand/playbook-platform/the-playbook-standalone-logo.png filter=lfs diff=lfs merge=lfs -text
+assets/brand/bulletproof-beneficiary/bulletproof-beneficiary-standalone-logo.png filter=lfs diff=lfs merge=lfs -text

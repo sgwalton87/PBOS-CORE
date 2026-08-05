@@ -29,5 +29,6 @@ export interface ProductBrandSpec {
     readonly headingFont: string;
     readonly bodyFont: string;
     readonly asset: LogoAssetSpec;
+    readonly logoAsset: LogoAssetSpec;
     readonly usageRules: readonly string[];
 }
