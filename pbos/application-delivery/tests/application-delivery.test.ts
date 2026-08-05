@@ -4,7 +4,7 @@ import { ApplicationDeliveryGenerator } from "../index";
 describe("CIP-048 and CIP-049 application delivery", () => {
     it("generates web, iOS, and Android foundations without performing protected releases", () => {
         const delivery = new ApplicationDeliveryGenerator().generate({
-            systemId: "PLAYBOOK-SYSTEM-001", applicationName: "Playbook Platform",
+            systemId: "PLAYBOOK-SYSTEM-001", applicationName: "The Playbook",
             bundleNamespace: "com.playbook.platform", universalLinkDomain: "app.playbook.example",
             targets: ["WEB", "IOS", "ANDROID"], journeys: ["IDENTITY_ONBOARDING", "DASHBOARD", "MESSAGING"],
             brandAssets: [{ assetId: "PLAYBOOK-LOGO-001", kind: "PRIMARY_LOGO", location: "assets/playbook.svg", rightsConfirmed: true }]

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
-import { createBulletproofBlueprint } from "../../reference-systems";
+import { createBulletproofBlueprint, createPlaybookBlueprint } from "../../reference-systems";
 import {
-    LegacyPlanningRemediationPack, NextJsRemediationPack, NodeDependencyRemediationPack,
+    EducationRemediationPack, LegacyPlanningRemediationPack, NextJsRemediationPack, NodeDependencyRemediationPack,
     ProjectRemediationProfileRegistry, RemediationPackRegistry, SupabaseRemediationPack,
     UniversalRemediationHandler
 } from "../index";
@@ -13,11 +13,12 @@ const failedRun = (systemId: string, repository: string, log: string) => ({
     evidence: [{ evidenceId: "evidence", name: "CI", state: "FAILED" as const, failureLog: log, collectedAt: new Date().toISOString() }],
     blockers: [], updatedAt: new Date().toISOString()
 });
+const createNewBlueprint = () => ({ ...createBulletproofBlueprint(), application: { strategy: "CREATE_NEW" as const } });
 
 describe("universal remediation pack registry", () => {
     function configured() {
         const packs = new RemediationPackRegistry();
-        [new NodeDependencyRemediationPack(), new NextJsRemediationPack(), new SupabaseRemediationPack(), new LegacyPlanningRemediationPack()]
+        [new NodeDependencyRemediationPack(), new NextJsRemediationPack(), new SupabaseRemediationPack(), new LegacyPlanningRemediationPack(), new EducationRemediationPack()]
             .forEach(pack => packs.register(pack));
         const projects = new ProjectRemediationProfileRegistry();
         return { packs, projects };
@@ -26,11 +27,23 @@ describe("universal remediation pack registry", () => {
     it("lets a second project reuse stack packs without a project handler class", async () => {
         const { packs, projects } = configured();
         projects.register({ systemId: "SECOND-SYSTEM-001", repository: "example/second-app",
-            remediationPackIds: ["@pbos/remediation-node-dependencies", "@pbos/remediation-nextjs"], createBlueprint: createBulletproofBlueprint });
+            remediationPackIds: ["@pbos/remediation-node-dependencies", "@pbos/remediation-nextjs"], createBlueprint: createNewBlueprint });
         const handler = new UniversalRemediationHandler({} as GitHubRepositoryGateway, packs, projects);
         const changes = await handler.propose(failedRun("SECOND-SYSTEM-001", "example/second-app", "next build: couldn't find any `pages` or `app` directory"));
         expect(changes?.files.map(file => file.path)).toContain("src/app/page.tsx");
         expect(changes?.files.map(file => file.path)).not.toContain("src/domain/legacy/vertical-slice.ts");
+    });
+
+    it("provides a scoped education remediation without replacing Playbook manifests", async () => {
+        const { packs, projects } = configured();
+        projects.register({ systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform",
+            remediationPackIds: ["@pbos/remediation-education"], createBlueprint: createPlaybookBlueprint });
+        const changes = await new UniversalRemediationHandler({} as GitHubRepositoryGateway, packs, projects)
+            .propose(failedRun("PLAYBOOK-SYSTEM-001", "sgwalton87/playbook-platform", "Scholar onboarding requires identity approval"));
+        const paths = changes?.files.map(file => file.path) ?? [];
+        expect(paths).toContain("pbos/generated/domain/education/scholar-journey.ts");
+        expect(paths).not.toContain("package.json");
+        expect(paths).not.toContain("tsconfig.json");
     });
 
     it("selects dependency remediation independently from domain behavior", async () => {

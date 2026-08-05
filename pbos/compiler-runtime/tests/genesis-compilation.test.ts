@@ -15,7 +15,7 @@ function createTarget(): RegisteredSystem {
         id: "system-artifact-001",
         artifactType: "SYSTEM",
         schemaVersion: "1.0.0",
-        systemName: "Playbook Platform",
+        systemName: "The Playbook",
         repositoryPath: "/playbook",
         repositoryIdentity: "playbook-repository",
         commitHash: "commit-001",
@@ -34,7 +34,7 @@ function createTarget(): RegisteredSystem {
     return {
         id: "registered-system-001",
         systemId: "PLAYBOOK-SYSTEM-001",
-        systemName: "Playbook Platform",
+        systemName: "The Playbook",
         artifact,
         lifecycleState: "REGISTERED",
         registeredAt: new Date("2026-08-03T00:00:00.000Z"),

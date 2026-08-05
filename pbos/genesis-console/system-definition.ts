@@ -15,7 +15,7 @@ export const REFERENCE_SYSTEMS: readonly GenesisSystemDefinition[] = [
     {
         systemId: "PLAYBOOK-SYSTEM-001",
         operatingSystemId: "PLAYBOOK-OS-001",
-        name: "Playbook Platform",
+        name: "The Playbook",
         domain: "Education",
         repository: "sgwalton87/playbook-platform",
         defaultBranch: "main",

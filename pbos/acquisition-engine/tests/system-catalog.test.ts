@@ -80,7 +80,7 @@ describe(
 
                 ).toBe(
 
-                    "Playbook Platform"
+                    "The Playbook"
 
                 );
 

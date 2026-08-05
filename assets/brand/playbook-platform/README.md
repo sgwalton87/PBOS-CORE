@@ -1,6 +1,10 @@
-# Playbook Platform Logo Assets
+# The Playbook Logo Assets
 
-`playbook-platform-master-brand-board.png` is the supplied 1536 × 1024 RGB reference board for Playbook Platform.
+`the-playbook-master-brand-board-v2.png` is the active 1536 × 1024 RGB public brand board for The Playbook.
+
+SHA-256: `f0903d2ad8a74f7551048734b14216947686896c2b8568383711e753c9af746b`
+
+`playbook-platform-master-brand-board.png` is retained only as historical lineage from the former public name. Internal system, repository, and connector IDs remain stable for compatibility.
 
 SHA-256: `36e111ff0002a1f3bcbff0f15973fd2a6f8b3c10356185a3f7f8cdf8c72aef86`
 

@@ -13,7 +13,7 @@ const connector = {
     connectorId: "PLAYBOOK-CONNECTOR-001",
     externalSystemId: "PLAYBOOK-SYSTEM-001",
     pbosSystemId: "PLAYBOOK-OS-001",
-    name: "Playbook Platform",
+    name: "The Playbook",
     version: "1.0.0",
     domainIds: ["PLAYBOOK-DOMAIN-SCHOLAR"],
     capabilities: [{

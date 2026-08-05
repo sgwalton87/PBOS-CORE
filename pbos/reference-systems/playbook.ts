@@ -7,7 +7,7 @@ export const PLAYBOOK_CONNECTOR_MANIFEST: ConnectorRegistrationManifest = {
     connectorId: "PLAYBOOK-CONNECTOR-001",
     externalSystemId: "PLAYBOOK-SYSTEM-001",
     pbosSystemId: "PLAYBOOK-OS-001",
-    name: "Playbook Platform PBOS Connector",
+    name: "The Playbook PBOS Connector",
     version: "1.0.0",
     domainIds: ["PLAYBOOK-DOMAIN-SCHOLAR"],
     capabilities: [

@@ -46,3 +46,10 @@ export class LegacyPlanningRemediationPack extends ScaffoldPack {
     constructor() { super(["beneficiary", "identity verification", "legacy policy", "secure document", "test"],
         path => path.startsWith("src/domain/legacy/") || path === "supabase/storage.sql"); }
 }
+
+export class EducationRemediationPack extends ScaffoldPack {
+    readonly packId = "@pbos/remediation-education";
+    readonly category = "DOMAIN" as const;
+    constructor() { super(["scholar journey", "scholar onboarding", "identity approval", "data exchange approval", "pbos/generated/domain/education"],
+        path => path.startsWith("pbos/generated/domain/education/") || path === "supabase/migrations/202608050002_pbos_scholar_foundation.sql"); }
+}

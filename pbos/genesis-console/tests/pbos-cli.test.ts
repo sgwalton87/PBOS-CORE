@@ -12,4 +12,16 @@ describe("partner-ready CLI durable state", () => {
             domain: "Legacy Planning", repository: "vycoywalton/bulletproof-beneficiary-registry", defaultBranch: "main", status: "READY", capabilities: ["IDENTITY"] });
         expect(new GenesisStateRepository(path).systems()[0].systemId).toBe("BULLETPROOF-SYSTEM-001");
     });
+
+    it("refreshes a durable public name without changing the stable system identity", () => {
+        const path = join(mkdtempSync(join(tmpdir(), "pbos-cli-")), "state.json");
+        const state = new GenesisStateRepository(path);
+        state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "Playbook Platform",
+            domain: "Education", repository: "sgwalton87/playbook-platform", defaultBranch: "main", status: "READY", capabilities: ["WORKFLOWS"] });
+        state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook",
+            domain: "Education", repository: "sgwalton87/playbook-platform", defaultBranch: "main", status: "READY", capabilities: ["WORKFLOWS"] });
+        expect(new GenesisStateRepository(path).systems()).toEqual([
+            expect.objectContaining({ systemId: "PLAYBOOK-SYSTEM-001", name: "The Playbook" })
+        ]);
+    });
 });
