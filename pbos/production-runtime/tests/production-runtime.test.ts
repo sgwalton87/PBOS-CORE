@@ -65,11 +65,18 @@ describe("canonical PBOS production runtime", () => {
         expect(event.payload.command).toBe("authorization=[REDACTED]");
     });
 
-    it("ties visual preview evidence to an exact commit and required device sizes", () => {
-        const preview = new GovernedPreviewPipeline().compile({ runId: "run", repository: "sgwalton87/playbook-platform",
+    it("requires commit-bound web and mobile links before application delivery is ready", () => {
+        const pipeline = new GovernedPreviewPipeline();
+        const screenshotOnly = pipeline.compile({ runId: "run", repository: "sgwalton87/playbook-platform",
             branch: "agent/preview", commit: "5dda9e7", experienceChanging: true, routes: ["/dashboard"], personas: ["SCHOLAR"],
             screenshots: ["evidence/dashboard-mobile.png"], label: "SEEDED" });
+        expect(screenshotOnly.status).toBe("REQUESTED");
+        const preview = pipeline.compile({ runId: "run", repository: "sgwalton87/playbook-platform",
+            branch: "agent/preview", commit: "5dda9e7", experienceChanging: true, routes: ["/dashboard"], personas: ["SCHOLAR"],
+            webUrl: "https://playbook-preview.example.com", mobileUrl: "https://expo.dev/@playbook/preview", label: "LIVE" });
         expect(preview.status).toBe("READY");
+        expect(preview.webUrl).toBe("https://playbook-preview.example.com");
+        expect(preview.mobileUrl).toBe("https://expo.dev/@playbook/preview");
         expect(preview.viewports).toEqual(["DESKTOP_1440X900", "MOBILE_390X844"]);
         expect(preview.commit).toBe("5dda9e7");
         expect(() => new GovernedPreviewPipeline().compile({ ...preview, experienceChanging: true, commit: "latest" })).toThrow(/exact/);

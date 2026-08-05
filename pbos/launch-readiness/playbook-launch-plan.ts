@@ -28,7 +28,7 @@ export const PLAYBOOK_LAUNCH_TASKS: readonly LaunchTaskDefinition[] = [
     { taskId: "048-product-journeys", cip: "CIP-048", title: "Complete connected Playbook journeys",
         dependencies: ["048-scholar-slice"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Academic, opportunity, application, support, messaging, and notification journeys are connected", "Accessibility, security, lint, tests, and production build pass") },
     { taskId: "048-web-staging", cip: "CIP-048", title: "Deploy and accept Playbook web staging",
-        dependencies: ["048-product-journeys", "047-operations"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("Stakeholder acceptance passes", "Production configuration contains no staging credentials") },
+        dependencies: ["048-product-journeys", "047-operations"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("A commit-bound desktop web URL opens the interactive application", "Stakeholder acceptance passes", "Production configuration contains no staging credentials") },
 
     { taskId: "049-mobile-foundation", cip: "CIP-049", title: "Generate shared iOS and Android application foundation",
         dependencies: ["048-foundation"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Shared contracts and design tokens are reused", "Native secure storage and deep-link boundaries exist", "Platform-specific code remains isolated") },
@@ -37,13 +37,13 @@ export const PLAYBOOK_LAUNCH_TASKS: readonly LaunchTaskDefinition[] = [
     { taskId: "049-store-readiness", cip: "CIP-049", title: "Prepare Apple and Google store releases",
         dependencies: ["049-mobile-journeys"], gate: "EXTERNAL_ACCOUNT", acceptanceCriteria: criteria("Signing identities and listings are configured", "Privacy disclosures and screenshots are approved", "TestFlight and Play internal testing pass") },
     { taskId: "049-certification", cip: "CIP-049", title: "Certify mobile release candidates",
-        dependencies: ["049-store-readiness", "047-operations"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("iOS and Android release evidence is complete", "Human mobile certification is recorded") },
+        dependencies: ["049-store-readiness", "047-operations"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("A commit-bound mobile preview URL opens the interactive application", "iOS and Android release evidence is complete", "Human mobile certification is recorded") },
     { taskId: "050-platform-evidence", cip: "CIP-050", title: "Compile independent multi-platform ecosystem evidence",
         dependencies: ["048-web-staging", "049-certification"], gate: "AUTOMATED", acceptanceCriteria: criteria("Playbook and Bulletproof have independent web, iOS, and Android scorecards", "Every readiness domain has provenance-bearing evidence") },
     { taskId: "050-isolation", cip: "CIP-050", title: "Prove shared PBOS contracts and independent ownership",
         dependencies: ["050-platform-evidence"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Both systems use one PBOS contract version", "Repositories, brands, data boundaries, and release authorities remain independent") },
     { taskId: "050-certification", cip: "CIP-050", title: "Issue separate human ecosystem certifications",
-        dependencies: ["050-isolation"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("Playbook certification is independently approved", "Bulletproof certification is independently approved", "Public web and store submissions retain separate approvals") }
+        dependencies: ["050-isolation"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("Mission Control renders separate Open desktop web app and Open mobile app actions", "Playbook certification is independently approved", "Bulletproof certification is independently approved", "Public web and store submissions retain separate approvals") }
 ];
 
 const order = new Map(PLAYBOOK_LAUNCH_TASKS.map((task, index) => [task.taskId, index]));

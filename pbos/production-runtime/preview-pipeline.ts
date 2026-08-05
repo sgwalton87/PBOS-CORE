@@ -7,7 +7,10 @@ export interface PreviewRequest {
     readonly branch: string;
     readonly commit: string;
     readonly experienceChanging: boolean;
+    /** @deprecated Use webUrl. Retained for non-application preview compatibility. */
     readonly url?: string;
+    readonly webUrl?: string;
+    readonly mobileUrl?: string;
     readonly routes?: readonly string[];
     readonly personas?: readonly string[];
     readonly screenshots?: readonly string[];
@@ -24,9 +27,17 @@ export class GovernedPreviewPipeline {
             generatedAt: new Date().toISOString(), label: "NONVISUAL" };
         const routes = request.routes ?? []; const personas = request.personas ?? []; const screenshots = request.screenshots ?? [];
         const viewports = ["DESKTOP_1440X900", "MOBILE_390X844"];
-        const status = request.url || screenshots.length ? "READY" : "REQUESTED";
+        const webUrl = request.webUrl ?? request.url;
+        const mobileUrl = request.mobileUrl;
+        [webUrl, mobileUrl].filter((value): value is string => Boolean(value)).forEach(value => {
+            const parsed = new URL(value);
+            if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("Preview links must use HTTP or HTTPS.");
+        });
+        // A visual artifact proves appearance, not usability. Application delivery is
+        // ready only when both governed interaction surfaces can actually be opened.
+        const status = webUrl && mobileUrl ? "READY" : "REQUESTED";
         return { previewId: randomUUID(), runId: request.runId, repository: request.repository, branch: request.branch,
-            commit: request.commit, status, url: request.url, routes, personas, viewports, screenshots,
+            commit: request.commit, status, url: webUrl, webUrl, mobileUrl, routes, personas, viewports, screenshots,
             generatedAt: new Date().toISOString(), label: request.label ?? "SEEDED" };
     }
 }
