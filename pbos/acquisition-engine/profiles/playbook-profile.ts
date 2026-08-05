@@ -39,7 +39,7 @@ export const PLAYBOOK_PROFILE:
 
     systemName:
 
-        "Playbook Platform",
+        "The Playbook",
 
 
 

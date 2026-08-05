@@ -71,7 +71,7 @@ function compiledSystem(options: { governed?: boolean; includeEvolution?: boolea
             id: "system-artifact-001",
             artifactType: "SYSTEM",
             schemaVersion: "1.0.0",
-            systemName: "Playbook Platform",
+            systemName: "The Playbook",
             repositoryPath: "/playbook",
             repositoryIdentity: "repository-001",
             commitHash: "commit-001",

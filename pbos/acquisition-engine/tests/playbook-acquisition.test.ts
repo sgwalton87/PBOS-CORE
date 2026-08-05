@@ -30,7 +30,7 @@ describe(
 
         it(
 
-            "loads the Playbook Platform acquisition profile",
+            "loads the The Playbook acquisition profile",
 
             () => {
 
@@ -65,7 +65,7 @@ describe(
 
                 ).toBe(
 
-                    "Playbook Platform"
+                    "The Playbook"
 
                 );
 

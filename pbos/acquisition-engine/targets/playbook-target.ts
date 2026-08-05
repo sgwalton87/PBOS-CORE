@@ -72,7 +72,7 @@ export class PlaybookTarget {
 
             systemName:
 
-                "Playbook Platform",
+                "The Playbook",
 
 
             artifact:
