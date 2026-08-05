@@ -2,9 +2,20 @@ import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
-import { GenesisStateRepository } from "../../genesis-state";
-import { latestUnfinishedRuns } from "../pbos-cli";
+import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
+import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForMissionApproval } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
+import { AutonomousBatchService } from "../../operator-continuity";
+import { createPlaybookBlueprint } from "../../reference-systems";
+import { GitHubRepositoryGateway } from "../../platform";
+
+class ApprovalIO {
+    readonly output: string[] = [];
+    constructor(private readonly answer: string) {}
+    write(message: string): void { this.output.push(message); }
+    prompt(_message: string): Promise<string> { return Promise.resolve(this.answer); }
+    close(): void {}
+}
 
 describe("partner-ready CLI durable state", () => {
     it("persists the Bulletproof catalog independently of a process", () => {
@@ -49,5 +60,67 @@ describe("partner-ready CLI durable state", () => {
             make("pr-49", 49, "REMEDIATION_REQUIRED"),
             make("pr-50", 50, "READY_FOR_CERTIFICATION")
         ])).toEqual([]);
+    });
+
+    it("bootstraps the Playbook readiness queue from governed capability evidence", async () => {
+        const path = join(mkdtempSync(join(tmpdir(), "pbos-cli-")), "state.json");
+        const state = new GenesisStateRepository(path);
+        state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook",
+            domain: "Education", repository: "sgwalton87/playbook-platform", defaultBranch: "main", status: "READY", capabilities: [] });
+        const inspection = { repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+            revision: "5dda9e7", inspectedAt: new Date(), files: [],
+            findings: createPlaybookBlueprint().capabilities.map(capability => `CAPABILITY:${capability}:PRESENT`) };
+        let inspections = 0;
+        const gateway = { inspectRepository: async () => { inspections += 1; return inspection; } } as unknown as GitHubRepositoryGateway;
+        const batches = new AutonomousBatchService(state);
+
+        await ensureReadinessQueue({ state, batches, gateway });
+        await ensureReadinessQueue({ state, batches, gateway });
+
+        expect(inspections).toBe(1);
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-repository-gap-analysis")?.status)
+            .toBe("ELIGIBLE");
+    });
+
+    it("prompts for the next human-gated mission and persists a verifiable decision", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-approval-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const mission = { missionId: "048-foundation", systemId: "PLAYBOOK-SYSTEM-001", title: "Complete web foundations",
+            dependencies: [], status: "ELIGIBLE" as const,
+            rationale: "All declared dependencies are complete.", approvalRequired: true, evidenceIds: [] };
+        state.saveMissionQueue([mission], mission.systemId);
+        const io = new ApprovalIO("yes");
+
+        const approval = await promptForMissionApproval(io,
+            { state, identities, operator }, mission);
+
+        expect(approval && identities.verify(approval, "START_PRODUCTION_MISSION", mission.missionId)).toBe(true);
+        expect(state.audit().at(-1)).toMatchObject({ type: "VERIFIABLE_APPROVAL", resource: mission.missionId });
+        expect(state.missionQueue(mission.systemId)[0].evidenceIds).toContain(`approval:${approval?.approvalId}`);
+        expect(durableMissionApproval({ state, identities, operator }, mission)?.approvalId).toBe(approval?.approvalId);
+        expect(io.output).toContain("PBOS APPROVAL CHECKPOINT");
+        expect(io.output).toContain("MISSION AUTHORIZED");
+        expect(io.output.join("\n")).toContain("Protected actions remain excluded");
+    });
+
+    it("keeps the mission queued without mutation when approval is declined", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-decline-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const mission = { missionId: "048-foundation", systemId: "PLAYBOOK-SYSTEM-001", title: "Complete web foundations",
+            dependencies: [], status: "ELIGIBLE" as const, rationale: "Ready.", approvalRequired: true, evidenceIds: [] };
+        state.saveMissionQueue([mission], mission.systemId);
+        const io = new ApprovalIO("no");
+
+        expect(await promptForMissionApproval(io,
+            { state, identities, operator }, mission)).toBeUndefined();
+        expect(state.audit()).toHaveLength(0);
+        expect(state.missionQueue(mission.systemId)[0]).toMatchObject({ status: "ELIGIBLE", evidenceIds: [] });
+        expect(io.output).toContain("MISSION NOT AUTHORIZED");
     });
 });
