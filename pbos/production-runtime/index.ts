@@ -9,3 +9,4 @@ export * from "./functional-acceptance-verifier";
 export * from "./functional-application-runtime";
 export * from "./protected-environment";
 export * from "./recovery-authority";
+export * from "./vercel-preview-deployment";

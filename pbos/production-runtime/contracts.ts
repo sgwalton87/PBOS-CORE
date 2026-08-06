@@ -290,6 +290,8 @@ export interface FunctionalAcceptancePlan {
     }>;
     readonly probes: readonly FunctionalRuntimeProbe[];
     readonly browserJourneys: readonly BrowserJourneyPlan[];
+    /** Protected provider action prepared by an adapter and executed only after exact-revision CI passes. */
+    readonly previewDeployment?: PreviewDeploymentRequest;
     /**
      * Durable preview endpoints are separate from the temporary verification
      * process. They are optional for journey missions and required by any
@@ -301,6 +303,21 @@ export interface FunctionalAcceptancePlan {
         healthPath: string;
         label: "LIVE" | "SEEDED";
     }>;
+}
+
+export interface PreviewDeploymentRequest {
+    readonly provider: "VERCEL";
+    readonly repository: string;
+    readonly branch: string;
+    readonly commit: string;
+    readonly environment: "preview";
+    readonly approvalId: string;
+    readonly tokenEnvironmentVariable: "VERCEL_TOKEN";
+    readonly projectEnvironmentVariable: "VERCEL_PROJECT_ID";
+    readonly teamEnvironmentVariable?: "VERCEL_TEAM_ID";
+    readonly requiredProjectEnvironmentVariables: readonly string[];
+    readonly previewOnlyEnvironmentVariables: readonly string[];
+    readonly browserTarget: "DEPLOYED_PREVIEW";
 }
 
 export interface MissionCompletionPolicy {

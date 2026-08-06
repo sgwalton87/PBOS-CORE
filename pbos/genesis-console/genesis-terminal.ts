@@ -74,7 +74,7 @@ export class GenesisTerminal {
             this.io.write(`Authority: ${selectedMode.label}`);
             this.io.write(`Batch scope: ${selectedMode.mode === "DELEGATED_AUTONOMY" ? "selected after repository planning (maximum 10)" : "1 work package"}`);
             this.io.write("Branch scope: agent/*");
-            this.io.write("Protected: merge, production deploy, destructive migration, secrets, certification, cross-repository work");
+            this.io.write("Protected: staging deploy, merge, production deploy, destructive migration, secrets, certification, cross-repository work");
             const confirmed = (await this.io.prompt("\nAuthorize this build session? [y/N] ")).trim().toLowerCase();
             if (confirmed !== "y" && confirmed !== "yes") {
                 this.io.write("Build session not authorized.");

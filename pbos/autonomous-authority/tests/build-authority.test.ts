@@ -6,6 +6,7 @@ const buildActions: readonly BuildAction[] = [
     "MODIFY_APPLICATION_CODE",
     "OPEN_DRAFT_PR",
     "APPLY_STAGING_MIGRATION",
+    "DEPLOY_STAGING",
     "MERGE_MAIN",
     "DEPLOY_PRODUCTION"
 ];
@@ -57,6 +58,9 @@ describe("delegated autonomous build authority", () => {
         expect(authority.authorize(request(grant.grantId, "MODIFY_APPLICATION_CODE", "MEDIUM")).allowed).toBe(true);
         expect(authority.authorize(request(grant.grantId, "MERGE_MAIN", "HIGH")).allowed).toBe(false);
         expect(authority.authorize(request(grant.grantId, "APPLY_STAGING_MIGRATION", "HIGH")).allowed).toBe(false);
+        expect(authority.authorize(request(grant.grantId, "DEPLOY_STAGING", "HIGH")).allowed).toBe(false);
+        expect(authority.authorize({ ...request(grant.grantId, "DEPLOY_STAGING", "HIGH"),
+            explicitApprovalId: "staging-approval" }).allowed).toBe(true);
         expect(authority.authorize({ ...request(grant.grantId, "APPLY_STAGING_MIGRATION", "HIGH"),
             explicitApprovalId: "migration-approval" }).allowed).toBe(true);
         expect(authority.authorize({

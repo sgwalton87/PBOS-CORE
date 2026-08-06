@@ -12,6 +12,7 @@ import { AutonomousBatchService } from "./autonomous-batch-service";
 import { ApplicationAcceptanceEvidence, ProductionRecoveryAuthority, ProductionRuntimeService } from "../production-runtime";
 import { RemediationRun } from "../validation-automation";
 import { AutonomousProductionKernel } from "../kernel";
+import { PreviewDeploymentGateway, VercelPreviewDeploymentGateway } from "../production-runtime";
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -48,7 +49,10 @@ export class BackgroundMonitor {
     constructor(private readonly state: GenesisStateRepository, private readonly remediation: ResumableRemediationEngine,
         private readonly workflows: GenesisWorkflowService, private readonly memos: OperatorMemoService,
         private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
-        private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier()) {}
+        private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier(),
+        private readonly previewDeployment: PreviewDeploymentGateway = new VercelPreviewDeploymentGateway(),
+        private readonly applicationVerifier: Pick<AutonomousProductionKernel, "verifyApplication"> =
+            new AutonomousProductionKernel(state, new ProductionRuntimeService(state))) {}
 
     async run(runId: string, sessionId: string, intervalMs = 10_000, maximumPolls = 360): Promise<void> {
         const session = this.state.sessions().find(item => item.sessionId === sessionId);
@@ -153,8 +157,15 @@ export class BackgroundMonitor {
                     source: "CI_VALIDATION"
                 };
                 if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
-                    await new AutonomousProductionKernel(this.state, production)
-                        .verifyApplication(run.runId, validationEvidence);
+                    const plan = run.functionalAcceptancePlan;
+                    if (mission.completionPolicy.requiredDimensions.includes("PREVIEW") && plan?.previewDeployment && !plan.durablePreview) {
+                        const deploymentApproval = this.state.audit().some(event => event.eventId === plan.previewDeployment!.approvalId &&
+                            event.resource === mission.missionId && event.evidence.purpose === "START_PRODUCTION_MISSION");
+                        if (!deploymentApproval) throw new Error("Protected staging deployment is missing its durable mission approval.");
+                        const preview = await this.previewDeployment.deploy(plan);
+                        run = production.attachDurablePreview(run.runId, preview);
+                    }
+                    await this.applicationVerifier.verifyApplication(run.runId, validationEvidence);
                     new ProductionRecoveryAuthority(this.state, production).completeActive(run.runId,
                         "Independent exact-revision validation and functional application acceptance passed.");
                     return;

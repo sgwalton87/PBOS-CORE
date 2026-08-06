@@ -26,6 +26,7 @@ import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
     playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
@@ -208,7 +209,12 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     io.write(`Mission: ${mission.title}`);
     io.write(`Why now: ${mission.rationale}`);
     io.write("PBOS is requesting authority to prepare and execute only this governed mission.");
-    io.write("Protected actions remain excluded: merge, production deployment, secrets, destructive migration, certification, and cross-repository work.");
+    if (mission.missionId === "048-web-staging") {
+        io.write("This approval includes one exact-revision Vercel preview deployment after independent CI passes.");
+        io.write("Production deployment, merge, secret mutation, destructive migration, certification, and cross-repository work remain excluded.");
+    } else {
+        io.write("Protected actions remain excluded: merge, production deployment, secrets, destructive migration, certification, and cross-repository work.");
+    }
     const response = (await io.prompt("Authorize this mission now? [y/N] ")).trim().toLowerCase();
     if (response !== "y" && response !== "yes") {
         io.write("MISSION NOT AUTHORIZED");
@@ -525,6 +531,21 @@ async function runNextProductionMission(target?: string): Promise<number> {
         }
         stdout.write(`[PREREQUISITE] Protected academic acceptance configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
     }
+    if (next.missionId === "048-web-staging") {
+        const readiness = await inspectPlaybookWebStagingReadiness();
+        if (!readiness.ready) {
+            stdout.write("[PREREQUISITE] Protected Vercel preview configuration is incomplete.\n");
+            stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
+            stdout.write(`Missing: ${readiness.missing.join(", ")}\n`);
+            playbookWebStagingProtectedEnvironmentFiles().forEach(source =>
+                stdout.write(`Accepted mode-0600 source: ${source.path}\n`));
+            stdout.write("No approval was consumed, no deployment was started, and no repository changes were made.\n");
+            stdout.write("NEXT HUMAN STEP: add only the named Vercel values to the protected file, run chmod 600 on it, then rerun the same PBOS command.\n");
+            stdout.write("Setup details: npm run pbos:doctor -- playbook\n");
+            return 2;
+        }
+        stdout.write(`[PREREQUISITE] Protected Vercel preview configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -595,6 +616,11 @@ async function runNextProductionMission(target?: string): Promise<number> {
         .register("PLAYBOOK-SYSTEM-001", "048-product-journeys", () => playbookProductJourneysExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-web-staging", () => playbookWebStagingExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session, deploymentApprovalId: missionApproval?.approvalId ?? "",
+            authorize: (action, risk, branch, explicitApprovalId) =>
+                services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
             { producesFunctionalAcceptancePlan: true });
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
@@ -889,6 +915,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const files = playbookScholarProtectedEnvironmentFiles(workingDirectory);
         const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
         const migration = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
+        const webStaging = await inspectPlaybookWebStagingReadiness();
         const readiness = staging.environment;
         stdout.write("PBOS PROTECTED ACCEPTANCE DOCTOR\n");
         stdout.write(`Application: ${system.name}\nRepository: ${system.repository}\n`);
@@ -896,6 +923,14 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
         stdout.write(`Missing: ${readiness.missing.length ? readiness.missing.join(", ") : "NONE"}\n`);
         staging.resources.forEach(resource => stdout.write(`Resource: ${resource.resource} — ${resource.ready ? "READY" : "BLOCKED"} — ${resource.status}\n`));
+        stdout.write("\nPBOS WEB PREVIEW PROVIDER\n");
+        playbookWebStagingProtectedEnvironmentFiles().forEach(source =>
+            stdout.write(`Accepted source: ${source.path}\n`));
+        stdout.write(`Available: ${webStaging.available.length}/${webStaging.required.length}\n`);
+        stdout.write(`Missing: ${webStaging.missing.length ? webStaging.missing.join(", ") : "NONE"}\n`);
+        stdout.write(webStaging.ready
+            ? "WEB STAGING: READY — Vercel configuration names were verified without displaying values.\n"
+            : "WEB STAGING: BLOCKED — add only the missing Vercel values to the accepted mode-0600 source.\n");
         const missingTables = staging.resources.filter(resource => resource.resource.startsWith("table:") && !resource.ready);
         const migrationBootstrapReady = isAdditiveScholarMigrationEligible(staging) && migration.ready;
         if (missingTables.length) {

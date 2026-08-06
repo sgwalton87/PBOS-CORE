@@ -231,7 +231,10 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
+        const previewDeployment = run.functionalAcceptancePlan.previewDeployment
+            ? { ...run.functionalAcceptancePlan.previewDeployment, branch, commit } : undefined;
         const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys,
+            previewDeployment, durablePreview: undefined,
             planId: `${run.functionalAcceptancePlan.planId.split(":remediation:")[0]}:remediation:${commit}` };
         const updated: ProductionRun = { ...run, currentBranch: branch, currentCommit: commit,
             repositoryContextId: `repository:${run.repository}:${commit}`, functionalAcceptancePlan: plan,
@@ -263,7 +266,10 @@ export class ProductionRuntimeService {
                 journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
                 current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
         if (!changed) return run;
+        const previewDeployment = current.previewDeployment
+            ? { ...current.previewDeployment, branch: run.currentBranch, commit: run.currentCommit } : undefined;
         const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
+            previewDeployment, durablePreview: current.commit === run.currentCommit ? current.durablePreview : undefined,
             browserJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
             acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
@@ -406,6 +412,28 @@ export class ProductionRuntimeService {
         this.event(updated, "FUNCTIONAL_ACCEPTANCE_PLANNED", "Executable application acceptance plan recorded.", {
             planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId,
             probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId)
+        });
+        return updated;
+    }
+
+    attachDurablePreview(runId: string, preview: NonNullable<FunctionalAcceptancePlan["durablePreview"]>): ProductionRun {
+        const run = this.heartbeat(runId);
+        const current = run.functionalAcceptancePlan;
+        if (!current?.previewDeployment || current.previewDeployment.commit !== run.currentCommit ||
+            current.previewDeployment.branch !== run.currentBranch || !preview.webUrl || !preview.mobileUrl) {
+            throw new Error("Durable preview does not match an authorized exact-revision deployment request.");
+        }
+        const browserJourneys = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
+            ? current.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: preview.webUrl,
+                    PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }))
+            : current.browserJourneys;
+        const plan: FunctionalAcceptancePlan = { ...current, durablePreview: preview, browserJourneys };
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "PREVIEW_DEPLOYMENT_READY", "Exact-revision durable preview deployment is ready.", {
+            provider: current.previewDeployment.provider, webUrl: preview.webUrl, mobileUrl: preview.mobileUrl,
+            commit: run.currentCommit, label: preview.label
         });
         return updated;
     }
