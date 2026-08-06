@@ -3,6 +3,7 @@ import { CommandRunner, PullRequestReference } from "../platform";
 import { PullRequestCheckEvidence } from "./contracts";
 
 interface GhCheck { name: string; status?: string; conclusion?: string | null; details_url?: string; }
+interface GhRun { attempt?: number; jobs?: readonly { steps?: readonly unknown[] }[]; }
 
 export class GitHubCheckCollector {
     constructor(private readonly commands: CommandRunner) {}
@@ -21,11 +22,36 @@ export class GitHubCheckCollector {
         return createHash("sha256").update(JSON.stringify(failures)).digest("hex");
     }
 
+    async retryInfrastructure(evidence: PullRequestCheckEvidence): Promise<void> {
+        if (evidence.state !== "INFRASTRUCTURE_WAIT" || !evidence.externalRunId || !evidence.detailsUrl) {
+            throw new Error("Infrastructure retry requires a retryable GitHub Actions run reference.");
+        }
+        await this.commands.run("gh", ["run", "rerun", evidence.externalRunId, "--repo", this.repository(evidence.detailsUrl)]);
+    }
+
     private async evidence(check: GhCheck): Promise<PullRequestCheckEvidence> {
-        const state = check.status !== "completed" ? "PENDING" : this.state(check.conclusion ?? "");
+        let state = check.status !== "completed" ? "PENDING" : this.state(check.conclusion ?? "");
         const detailsUrl = check.details_url;
         let failureLog: string | undefined;
         const runId = detailsUrl?.match(/\/actions\/runs\/(\d+)/)?.[1];
+        let externalAttempt: number | undefined;
+        let infrastructureReason: string | undefined;
+        const conclusion = (check.conclusion ?? "").toLowerCase();
+        if (state === "FAILED" && runId && detailsUrl && ["cancel", "cancelled", "startup_failure"].includes(conclusion)) {
+            try {
+                const inspected = await this.commands.run("gh", ["run", "view", runId, "--repo", this.repository(detailsUrl),
+                    "--json", "attempt,jobs"]);
+                const run = JSON.parse(inspected.stdout) as GhRun;
+                externalAttempt = run.attempt;
+                const steps = (run.jobs ?? []).flatMap(job => job.steps ?? []);
+                if (steps.length === 0) {
+                    state = "INFRASTRUCTURE_WAIT";
+                    infrastructureReason = "GitHub Actions ended before assigning or executing any validation step.";
+                }
+            } catch (error) {
+                infrastructureReason = `GitHub Actions interruption could not be inspected: ${error instanceof Error ? error.message : String(error)}`;
+            }
+        }
         if (state === "FAILED" && runId) {
             try {
                 failureLog = (await this.commands.run("gh", ["run", "view", runId, "--repo", this.repository(detailsUrl!), "--log-failed"])).stdout.slice(-20_000);
@@ -33,7 +59,8 @@ export class GitHubCheckCollector {
                 failureLog = `Failure log unavailable: ${error instanceof Error ? error.message : String(error)}`;
             }
         }
-        return { evidenceId: randomUUID(), name: check.name, state, detailsUrl, failureLog, collectedAt: new Date().toISOString() };
+        return { evidenceId: randomUUID(), name: check.name, state, detailsUrl, failureLog, externalRunId: runId,
+            externalAttempt, infrastructureReason, collectedAt: new Date().toISOString() };
     }
 
     private state(value: string): PullRequestCheckEvidence["state"] {

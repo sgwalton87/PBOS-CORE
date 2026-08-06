@@ -22,7 +22,8 @@ export interface BackgroundMonitorJob {
     readonly updatedAt: string;
 }
 
-export type AutonomousBatchState = "PLANNED" | "VALIDATING" | "REMEDIATING" | "READY_FOR_CERTIFICATION" | "BLOCKED";
+export type AutonomousBatchState = "PLANNED" | "VALIDATING" | "WAITING_FOR_INFRASTRUCTURE" | "REMEDIATING" |
+    "READY_FOR_CERTIFICATION" | "BLOCKED";
 
 export interface AutonomousBuildBatch {
     readonly batchId: string;
@@ -41,7 +42,7 @@ export interface AutonomousBuildBatch {
 
 export type BatchTelemetryType = "BATCH_STARTED" | "WORK_PACKAGE_QUEUED" | "WORK_PACKAGE_STARTED" |
     "WORK_PACKAGE_COMPLETED" | "SECTION_COMPLETED" | "VALIDATION_STARTED" | "REMEDIATION_STARTED" |
-    "BATCH_READY_FOR_APPROVAL" | "BATCH_BLOCKED";
+    "INFRASTRUCTURE_WAIT" | "BATCH_READY_FOR_APPROVAL" | "BATCH_BLOCKED";
 
 export interface BatchTelemetryEvent {
     readonly eventId: string;

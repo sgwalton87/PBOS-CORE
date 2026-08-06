@@ -186,7 +186,7 @@ export class GenesisTerminal {
                 resumed.evidence.forEach(item => this.io.write(`${item.name}: ${item.state}`));
                 if (resumed.state === "READY_FOR_CERTIFICATION") this.io.write("Certification memo is ready for human approval.");
                 if (resumed.state === "REMEDIATION_PUSHED") this.io.write(`Remediation pushed: ${resumed.remediationRevision}`);
-                if (["WAITING_FOR_CHECKS", "REMEDIATION_PUSHED"].includes(resumed.state)) {
+                if (["WAITING_FOR_CHECKS", "WAITING_FOR_INFRASTRUCTURE", "REMEDIATION_PUSHED"].includes(resumed.state)) {
                     this.io.write("Validation is still running. PBOS monitoring will collect the next update automatically.");
                 }
                 resumed.blockers.forEach(blocker => this.io.write(`Blocked: ${blocker}`));
@@ -226,7 +226,7 @@ export class GenesisTerminal {
             }
             this.io.write("Merged capability evidence from the pre-batch PR is present on the governed default branch.");
         }
-        if (existingBatch && ["PLANNED", "VALIDATING", "REMEDIATING"].includes(existingBatch.state)) {
+        if (existingBatch && ["PLANNED", "VALIDATING", "WAITING_FOR_INFRASTRUCTURE", "REMEDIATING"].includes(existingBatch.state)) {
             this.io.write("");
             this.io.write("EXISTING AUTONOMOUS BATCH DETECTED");
             this.io.write(`Batch: ${existingBatch.batchId}`);

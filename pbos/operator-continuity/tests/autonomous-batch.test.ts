@@ -33,11 +33,12 @@ describe("CIP-051 autonomous build batches", () => {
             url: "https://github.com/sgwalton87/playbook-platform/pull/50" }, "run", batchId);
         expect(batch.workPackages).toHaveLength(10);
         expect(new GenesisStateRepository(statePath).autonomousBatches()[0].batchId).toBe(batch.batchId);
+        expect(service.updateForValidation("run", "WAITING_FOR_INFRASTRUCTURE")?.state).toBe("WAITING_FOR_INFRASTRUCTURE");
         expect(service.updateForValidation("run", "REMEDIATION_PUSHED")?.state).toBe("REMEDIATING");
         expect(service.updateForValidation("run", "READY_FOR_CERTIFICATION")?.state).toBe("READY_FOR_CERTIFICATION");
         expect(state.batchTelemetry(batch.batchId).map(event => event.type)).toEqual(expect.arrayContaining([
             "BATCH_STARTED", "WORK_PACKAGE_QUEUED", "WORK_PACKAGE_STARTED", "WORK_PACKAGE_COMPLETED",
-            "SECTION_COMPLETED", "VALIDATION_STARTED", "REMEDIATION_STARTED", "BATCH_READY_FOR_APPROVAL"
+            "SECTION_COMPLETED", "VALIDATION_STARTED", "INFRASTRUCTURE_WAIT", "REMEDIATION_STARTED", "BATCH_READY_FOR_APPROVAL"
         ]));
     });
 
