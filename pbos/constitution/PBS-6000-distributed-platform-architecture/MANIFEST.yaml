@@ -1,0 +1,62 @@
+id: PBS-6000
+
+title: Distributed Platform Architecture
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Engineering Constitution
+
+owner: PBOS
+
+layer: Infrastructure
+
+release_blocking: true
+
+validation_required: true
+
+inherits:
+
+  - PPS-000
+  - PPS-001
+  - PPS-002
+  - PPS-003
+  - PPS-004
+  - PPS-005
+  - PPS-006
+  - PPS-007
+  - PPS-008
+  - PPS-009
+  - PPS-010
+  - PPS-011
+  - PPS-012
+  - PPS-013
+  - PPS-014
+  - PPS-015
+
+  - PBS-5000
+
+purpose:
+
+  Establish constitutional governance for every distributed platform participating in Playbook.
+
+primary_objective:
+
+  Maintain one canonical distributed operating system.
+
+north_star:
+
+  Continuous infrastructure convergence.
+
+optimization_target:
+
+  Platform integrity.
+
+machine_graph: GRAPH.yaml
+
+executable_validator: pbos/platform-convergence
+
+execution_authority: PBOS_KERNEL
+
+completion_authority: PBOS_KERNEL_FUNCTIONAL_ACCEPTANCE

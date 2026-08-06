@@ -1,0 +1,167 @@
+graph:
+
+  id: PBS-5000
+
+  version: 1.0.0
+
+  root: 000_EXECUTIVE_SUMMARY
+
+nodes:
+
+  - id: PBS-5000-000
+    title: Executive Summary
+    depends_on: []
+
+  - id: PBS-5000-001
+    title: Purpose and Mission
+    depends_on:
+      - PBS-5000-000
+
+  - id: PBS-5000-002
+    title: Core Definitions
+    depends_on:
+      - PBS-5000-001
+
+  - id: PBS-5000-003
+    title: Constitutional Principles
+    depends_on:
+      - PBS-5000-002
+
+  - id: PBS-5000-004
+    title: Repository Intelligence
+    depends_on:
+      - PBS-5000-003
+
+  - id: PBS-5000-005
+    title: Product Intelligence
+    depends_on:
+      - PBS-5000-004
+
+  - id: PBS-5000-006
+    title: Journey Intelligence
+    depends_on:
+      - PBS-5000-005
+
+  - id: PBS-5000-007
+    title: Functional Runtime
+    depends_on:
+      - PBS-5000-006
+
+  - id: PBS-5000-008
+    title: Application Runtime
+    depends_on:
+      - PBS-5000-007
+
+  - id: PBS-5000-009
+    title: Browser Runtime
+    depends_on:
+      - PBS-5000-008
+
+  - id: PBS-5000-010
+    title: Functional Acceptance Runtime
+    depends_on:
+      - PBS-5000-009
+
+  - id: PBS-5000-011
+    title: Autonomous Repair Runtime
+    depends_on:
+      - PBS-5000-010
+
+  - id: PBS-5000-012
+    title: Evidence Runtime
+    depends_on:
+      - PBS-5000-011
+
+  - id: PBS-5000-013
+    title: Observability
+    depends_on:
+      - PBS-5000-012
+
+  - id: PBS-5000-014
+    title: Mission Intelligence
+    depends_on:
+      - PBS-5000-013
+
+  - id: PBS-5000-015
+    title: Autonomous Continuation
+    depends_on:
+      - PBS-5000-014
+
+  - id: PBS-5000-016
+    title: Unified Kernel
+    depends_on:
+      - PBS-5000-015
+
+  - id: PBS-5000-017
+    title: Runtime State
+    depends_on:
+      - PBS-5000-016
+
+  - id: PBS-5000-018
+    title: Event Architecture
+    depends_on:
+      - PBS-5000-017
+
+  - id: PBS-5000-019
+    title: Mission Control
+    depends_on:
+      - PBS-5000-018
+
+  - id: PBS-5000-020
+    title: Product Graph
+    depends_on:
+      - PBS-5000-019
+
+  - id: PBS-5000-021
+    title: Acceptance Graph
+    depends_on:
+      - PBS-5000-020
+
+  - id: PBS-5000-022
+    title: Dependency Graph
+    depends_on:
+      - PBS-5000-021
+
+  - id: PBS-5000-023
+    title: Certification
+    depends_on:
+      - PBS-5000-022
+
+  - id: PBS-5000-024
+    title: Release Governance
+    depends_on:
+      - PBS-5000-023
+
+  - id: PBS-5000-025
+    title: Security
+    depends_on:
+      - PBS-5000-024
+
+  - id: PBS-5000-026
+    title: Accessibility
+    depends_on:
+      - PBS-5000-025
+
+  - id: PBS-5000-027
+    title: Testing
+    depends_on:
+      - PBS-5000-026
+
+  - id: PBS-5000-028
+    title: Migration
+    depends_on:
+      - PBS-5000-027
+
+  - id: PBS-5000-029
+    title: Definition of Done
+    depends_on:
+      - PBS-5000-028
+
+entrypoint:
+
+  - PBS-5000-000
+
+terminal:
+
+  - PBS-5000-029
+

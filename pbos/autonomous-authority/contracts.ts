@@ -13,6 +13,7 @@ export type BuildAction =
     | "PUSH_BRANCH"
     | "OPEN_DRAFT_PR"
     | "RUN_VALIDATION"
+    | "APPLY_STAGING_MIGRATION"
     | "MERGE_MAIN"
     | "DEPLOY_PRODUCTION"
     | "DESTRUCTIVE_MIGRATION"
@@ -22,6 +23,7 @@ export type BuildAction =
 
 export const PROTECTED_BUILD_ACTIONS: readonly BuildAction[] = [
     "MERGE_MAIN",
+    "APPLY_STAGING_MIGRATION",
     "DEPLOY_PRODUCTION",
     "DESTRUCTIVE_MIGRATION",
     "MANAGE_SECRETS",

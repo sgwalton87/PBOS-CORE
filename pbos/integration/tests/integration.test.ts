@@ -26,7 +26,7 @@ describe("PBOS Ecosystem Integration Architecture", () => {
 
     it("maps external identities while preserving authority and provenance", () => {
         const mapper = new IdentityMapper();
-        mapper.map({
+        const mapping = {
             mappingId: "mapping",
             externalIdentity: {
                 externalIdentityId: "external-actor", externalSystemId: "external-system",
@@ -37,7 +37,11 @@ describe("PBOS Ecosystem Integration Architecture", () => {
                 authorityContext: ["authority"], provenance: "connector:external-actor", active: true
             },
             mappedAt: new Date()
-        });
+        };
+        mapper.map(mapping);
+        expect(() => mapper.map({ ...mapping, mappedAt: new Date(Date.now() + 1_000) })).not.toThrow();
+        expect(() => mapper.map({ ...mapping, pbosIdentity: { ...mapping.pbosIdentity, role: "ADMIN" } }))
+            .toThrow("different authority context");
         expect(mapper.forExternalIdentity("external-actor")[0].pbosIdentity.actorId).toBe("pbos-actor");
     });
 

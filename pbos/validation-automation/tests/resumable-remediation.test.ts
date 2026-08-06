@@ -22,6 +22,24 @@ class RepairHandler implements RemediationHandler {
     async apply() { this.applied += 1; return "fixed-sha"; }
 }
 
+class SkippedCheckCommands implements CommandRunner {
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1" }), stderr: "" };
+        return { stdout: JSON.stringify({ check_runs: [{ name: "archive", status: "completed",
+            conclusion: "skipped", details_url: "https://github.com/acme/app/actions/runs/12" }] }), stderr: "" };
+    }
+}
+
+class MovingHeadCommands implements CommandRunner {
+    headSha = "abcdef1";
+    pending = false;
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: this.headSha }), stderr: "" };
+        return { stdout: JSON.stringify({ check_runs: [{ name: "CI", status: this.pending ? "in_progress" : "completed",
+            conclusion: this.pending ? null : "success", details_url: "https://github.com/acme/app/actions/runs/13" }] }), stderr: "" };
+    }
+}
+
 describe("resumable validation remediation", () => {
     it("persists failed evidence, applies remediation, and resumes to certification readiness", async () => {
         const statePath = join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json");
@@ -48,6 +66,18 @@ describe("resumable validation remediation", () => {
         expect((await engine.resume(started.runId)).state).toBe("BLOCKED");
     });
 
+    it("waits when GitHub has reported only skipped checks and reopens historical false-ready state", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(new SkippedCheckCommands()), new RepairHandler());
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        state.saveRemediationRun({ ...started, headSha: "abcdef1", state: "READY_FOR_CERTIFICATION",
+            evidence: [{ evidenceId: "skipped", name: "archive", state: "SKIPPED", collectedAt: new Date().toISOString() }] });
+        const waiting = await engine.resume(started.runId);
+        expect(waiting.state).toBe("WAITING_FOR_CHECKS");
+        expect(waiting.blockers).toContain("GitHub reported only skipped checks; PBOS is waiting for an independent passing check.");
+    });
+
     it("persists a blocker when remediation application fails", async () => {
         const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
         const commands = new CheckCommands();
@@ -61,6 +91,18 @@ describe("resumable validation remediation", () => {
         expect(blocked.state).toBe("BLOCKED");
         expect(blocked.blockers).toContain("Remediation application failed: repository produced no diff");
         expect(state.remediationRun(started.runId)?.state).toBe("BLOCKED");
+    });
+
+    it("recollects a previously ready pull request and waits when its head advances", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new MovingHeadCommands();
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), new RepairHandler());
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        expect((await engine.resume(started.runId)).state).toBe("READY_FOR_CERTIFICATION");
+        commands.headSha = "abcdef2"; commands.pending = true;
+        const moved = await engine.resume(started.runId);
+        expect(moved).toMatchObject({ headSha: "abcdef2", state: "WAITING_FOR_CHECKS" });
     });
 
     it("selects the newest pull request even when an older run was appended later", () => {

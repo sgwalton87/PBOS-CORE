@@ -35,8 +35,9 @@ export class PbosConnectorClient {
         return this.send("ACTIVATE_DOMAIN", command, correlationId);
     }
 
-    registerIdentity<TOutput>(mapping: IdentityMapping, correlationId: string): Promise<PbosApiResponse<TOutput>> {
-        return this.send("REGISTER_IDENTITY", mapping, correlationId);
+    registerIdentity<TOutput>(mapping: IdentityMapping, correlationId: string,
+        idempotencyKey = `identity:${mapping.mappingId}`): Promise<PbosApiResponse<TOutput>> {
+        return this.send("REGISTER_IDENTITY", mapping, correlationId, idempotencyKey);
     }
 
     healthCheck<TOutput>(command: HealthCheckCommand): Promise<PbosApiResponse<TOutput>> {

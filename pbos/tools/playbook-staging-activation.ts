@@ -66,7 +66,7 @@ export async function activatePlaybookStaging(config: PlaybookStagingActivationC
     const client = new PbosConnectorClient(transport);
     const runId = new Date().toISOString().replace(/[^0-9]/g, "");
     const correlation = (step: string): string => `playbook-staging-${runId}-${step}`;
-    const identity = playbookSupabaseIdentity(config.supabaseUserId, `PLAYBOOK-STAGING-ACTOR-${runId}`);
+    const identity = playbookSupabaseIdentity(config.supabaseUserId);
 
     requireSuccess("REGISTER_SYSTEM", await client.registerSystem(PLAYBOOK_CONNECTOR_MANIFEST, correlation("register")));
     requireSuccess("CERTIFY_SYSTEM", await client.certifySystem({

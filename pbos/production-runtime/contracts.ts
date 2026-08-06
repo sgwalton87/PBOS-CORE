@@ -8,6 +8,7 @@ export type ProductionStatus = typeof PRODUCTION_STATUSES[number];
 export type RuntimeHealth = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
 export type StageType = "DISCOVERY" | "CONTEXT" | "SPECIFICATION" | "DEPENDENCY_GRAPH" | "MISSION" |
     "AUTHORIZATION" | "PLANNING" | "EXECUTION" | "COMMAND" | "TEST" | "BUILD" | "VALIDATION" | "REPAIR" |
+    "PREREQUISITE" | "APPLICATION_LAUNCH" | "RUNTIME_VERIFICATION" | "BROWSER_JOURNEY" | "ACCEPTANCE" |
     "PREVIEW" | "EVIDENCE" | "CERTIFICATION" | "COMMIT" | "CONTINUATION";
 
 export const TERMINAL_PRODUCTION_STATUSES: readonly ProductionStatus[] = ["BLOCKED", "FAILED", "COMPLETED", "CERTIFIED", "CANCELLED"];
@@ -60,6 +61,10 @@ export interface ProductionRun {
     readonly stageIds: readonly string[];
     readonly retryCount: number;
     readonly repairAttempts: number;
+    readonly repairAttemptLimit?: number;
+    readonly repairExtensionApprovalIds?: readonly string[];
+    readonly recoveryEpochIds?: readonly string[];
+    readonly activeRecoveryEpochId?: string;
     readonly filesAdded: readonly string[];
     readonly filesModified: readonly string[];
     readonly filesDeleted: readonly string[];
@@ -68,6 +73,7 @@ export interface ProductionRun {
     readonly validationResults: readonly string[];
     readonly previewArtifactIds: readonly string[];
     readonly evidenceIds: readonly string[];
+    readonly acceptanceEvidence: readonly ApplicationAcceptanceEvidence[];
     readonly certificationResult?: "GRANTED" | "WITHHELD";
     readonly blockers: readonly string[];
     readonly resumeCheckpoint?: string;
@@ -75,6 +81,55 @@ export interface ProductionRun {
     readonly nextMission?: string;
     readonly autonomousContinuation: boolean;
     readonly executionPlan?: ProductionExecutionPlan;
+    readonly functionalAcceptancePlan?: FunctionalAcceptancePlan;
+}
+
+export type ProductionRecoveryEpochStatus = "AWAITING_AUTHORIZATION" | "AUTHORIZED" | "ACTIVE" | "EXHAUSTED" | "COMPLETED";
+
+export interface RecoveryRepairRecord {
+    readonly attempt: number;
+    readonly classification: string;
+    readonly startedAt: string;
+    readonly startedEventId: string;
+    readonly outcome: "SUCCEEDED" | "FAILED" | "UNKNOWN";
+    readonly outcomeAt?: string;
+    readonly outcomeEventId?: string;
+}
+
+export interface ProductionRecoveryEpoch {
+    readonly recoveryEpochId: string;
+    readonly epochNumber: number;
+    readonly runId: string;
+    readonly systemId: string;
+    readonly missionId: string;
+    readonly missionTitle: string;
+    readonly status: ProductionRecoveryEpochStatus;
+    readonly reasonBudgetExhausted: string;
+    readonly attemptedRepairs: readonly RecoveryRepairRecord[];
+    readonly repositoryState: Readonly<{
+        repository: string;
+        branch: string;
+        commit: string;
+        remediationRunIds: readonly string[];
+    }>;
+    readonly runtimeState: Readonly<{
+        status: ProductionStatus;
+        activeStageId?: string;
+        lastHeartbeatAt: string;
+        repairAttempts: number;
+        repairAttemptLimit: number;
+        stageStatuses: readonly Readonly<{ stageId: string; type: StageType; status: ProductionStatus; error?: string }>[];
+    }>;
+    readonly remainingDefects: readonly string[];
+    readonly lineageEvidenceIds: readonly string[];
+    readonly previousRecoveryEpochId?: string;
+    readonly requestedAt: string;
+    readonly requestedBy: string;
+    readonly authorizationApprovalId?: string;
+    readonly authorizedAt?: string;
+    readonly additionalAttempts?: number;
+    readonly completedAt?: string;
+    readonly completionReason?: string;
 }
 
 export interface ProductionExecutionPlan {
@@ -148,6 +203,104 @@ export interface MissionQueueItem {
     readonly rationale: string;
     readonly approvalRequired: boolean;
     readonly evidenceIds: readonly string[];
+    readonly executionBlocker?: string;
+    readonly blockedRunId?: string;
+    readonly completionPolicy?: MissionCompletionPolicy;
+}
+
+export type ApplicationAcceptanceDimension = "ROUTE" | "USER_INTERFACE" | "DURABLE_DATA" | "AUTHORITY" |
+    "PBOS_INTEGRATION" | "ACCEPTANCE_TEST" | "ACCESSIBILITY" | "SECURITY" | "INDEPENDENT_VALIDATION" | "PREVIEW";
+
+export interface ApplicationAcceptanceEvidence {
+    readonly evidenceId: string;
+    readonly dimension: ApplicationAcceptanceDimension;
+    readonly behavior: string;
+    readonly repository: string;
+    readonly commit: string;
+    readonly artifact: string;
+    readonly passed: boolean;
+    readonly source: "IMPLEMENTATION" | "APPLICATION_TEST" | "RUNTIME_PROBE" | "BROWSER_JOURNEY" |
+        "ACCESSIBILITY_AUDIT" | "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
+}
+
+export interface FunctionalRuntimeCommand {
+    readonly command: string;
+    readonly args: readonly string[];
+    readonly requiredEnvironmentVariables?: readonly string[];
+    readonly publicEnvironment?: Readonly<Record<string, string>>;
+    readonly timeoutMs?: number;
+}
+
+export interface ProtectedEnvironmentFile {
+    /** Absolute path to a non-versioned dotenv file. Secret values are never copied into PBOS state. */
+    readonly path: string;
+    readonly required?: boolean;
+}
+
+export interface FunctionalRuntimeProbe {
+    readonly probeId: string;
+    readonly dimension: Extract<ApplicationAcceptanceDimension,
+        "ROUTE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" | "SECURITY">;
+    readonly behavior: string;
+    readonly method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    readonly path: string;
+    readonly expectedStatus: number;
+    readonly requestBody?: unknown;
+    readonly responseIncludes?: string;
+}
+
+export interface BrowserJourneyPlan {
+    readonly journeyId: string;
+    readonly persona: string;
+    readonly behavior: string;
+    readonly route: string;
+    readonly engine: "PLAYWRIGHT" | "WEBDRIVER" | "CYPRESS";
+    readonly command: FunctionalRuntimeCommand;
+    readonly viewports: readonly ("DESKTOP_1440X900" | "MOBILE_390X844")[];
+    readonly screenshotArtifacts: readonly string[];
+    readonly traceArtifact: string;
+    readonly accessibilityArtifact: string;
+    readonly acceptanceArtifact: string;
+    readonly verifiedDimensions: readonly Extract<ApplicationAcceptanceDimension,
+        "ROUTE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" | "SECURITY">[];
+}
+
+export interface FunctionalAcceptancePlan {
+    readonly planId: string;
+    readonly systemId: string;
+    readonly productNodeId: string;
+    readonly journeyId: string;
+    readonly repository: string;
+    readonly branch: string;
+    readonly commit: string;
+    readonly workingDirectory: string;
+    readonly protectedEnvironmentFiles?: readonly ProtectedEnvironmentFile[];
+    readonly prerequisites?: readonly FunctionalRuntimeCommand[];
+    readonly minimumFreeBytes?: number;
+    readonly launch: FunctionalRuntimeCommand & Readonly<{
+        baseUrl: string;
+        healthPath: string;
+        startupTimeoutMs: number;
+    }>;
+    readonly probes: readonly FunctionalRuntimeProbe[];
+    readonly browserJourneys: readonly BrowserJourneyPlan[];
+    /**
+     * Durable preview endpoints are separate from the temporary verification
+     * process. They are optional for journey missions and required by any
+     * completion policy that includes PREVIEW.
+     */
+    readonly durablePreview?: Readonly<{
+        webUrl: string;
+        mobileUrl: string;
+        healthPath: string;
+        label: "LIVE" | "SEEDED";
+    }>;
+}
+
+export interface MissionCompletionPolicy {
+    readonly kind: "PLATFORM_ARTIFACT" | "FUNCTIONAL_APPLICATION";
+    readonly requiredDimensions: readonly ApplicationAcceptanceDimension[];
+    readonly acceptanceCriteria: readonly string[];
 }
 
 export interface PreviewManifest {

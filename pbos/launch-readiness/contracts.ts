@@ -6,6 +6,12 @@ export interface LaunchEvidence {
     readonly evidenceId: string;
     readonly taskId: string;
     readonly valid: boolean;
+    readonly evidenceType: "PLATFORM_ARTIFACT" | "FUNCTIONAL_ACCEPTANCE" | "HUMAN_APPROVAL" | "EXTERNAL_PROOF";
+    readonly repository: string;
+    readonly commit: string;
+    readonly artifact: string;
+    readonly acceptanceCriteria: readonly string[];
+    readonly approvalId?: string;
 }
 
 export interface LaunchTaskDefinition {

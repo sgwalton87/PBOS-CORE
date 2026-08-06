@@ -32,6 +32,9 @@ boot_order:
   - PBS-VAL
   - PBS-CER
   - PBS-REL
+  - PPS-006
+  - PBS-5000
+  - PBS-6000
 
 volumes:
 
@@ -40,7 +43,7 @@ volumes:
   - docs/constitution
   - docs/vision
   - docs/charter
-  - docs/organization
+  - docs/organization-genome
   - docs/specifications
   - docs/architecture
   - docs/engineering
@@ -51,6 +54,9 @@ volumes:
   - docs/validation
   - docs/certification
   - docs/release
+  - docs/PPS-006-PBOS-Constitutional-Execution-Modes.md
+  - pbos/constitution/PBS-5000-autonomous-software-production-runtime
+  - pbos/constitution/PBS-6000-distributed-platform-architecture
 
 graph:
 
@@ -59,4 +65,3 @@ graph:
 entrypoint:
 
   docs/INDEX.md
-

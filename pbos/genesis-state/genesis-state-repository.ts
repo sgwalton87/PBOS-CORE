@@ -5,7 +5,7 @@ import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
 import type { RemediationRun } from "../validation-automation/contracts";
 import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
-import type { ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRun, ProductionStage } from "../production-runtime/contracts";
+import type { ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRecoveryEpoch, ProductionRun, ProductionStage } from "../production-runtime/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -30,6 +30,7 @@ interface DurableGenesisState {
     readonly productionRuns?: readonly ProductionRun[];
     readonly productionStages?: readonly ProductionStage[];
     readonly productionEvents?: readonly ProductionEvent[];
+    readonly productionRecoveryEpochs?: readonly ProductionRecoveryEpoch[];
     readonly executionLeases?: readonly ExecutionLease[];
     readonly missionQueue?: readonly MissionQueueItem[];
     readonly previewManifests?: readonly PreviewManifest[];
@@ -115,6 +116,18 @@ export class GenesisStateRepository {
     appendProductionEvent(event: ProductionEvent): void {
         if ((this.store.read().productionEvents ?? []).some(item => item.eventId === event.eventId)) return;
         this.store.update(state => ({ ...state, productionEvents: [...(state.productionEvents ?? []), event] }));
+    }
+    productionRecoveryEpochs(runId?: string): readonly ProductionRecoveryEpoch[] {
+        return [...(this.store.read().productionRecoveryEpochs ?? [])]
+            .filter(epoch => !runId || epoch.runId === runId)
+            .sort((left, right) => left.epochNumber - right.epochNumber);
+    }
+    productionRecoveryEpoch(recoveryEpochId: string): ProductionRecoveryEpoch | undefined {
+        return this.productionRecoveryEpochs().find(epoch => epoch.recoveryEpochId === recoveryEpochId);
+    }
+    saveProductionRecoveryEpoch(epoch: ProductionRecoveryEpoch): void {
+        this.store.update(state => ({ ...state, productionRecoveryEpochs: [...(state.productionRecoveryEpochs ?? [])
+            .filter(item => item.recoveryEpochId !== epoch.recoveryEpochId), epoch] }));
     }
     executionLeases(): readonly ExecutionLease[] { return [...(this.store.read().executionLeases ?? [])]; }
     saveExecutionLease(lease: ExecutionLease): void {

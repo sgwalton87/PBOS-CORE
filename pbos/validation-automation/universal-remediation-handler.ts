@@ -16,15 +16,25 @@ export class UniversalRemediationHandler implements RemediationHandler {
         if (selected.length === 0) return undefined;
         const results = await Promise.all(selected.map(pack => pack.remediate(context)));
         const files = new Map<string, string>();
+        const replacements = new Map<string, { path: string; search: string; replacement: string }>();
         for (const result of results) for (const file of result.files) {
             const existing = files.get(file.path);
             if (existing !== undefined && existing !== file.content) throw new Error(`Remediation packs conflict on path: ${file.path}`);
             files.set(file.path, file.content);
         }
+        for (const result of results) for (const replacement of result.replacements ?? []) {
+            const key = `${replacement.path}\u0000${replacement.search}`;
+            const existing = replacements.get(key);
+            if (existing && existing.replacement !== replacement.replacement) {
+                throw new Error(`Remediation packs conflict on replacement: ${replacement.path}`);
+            }
+            replacements.set(key, replacement);
+        }
         const prepareDependencyLock = results.some(result => result.prepareDependencyLock);
-        if (files.size === 0 && !prepareDependencyLock) return undefined;
+        if (files.size === 0 && replacements.size === 0 && !prepareDependencyLock) return undefined;
         return { summary: results.map(result => result.summary).join("; "),
             files: [...files].map(([path, content]) => ({ path, content })),
+            replacements: [...replacements.values()],
             prepareDependencyLock };
     }
 
@@ -32,8 +42,10 @@ export class UniversalRemediationHandler implements RemediationHandler {
         const repository = this.reference(run.pullRequest.repository);
         await this.gateway.checkoutPullRequest(repository, run.pullRequest.number);
         await this.gateway.applyChange(repository, changes.files);
+        if (changes.replacements?.length) await this.gateway.applyTextReplacements(repository, changes.replacements);
         if (changes.prepareDependencyLock) await this.gateway.prepareDependencyLock(repository);
-        const paths = [...new Set([...changes.files.map(file => file.path), ...(changes.prepareDependencyLock ? ["package-lock.json"] : [])])];
+        const paths = [...new Set([...changes.files.map(file => file.path), ...(changes.replacements ?? []).map(item => item.path),
+            ...(changes.prepareDependencyLock ? ["package-lock.json"] : [])])];
         if (paths.length === 0) throw new Error("Remediation produced no repository changes.");
         const revision = await this.gateway.commit(repository, `fix: remediate PBOS validation attempt ${run.attempt + 1}`, paths);
         await this.gateway.push(repository, run.pullRequest.branch);
