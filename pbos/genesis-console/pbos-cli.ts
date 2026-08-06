@@ -23,11 +23,12 @@ import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, O
 import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookAcademicJourneyExecutor, playbookFoundationExecutor, playbookScholarSliceExecutor,
+import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
+    playbookOpportunityJourneyExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
-    playbookScholarProtectedEnvironmentFiles, waitForPlaybookScholarStagingReadiness,
-    PlaybookStagingMigrationService, repositoryGapAnalysisExecutor } from "../application-readiness";
+    playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
+    PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService, repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
@@ -569,6 +570,18 @@ async function runNextProductionMission(target?: string): Promise<number> {
         .register("PLAYBOOK-SYSTEM-001", "048-academic-journey", () => playbookAcademicJourneyExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-opportunity-journey", () => playbookOpportunityJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-application-journey", () => playbookApplicationJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-support-journey", () => playbookSupportJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
             { producesFunctionalAcceptancePlan: true });
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
@@ -586,9 +599,10 @@ async function runNextProductionMission(target?: string): Promise<number> {
         if (!activeRun || !remediationId) {
             throw new Error("Deferred validation cannot start without durable production and remediation linkage.");
         }
-        if (next.missionId === "048-scholar-slice") {
+        const stagingDefinition = playbookStagingMigrationDefinition(next.missionId);
+        if (stagingDefinition) {
             try {
-                const migration = await migratePlaybookStaging(remediationId);
+                const migration = await migratePlaybookStaging(remediationId, stagingDefinition.missionId);
                 if (migration !== 0) {
                     services.production.pause(activeRun.runId, activeRun.actorId);
                     stdout.write("PBOS PAUSED AT PROTECTED STAGING GATE. The exact application run remains durable and will resume without creating a duplicate pull request.\n");
@@ -680,7 +694,30 @@ async function buildApplication(target: string): Promise<number> {
     return runNextProductionMission(target);
 }
 
-async function migratePlaybookStaging(remediationRunId?: string): Promise<number> {
+async function waitForPlaybookMissionTables(baseUrl: string, serviceRoleKey: string,
+    definition: PlaybookStagingMigrationDefinition, maximumAttempts = 8): Promise<readonly string[]> {
+    let blockers: string[] = [];
+    for (let attempt = 0; attempt < maximumAttempts; attempt += 1) {
+        blockers = [];
+        for (const table of definition.tableNames) {
+            try {
+                const response = await fetch(new URL(`/rest/v1/${table}?select=*&limit=0`, baseUrl), {
+                    headers: { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}` },
+                    signal: AbortSignal.timeout(10_000)
+                });
+                if (!response.ok) blockers.push(`${table}:HTTP_${response.status}`);
+            } catch (error) {
+                blockers.push(`${table}:${error instanceof Error && error.name === "TimeoutError" ? "TIMEOUT" : "UNREACHABLE"}`);
+            }
+        }
+        if (!blockers.length) return [];
+        if (attempt + 1 < maximumAttempts) await new Promise(resolve => setTimeout(resolve, Math.min(500 * (2 ** attempt), 5_000)));
+    }
+    return blockers;
+}
+
+async function migratePlaybookStaging(remediationRunId?: string,
+    missionId: PlaybookStagingMigrationDefinition["missionId"] = "048-scholar-slice"): Promise<number> {
     const services = runtime();
     const system = services.state.systems().find(item => item.systemId === "PLAYBOOK-SYSTEM-001");
     if (!system) throw new Error("The Playbook is not registered in the Genesis system catalog.");
@@ -705,18 +742,27 @@ async function migratePlaybookStaging(remediationRunId?: string): Promise<number
         productionRun.currentBranch !== remediation.pullRequest.branch || !/^[a-f0-9]{7,40}$/i.test(productionRun.currentCommit)) {
         throw new Error("Staging migration cannot resolve exact production-run repository lineage.");
     }
+    const definition = playbookStagingMigrationDefinition(missionId);
+    if (!definition) throw new Error(`No governed Playbook staging migration is registered for ${missionId}.`);
     await services.gateway.checkoutPullRequest(reference, remediation.pullRequest.number);
     const checkedOutRevision = await services.gateway.currentRevision(reference);
     if (checkedOutRevision !== productionRun.currentCommit) {
         throw new Error(`Staging migration lineage mismatch: PBOS authorized ${productionRun.currentCommit}, but the pull request resolved to ${checkedOutRevision}.`);
     }
     const workingDirectory = await services.gateway.workingDirectory(reference);
-    const before = await inspectPlaybookScholarStagingReadiness(workingDirectory);
-    if (before.ready) {
+    const alreadyApplied = services.state.audit().some(event => event.type === "STAGING_MIGRATION_APPLIED" &&
+        event.evidence.missionId === definition.missionId && event.evidence.commit === productionRun.currentCommit);
+    if (alreadyApplied) {
+        stdout.write(`PBOS ${definition.label} staging schema is already applied at this exact revision; no migration was repeated.\n`);
+        return 0;
+    }
+    const before = definition.missionId === "048-scholar-slice"
+        ? await inspectPlaybookScholarStagingReadiness(workingDirectory) : undefined;
+    if (before?.ready) {
         stdout.write("PBOS Playbook staging schema is already ready; no migration was applied.\n");
         return 0;
     }
-    if (!isAdditiveScholarMigrationEligible(before)) {
+    if (before && !isAdditiveScholarMigrationEligible(before)) {
         throw new Error(`Staging migration is not eligible for automatic bootstrap: ${before.blockers.join(", ")}.`);
     }
     const migrationReadiness = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
@@ -727,7 +773,7 @@ async function migratePlaybookStaging(remediationRunId?: string): Promise<number
     }
     const environment = await new ProtectedEnvironmentResolver().resolve([{
         command: "pbos-staging-migration", args: [],
-        requiredEnvironmentVariables: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_ACCESS_TOKEN"]
+        requiredEnvironmentVariables: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN"]
     }], playbookScholarProtectedEnvironmentFiles(workingDirectory));
     const projectRef = new URL(environment.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0];
     const branch = remediation.pullRequest.branch;
@@ -738,7 +784,8 @@ async function migratePlaybookStaging(remediationRunId?: string): Promise<number
         io.write("PBOS PROTECTED STAGING MIGRATION CHECKPOINT");
         io.write(`Application: ${system.name}`);
         io.write(`Project: ${projectRef}`);
-        io.write("Scope: apply only the three additive Scholar staging migrations in one atomic transaction.");
+        io.write(`Mission: ${definition.missionId}`);
+        io.write(`Scope: apply only the ${definition.migrationPaths.length} additive ${definition.label} migration${definition.migrationPaths.length === 1 ? "" : "s"} in one atomic transaction.`);
         io.write("Production, destructive SQL, secrets, and unrelated schemas remain excluded.");
         const answer = (await io.prompt("Authorize this Playbook staging migration now? [y/N] ")).trim().toLowerCase();
         authorized = answer === "y" || answer === "yes";
@@ -761,12 +808,13 @@ async function migratePlaybookStaging(remediationRunId?: string): Promise<number
     const result = await new PlaybookStagingMigrationService(services.state).apply({ workingDirectory, projectRef,
         accessToken: environment.SUPABASE_ACCESS_TOKEN!, approvalId: approval.approvalId,
         actorId: services.operator.operatorId, repository: productionRun.repository,
-        branch: productionRun.currentBranch, commit: productionRun.currentCommit });
+        branch: productionRun.currentBranch, commit: productionRun.currentCommit, definition });
     stdout.write("[VERIFYING] Migration committed; waiting for the Supabase Data API schema cache to expose the governed tables.\n");
-    const after = await waitForPlaybookScholarStagingReadiness({ workingDirectory });
-    if (!after.ready) throw new Error(`Migration committed and requested a schema-cache reload, but bounded staging verification failed: ${after.blockers.join(", ")}.`);
+    const blockers = await waitForPlaybookMissionTables(environment.NEXT_PUBLIC_SUPABASE_URL!,
+        environment.SUPABASE_SERVICE_ROLE_KEY!, definition);
+    if (blockers.length) throw new Error(`Migration committed and requested a schema-cache reload, but bounded staging verification failed: ${blockers.join(", ")}.`);
     stdout.write(`PBOS staging migration complete: ${result.migrationId}\n`);
-    stdout.write(`Verified resources: ${after.resources.filter(item => item.ready).length}/${after.resources.length}\n`);
+    stdout.write(`Verified governed tables: ${definition.tableNames.length}/${definition.tableNames.length}\n`);
     stdout.write("PBOS CONTINUES: the verified staging schema is ready for exact-revision functional acceptance.\n");
     return 0;
 }

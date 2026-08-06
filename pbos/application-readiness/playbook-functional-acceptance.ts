@@ -12,7 +12,7 @@ export const PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT = [
 ] as const;
 
 export const PLAYBOOK_STAGING_MIGRATION_ENVIRONMENT = [
-    "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_ACCESS_TOKEN"
+    "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN"
 ] as const;
 
 export function playbookScholarProtectedEnvironmentFiles(workingDirectory: string,

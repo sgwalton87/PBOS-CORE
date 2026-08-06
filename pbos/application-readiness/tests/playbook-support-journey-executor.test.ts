@@ -40,8 +40,10 @@ describe("CIP-048 application-to-support execution adapter", () => {
                 calls.push(`read:${revision}:${path}`);
                 if (path.endsWith("ApplicationWorkspaceDashboard.tsx")) return dashboard;
                 if (path === ".env.example") return "PBOS_API_URL=\n";
+                if (path === "package.json") return '{"scripts":{},"devDependencies":{}}';
                 return "existing application-workspace route";
             },
+            workingDirectory: async () => "/tmp/playbook-support",
             createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); calls.push("files"); return files.map(file => file.path);
@@ -78,6 +80,13 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(panel).not.toContain("scholar-maya");
         expect(generated.get("supabase/migrations/202608050007_pbos_application_support.sql")).toContain("enable row level security");
         expect(generated.get("pbos/readiness/048-support-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
+        const acceptance = generated.get("tests/acceptance/pbos-support.spec.ts") ?? "";
+        expect(acceptance).toContain("APPLICATION-TO-AUTHORIZED-SUPPORT");
+        expect(acceptance).toContain("expect(request.status()).toBe(201)");
+        expect(acceptance).toContain("existingRelationship");
+        expect(acceptance).not.toContain('.delete().eq("scholar_id"');
+        expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "APPLICATION-TO-AUTHORIZED-SUPPORT",
+            workingDirectory: "/tmp/playbook-support", commit: "support123" });
         expect(result.acceptanceEvidence?.map(item => item.dimension)).toEqual(expect.arrayContaining([
             "ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "ACCEPTANCE_TEST",
             "ACCESSIBILITY", "SECURITY"

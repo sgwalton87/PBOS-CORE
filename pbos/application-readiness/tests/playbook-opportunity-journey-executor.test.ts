@@ -44,8 +44,10 @@ describe("CIP-048 opportunity journey execution adapter", () => {
             },
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
                 calls.push(`read:${revision}:${path}`);
+                if (path === "package.json") return '{"scripts":{},"devDependencies":{}}';
                 return path === "app/opportunities/page.tsx" ? legacyPage : legacyMarketplace;
             },
+            workingDirectory: async () => "/tmp/playbook-opportunity",
             createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); calls.push("files"); return files.map(file => file.path);
@@ -89,6 +91,9 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(migration).toContain("enable row level security");
         expect(migration).toContain("auth.uid() = owner_id");
         expect(generated.get("pbos/readiness/048-opportunity-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
+        expect(generated.get("tests/acceptance/pbos-opportunity.spec.ts")).toContain("READINESS-TO-OPPORTUNITY");
+        expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "READINESS-TO-OPPORTUNITY",
+            workingDirectory: "/tmp/playbook-opportunity", commit: generatedRevision });
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/55");
         expect(new Set(result.acceptanceEvidence?.map(item => item.dimension))).toEqual(new Set([
             "ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "ACCEPTANCE_TEST",

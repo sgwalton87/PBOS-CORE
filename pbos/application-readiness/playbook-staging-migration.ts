@@ -14,6 +14,32 @@ export const PLAYBOOK_SCHOLAR_STAGING_TABLES = [
     "academic_journey_evidence"
 ] as const;
 
+export interface PlaybookStagingMigrationDefinition {
+    readonly missionId: "048-scholar-slice" | "048-opportunity-journey" | "048-application-journey" | "048-support-journey";
+    readonly label: string;
+    readonly migrationPaths: readonly string[];
+    readonly tableNames: readonly string[];
+}
+
+export const PLAYBOOK_STAGING_MIGRATION_DEFINITIONS: Readonly<Record<PlaybookStagingMigrationDefinition["missionId"],
+    PlaybookStagingMigrationDefinition>> = {
+    "048-scholar-slice": { missionId: "048-scholar-slice", label: "Scholar onboarding and academic foundation",
+        migrationPaths: PLAYBOOK_SCHOLAR_STAGING_MIGRATIONS, tableNames: PLAYBOOK_SCHOLAR_STAGING_TABLES },
+    "048-opportunity-journey": { missionId: "048-opportunity-journey", label: "readiness-to-opportunity journey",
+        migrationPaths: ["supabase/migrations/202608050005_pbos_opportunity_journey.sql"],
+        tableNames: ["pbos_opportunity_recommendations"] },
+    "048-application-journey": { missionId: "048-application-journey", label: "opportunity-to-application journey",
+        migrationPaths: ["supabase/migrations/202608050005_pbos_application_workspace_journey.sql"],
+        tableNames: ["application_workspaces", "application_workspace_tasks", "application_workspace_documents", "application_workspace_events"] },
+    "048-support-journey": { missionId: "048-support-journey", label: "application-to-authorized-support journey",
+        migrationPaths: ["supabase/migrations/202608050007_pbos_application_support.sql"],
+        tableNames: ["application_support_requests"] }
+};
+
+export function playbookStagingMigrationDefinition(missionId: string): PlaybookStagingMigrationDefinition | undefined {
+    return PLAYBOOK_STAGING_MIGRATION_DEFINITIONS[missionId as PlaybookStagingMigrationDefinition["missionId"]];
+}
+
 export interface StagingMigrationPlan {
     readonly projectRef: string;
     readonly migrationPaths: readonly string[];
@@ -30,6 +56,7 @@ export interface StagingMigrationResult {
     readonly migrationPaths: readonly string[];
     readonly digests: readonly string[];
     readonly appliedAt: string;
+    readonly missionId: PlaybookStagingMigrationDefinition["missionId"];
 }
 
 export interface StagingSqlTransport {
@@ -61,12 +88,13 @@ export class PlaybookStagingMigrationService {
     constructor(private readonly state: GenesisStateRepository,
         private readonly transport: StagingSqlTransport = new SupabaseManagementSqlTransport()) {}
 
-    async plan(workingDirectory: string, projectRef: string): Promise<StagingMigrationPlan> {
+    async plan(workingDirectory: string, projectRef: string,
+        definition: PlaybookStagingMigrationDefinition = PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-scholar-slice"]): Promise<StagingMigrationPlan> {
         if (!/^[a-z0-9]{20}$/.test(projectRef)) throw new Error("Supabase migration requires an exact project reference.");
         const root = resolve(workingDirectory);
         const migrations: string[] = [];
         const digests: string[] = [];
-        for (const migrationPath of PLAYBOOK_SCHOLAR_STAGING_MIGRATIONS) {
+        for (const migrationPath of definition.migrationPaths) {
             const absolute = resolve(root, migrationPath);
             const inside = relative(root, absolute);
             if (!inside || inside.startsWith("..")) throw new Error(`Migration path escapes the governed repository: ${migrationPath}`);
@@ -81,32 +109,35 @@ export class PlaybookStagingMigrationService {
             migrations.push(`-- ${migrationPath}\n${sql.trim()}`);
             digests.push(createHash("sha256").update(sql).digest("hex"));
         }
-        const tableAssertions = PLAYBOOK_SCHOLAR_STAGING_TABLES
+        const tableAssertions = definition.tableNames
             .map(table => `to_regclass('public.${table}') is null`).join(" or ");
         const verifyAndRefresh = `do $pbos$\nbegin\n  if ${tableAssertions} then\n` +
-            `    raise exception 'PBOS Scholar staging migration did not create every governed table';\n` +
+            `    raise exception 'PBOS staging migration did not create every governed table';\n` +
             `  end if;\nend\n$pbos$;\n\nnotify pgrst, 'reload schema';`;
-        return { projectRef, migrationPaths: [...PLAYBOOK_SCHOLAR_STAGING_MIGRATIONS], digests,
+        return { projectRef, migrationPaths: [...definition.migrationPaths], digests,
             query: `begin;\n${migrations.join("\n\n")}\n\n${verifyAndRefresh}\ncommit;` };
     }
 
     async apply(input: Readonly<{ workingDirectory: string; projectRef: string; accessToken: string;
-        approvalId: string; actorId: string; repository: string; branch: string; commit: string }>): Promise<StagingMigrationResult> {
+        approvalId: string; actorId: string; repository: string; branch: string; commit: string;
+        definition?: PlaybookStagingMigrationDefinition }>): Promise<StagingMigrationResult> {
         if (!input.accessToken.trim()) throw new Error("Supabase staging migration requires a protected management access token.");
         if (!input.approvalId.trim() || !input.actorId.trim()) throw new Error("Staging migration requires verifiable human approval.");
         if (!input.repository.includes("/") || !input.branch.startsWith("agent/") || !/^[a-f0-9]{7,40}$/i.test(input.commit)) {
             throw new Error("Staging migration requires exact governed repository lineage.");
         }
-        const plan = await this.plan(input.workingDirectory, input.projectRef);
+        const definition = input.definition ?? PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-scholar-slice"];
+        const plan = await this.plan(input.workingDirectory, input.projectRef, definition);
         await this.transport.execute(plan.projectRef, input.accessToken, plan.query);
         const result: StagingMigrationResult = { migrationId: randomUUID(), projectRef: plan.projectRef,
             repository: input.repository, branch: input.branch, commit: input.commit,
-            migrationPaths: plan.migrationPaths, digests: plan.digests, appliedAt: new Date().toISOString() };
+            migrationPaths: plan.migrationPaths, digests: plan.digests, appliedAt: new Date().toISOString(),
+            missionId: definition.missionId };
         this.state.appendAudit({ eventId: result.migrationId, type: "STAGING_MIGRATION_APPLIED",
             actorId: input.actorId, resource: `supabase:${plan.projectRef}`, occurredAt: result.appliedAt,
             evidence: { approvalId: input.approvalId, repository: input.repository, branch: input.branch,
                 commit: input.commit, migrationPaths: plan.migrationPaths, digests: plan.digests,
-                environment: "STAGING", transaction: "ATOMIC" } });
+                missionId: definition.missionId, environment: "STAGING", transaction: "ATOMIC" } });
         return result;
     }
 }

@@ -3,6 +3,7 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -408,9 +409,13 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
         }
         await dependencies.gateway.readFileAtRevision(reference, APPLICATION_ROUTE, inspection.revision);
         const dashboardSource = await dependencies.gateway.readFileAtRevision(reference, APPLICATION_DASHBOARD, inspection.revision);
-        const environmentSource = await dependencies.gateway.readFileAtRevision(reference, ".env.example", inspection.revision);
-        const files = changes(inspection.revision, context.run.runId, wireApplicationSupportPanel(dashboardSource),
-            wireEnvironmentExample(environmentSource));
+        const [environmentSource, packageSource] = await Promise.all([
+            dependencies.gateway.readFileAtRevision(reference, ".env.example", inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
+        ]);
+        const files = [...changes(inspection.revision, context.run.runId, wireApplicationSupportPanel(dashboardSource),
+            wireEnvironmentExample(environmentSource)),
+            ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-support-journey")];
         context.report("BUILDING", `Wiring the application-to-authorized-support journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -424,6 +429,8 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             `PBOS Genesis mission \`048-support-journey\` connects a Scholar-owned application workspace to an active, permission-bearing support relationship at governed revision \`${inspection.revision}\`. Requests are durable under RLS and publish an approval-bound signed PBOS lifecycle event.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookConnectedJourneyAcceptancePlan(
+            dependencies.gateway, reference, branch, revision, "048-support-journey");
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
             files: { added: files.filter(file => ![APPLICATION_DASHBOARD, ".env.example"].includes(file.path)).map(file => file.path),
@@ -433,6 +440,6 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             validations: [{ name: "Application-support journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: acceptanceEvidence(revision) };
+            acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan };
     };
 }

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness,
     isAdditiveScholarMigrationEligible, waitForPlaybookScholarStagingReadiness } from "../playbook-functional-acceptance";
-import { PlaybookStagingMigrationService, StagingSqlTransport } from "../playbook-staging-migration";
+import { PLAYBOOK_STAGING_MIGRATION_DEFINITIONS, PlaybookStagingMigrationService, StagingSqlTransport } from "../playbook-staging-migration";
 
 const protectedEnvironment = (): NodeJS.ProcessEnv => ({
     NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co",
@@ -88,12 +88,37 @@ describe("governed Playbook staging migration", () => {
         expect(calls[2]).toContain("notify pgrst, 'reload schema'");
         expect(calls[2]).toMatch(/commit;$/);
         expect(result.migrationPaths).toHaveLength(3);
+        expect(result.missionId).toBe("048-scholar-slice");
         const audit = state.audit().find(item => item.type === "STAGING_MIGRATION_APPLIED")!;
         expect(audit.evidence.approvalId).toBe("approval-1");
         expect(audit.evidence).toMatchObject({ repository: "sgwalton87/playbook-platform",
             branch: "agent/scholar", commit: "abcdef1" });
         expect(JSON.stringify(audit)).not.toContain("protected-token");
         expect(JSON.stringify(audit)).not.toContain("create table");
+    });
+
+    it("plans a bounded connected-journey migration without importing unrelated schema", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-opportunity-staging-"));
+        const migrations = join(root, "supabase", "migrations");
+        mkdirSync(migrations, { recursive: true });
+        writeFileSync(join(migrations, "202608050005_pbos_opportunity_journey.sql"),
+            "create table if not exists pbos_opportunity_recommendations (id uuid primary key);\n");
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const definition = PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-opportunity-journey"];
+        const plan = await new PlaybookStagingMigrationService(state, { execute: async () => undefined })
+            .plan(root, "abcdefghijklmnopqrst", definition);
+        expect(plan.migrationPaths).toEqual(["supabase/migrations/202608050005_pbos_opportunity_journey.sql"]);
+        expect(plan.query).toContain("to_regclass('public.pbos_opportunity_recommendations')");
+        expect(plan.query).not.toContain("scholar_profiles");
+
+        const result = await new PlaybookStagingMigrationService(state, { execute: async () => undefined }).apply({
+            workingDirectory: root, projectRef: "abcdefghijklmnopqrst", accessToken: "protected-token",
+            approvalId: "approval-opportunity", actorId: "operator-1", repository: "sgwalton87/playbook-platform",
+            branch: "agent/opportunity", commit: "abcdef2", definition
+        });
+        expect(result.missionId).toBe("048-opportunity-journey");
+        expect(state.audit().at(-1)?.evidence).toMatchObject({ missionId: "048-opportunity-journey",
+            commit: "abcdef2", migrationPaths: ["supabase/migrations/202608050005_pbos_opportunity_journey.sql"] });
     });
 
     it("waits for PostgREST to reload its schema cache after the transaction commits", async () => {

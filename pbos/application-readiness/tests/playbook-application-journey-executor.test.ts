@@ -35,8 +35,10 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
                 revision: "91e42fd", findings: [], files: [], inspectedAt: new Date() }),
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
                 calls.push(`read:${revision}:${path}`);
+                if (path === "package.json") return '{"scripts":{},"devDependencies":{}}';
                 return path.includes("ApplicationWorkspaceDashboard") ? legacyDashboard : legacyRoute;
             },
+            workingDirectory: async () => "/tmp/playbook-application",
             createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); calls.push("files"); return files.map(file => file.path);
@@ -77,6 +79,12 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("application_workspace_tasks enable row level security");
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("public=false");
         expect(generated.get("pbos/readiness/048-application-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
+        const acceptance = generated.get("tests/acceptance/pbos-application.spec.ts") ?? "";
+        expect(acceptance).toContain("OPPORTUNITY-TO-APPLICATION");
+        expect(acceptance).toContain("expect(creation.status()).toBe(201)");
+        expect(acceptance).toContain("records.workspaces?.some");
+        expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "OPPORTUNITY-TO-APPLICATION",
+            workingDirectory: "/tmp/playbook-application", commit: "application123" });
         expect(result.files?.modified).toContain("app/api/application-workspaces/route.ts");
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/55");
 

@@ -11,3 +11,4 @@ export * from "./playbook-academic-functional-acceptance";
 export * from "./playbook-opportunity-journey-executor";
 export * from "./playbook-application-journey-executor";
 export * from "./playbook-support-journey-executor";
+export * from "./playbook-connected-journey-functional-acceptance";

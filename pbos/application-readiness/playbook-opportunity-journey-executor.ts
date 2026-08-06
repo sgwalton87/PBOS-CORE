@@ -3,6 +3,7 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -578,12 +579,14 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before mutation.`);
         }
-        const [page, marketplace] = await Promise.all([
+        const [page, marketplace, packageSource] = await Promise.all([
             dependencies.gateway.readFileAtRevision(reference, OPPORTUNITIES_PAGE, inspection.revision),
-            dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_MARKETPLACE, inspection.revision)
+            dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_MARKETPLACE, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
         ]);
         assertOpportunityBaseline(page, marketplace);
-        const files = changes(inspection.revision, context.run.runId);
+        const files = [...changes(inspection.revision, context.run.runId),
+            ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-opportunity-journey")];
         context.report("BUILDING", `Replacing demo opportunity behavior with the governed owner-scoped journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -597,6 +600,8 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
             `PBOS Genesis mission \`048-opportunity-journey\` replaces demo data and browser-only decisions with authenticated explainable matching, owner-scoped RLS persistence, accessible UI states, and signed PBOS events at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookConnectedJourneyAcceptancePlan(
+            dependencies.gateway, reference, branch, revision, "048-opportunity-journey");
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
@@ -607,7 +612,8 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
                 output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Opportunity journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
-            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url }
+            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
+            functionalAcceptancePlan
         };
     };
 }
