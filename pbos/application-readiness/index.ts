@@ -17,3 +17,4 @@ export * from "./playbook-notification-journey-executor";
 export * from "./playbook-product-functional-acceptance";
 export * from "./playbook-product-journeys-executor";
 export * from "./playbook-web-staging-executor";
+export * from "./playbook-mobile-foundation-executor";

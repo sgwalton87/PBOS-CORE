@@ -85,6 +85,22 @@ describe("GitHub repository gateway", () => {
             .readFileAtRevision(reference, "app/start/page.tsx", "main")).rejects.toThrow("exact revision");
     });
 
+    it("reconciles Expo SDK dependencies before preparing the root workspace lock", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        const checkout = join(root, "acme--app");
+        mkdirSync(join(checkout, "apps", "mobile"), { recursive: true });
+        const commands = new FakeCommands();
+
+        await new GitHubRepositoryGateway(root, commands).prepareExpoDependencyLock(reference, "apps/mobile");
+
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "npx",
+            args: ["--yes", "expo@~57.0.0", "install", "--fix"], cwd: join(checkout, "apps", "mobile") }));
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "npm",
+            args: ["install", "--package-lock-only", "--ignore-scripts"], cwd: checkout }));
+        await expect(new GitHubRepositoryGateway(root, commands)
+            .prepareExpoDependencyLock(reference, "../outside")).rejects.toThrow("escapes checkout");
+    });
+
     it("fences the legacy false-completion dispatch path", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
         mkdirSync(join(root, "acme--app"));
