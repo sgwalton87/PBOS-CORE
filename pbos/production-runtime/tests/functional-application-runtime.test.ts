@@ -1,10 +1,11 @@
 import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { ApplicationLauncher, BrowserJourneyRuntime, CommandBrowserJourneyRuntime, FunctionalAcceptancePlan, FunctionalApplicationRuntime,
-    resolveFunctionalPrerequisites, RuntimeProbeRunner } from "../index";
+    resolveFunctionalPrerequisites, RuntimeProbeRunner, verifyVisualCanonContract } from "../index";
 
 function repository(): Readonly<{ path: string; revision: string }> {
     const path = mkdtempSync(join(tmpdir(), "pbos-functional-app-"));
@@ -40,6 +41,27 @@ function plan(path: string, revision: string): FunctionalAcceptancePlan {
             screenshotArtifacts: ["artifacts/scholar-desktop.png", "artifacts/scholar-mobile.png"], traceArtifact: "artifacts/scholar.zip",
             accessibilityArtifact: "artifacts/scholar-a11y.json", acceptanceArtifact: "artifacts/scholar-acceptance.json",
             verifiedDimensions: ["DURABLE_DATA", "PBOS_INTEGRATION"] }] };
+}
+
+function canonicalJourney(path: string): Readonly<{
+    acceptance: FunctionalAcceptancePlan;
+    journey: FunctionalAcceptancePlan["browserJourneys"][number];
+    assetPath: string;
+    manifestPath: string;
+}> {
+    const acceptance = plan(path, "abcdef1");
+    const assetPath = "public/brand/scholar-dashboard/hero.png";
+    const manifestPath = "docs/design/canon/scholar-dashboard/manifest.json";
+    mkdirSync(join(path, "public/brand/scholar-dashboard"), { recursive: true });
+    mkdirSync(join(path, "docs/design/canon/scholar-dashboard"), { recursive: true });
+    const content = "approved Scholar visual";
+    writeFileSync(join(path, assetPath), content);
+    writeFileSync(join(path, manifestPath), JSON.stringify({ schemaVersion: 1, screenId: "PGSL-007",
+        route: "/dashboard", authority: "USER_APPROVED_CANON_REFERENCE",
+        assets: [{ path: assetPath, sha256: createHash("sha256").update(content).digest("hex"), required: true }] }));
+    const journey = { ...acceptance.browserJourneys[0], visualCanon: { screenId: "PGSL-007", manifestPath,
+        requiredRoute: "/dashboard", requiredAssets: [assetPath] } };
+    return { acceptance, journey, assetPath, manifestPath };
 }
 
 describe("PBS-5000 functional application runtime", () => {
@@ -122,5 +144,28 @@ describe("PBS-5000 functional application runtime", () => {
             expect(String(error)).toContain("PASSWORD=[REDACTED]");
             expect(String(error)).not.toContain("do-not-log");
         }
+    });
+
+    it("accepts a user-approved visual canon only when every required asset is nonempty and hash-bound", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-visual-canon-"));
+        const fixture = canonicalJourney(root);
+        await expect(verifyVisualCanonContract(fixture.acceptance, fixture.journey)).resolves.toBeUndefined();
+    });
+
+    it("rejects visual canon drift and empty design placeholders", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-visual-canon-"));
+        const fixture = canonicalJourney(root);
+        writeFileSync(join(root, fixture.assetPath), "");
+        await expect(verifyVisualCanonContract(fixture.acceptance, fixture.journey)).rejects.toThrow("missing or empty");
+        writeFileSync(join(root, fixture.assetPath), "changed without approval");
+        await expect(verifyVisualCanonContract(fixture.acceptance, fixture.journey)).rejects.toThrow("digest does not match");
+    });
+
+    it("rejects visual canon paths that escape the governed repository", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-visual-canon-"));
+        const fixture = canonicalJourney(root);
+        const journey = { ...fixture.journey,
+            visualCanon: { ...fixture.journey.visualCanon!, manifestPath: "../outside-manifest.json" } };
+        await expect(verifyVisualCanonContract(fixture.acceptance, journey)).rejects.toThrow("must remain inside");
     });
 });

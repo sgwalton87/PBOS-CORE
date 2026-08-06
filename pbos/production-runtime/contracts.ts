@@ -261,6 +261,12 @@ export interface BrowserJourneyPlan {
     readonly traceArtifact: string;
     readonly accessibilityArtifact: string;
     readonly acceptanceArtifact: string;
+    readonly visualCanon?: Readonly<{
+        readonly screenId: string;
+        readonly manifestPath: string;
+        readonly requiredRoute: string;
+        readonly requiredAssets: readonly string[];
+    }>;
     readonly verifiedDimensions: readonly Extract<ApplicationAcceptanceDimension,
         "ROUTE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" | "SECURITY">[];
 }

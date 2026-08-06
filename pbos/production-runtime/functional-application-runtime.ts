@@ -1,4 +1,5 @@
 import { ChildProcess, execFile, spawn } from "child_process";
+import { createHash } from "crypto";
 import { readFile, stat, statfs } from "fs/promises";
 import { isAbsolute, join, relative, resolve } from "path";
 import { promisify } from "util";
@@ -51,7 +52,7 @@ export interface BrowserJourneyRuntime {
 }
 
 export type FunctionalRuntimeTelemetryEvent = "PREREQUISITES_VERIFIED" | "APPLICATION_HEALTHY" | "RUNTIME_PROBES_VERIFIED" |
-    "BROWSER_JOURNEYS_VERIFIED" | "DURABLE_PREVIEW_VERIFIED";
+    "VISUAL_CANON_VERIFIED" | "BROWSER_JOURNEYS_VERIFIED" | "DURABLE_PREVIEW_VERIFIED";
 
 export type FunctionalRuntimeReporter = (event: FunctionalRuntimeTelemetryEvent,
     detail: Readonly<Record<string, unknown>>) => void;
@@ -65,6 +66,50 @@ const availableDiskBytes: AvailableDiskBytes = async workingDirectory => {
 
 async function exists(path: string): Promise<boolean> {
     try { await stat(path); return true; } catch { return false; }
+}
+
+function governedPath(workingDirectory: string, repositoryPath: string, label: string): string {
+    const absolutePath = resolve(workingDirectory, repositoryPath);
+    const relativePath = relative(workingDirectory, absolutePath);
+    if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+        throw new Error(`${label} must remain inside the governed repository: ${repositoryPath}`);
+    }
+    return absolutePath;
+}
+
+export async function verifyVisualCanonContract(plan: FunctionalAcceptancePlan, journey: BrowserJourneyPlan): Promise<void> {
+    const contract = journey.visualCanon;
+    if (!contract) return;
+    const manifestPath = governedPath(plan.workingDirectory, contract.manifestPath, "Visual canon manifest");
+    const manifestMetadata = await stat(manifestPath);
+    if (!manifestMetadata.isFile() || manifestMetadata.size === 0) {
+        throw new Error(`Visual canon manifest is missing or empty: ${contract.manifestPath}`);
+    }
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+        schemaVersion?: unknown;
+        screenId?: unknown;
+        route?: unknown;
+        authority?: unknown;
+        assets?: readonly { path?: unknown; sha256?: unknown; required?: unknown }[];
+    };
+    if (manifest.schemaVersion !== 1 || manifest.screenId !== contract.screenId ||
+        manifest.route !== contract.requiredRoute || manifest.authority !== "USER_APPROVED_CANON_REFERENCE") {
+        throw new Error(`Visual canon manifest does not authorize ${contract.screenId} at ${contract.requiredRoute}.`);
+    }
+    const assets = Array.isArray(manifest.assets) ? manifest.assets : [];
+    for (const assetPath of contract.requiredAssets) {
+        const declaration = assets.find(asset => asset.path === assetPath && asset.required === true);
+        if (!declaration || typeof declaration.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(declaration.sha256)) {
+            throw new Error(`Visual canon asset is not hash-bound in the approved manifest: ${assetPath}`);
+        }
+        const absolutePath = governedPath(plan.workingDirectory, assetPath, "Visual canon asset");
+        const metadata = await stat(absolutePath);
+        if (!metadata.isFile() || metadata.size === 0) throw new Error(`Visual canon asset is missing or empty: ${assetPath}`);
+        const digest = createHash("sha256").update(await readFile(absolutePath)).digest("hex");
+        if (digest !== declaration.sha256.toLowerCase()) {
+            throw new Error(`Visual canon asset digest does not match the approved manifest: ${assetPath}`);
+        }
+    }
 }
 
 function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
@@ -280,6 +325,13 @@ export class FunctionalApplicationRuntime {
         if (availableBytes < minimumFreeBytes) {
             throw new Error(`Functional runtime requires ${minimumFreeBytes} free bytes but only ${availableBytes} are available.`);
         }
+        const canonicalJourneys = plan.browserJourneys.filter(journey => journey.visualCanon);
+        for (const journey of canonicalJourneys) await verifyVisualCanonContract(plan, journey);
+        if (canonicalJourneys.length) report("VISUAL_CANON_VERIFIED", {
+            total: canonicalJourneys.length,
+            screens: canonicalJourneys.map(journey => journey.visualCanon!.screenId),
+            manifests: canonicalJourneys.map(journey => journey.visualCanon!.manifestPath)
+        });
         const prerequisites = await resolveFunctionalPrerequisites(plan);
         const runtimeEnvironment = await this.protectedEnvironment.resolve(
             [...prerequisites, plan.launch, ...plan.browserJourneys.map(journey => journey.command)],

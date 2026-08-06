@@ -128,10 +128,12 @@ describe("CIP-048 Scholar slice execution adapter", () => {
         expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain("scholar_dashboard_projections");
         expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain("onboardingBody");
         expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain('getByRole("textbox", { name: "Email", exact: true })');
+        expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain('data-visual-canon="PGSL-007"');
         expect(generated.get("pbos/connector/playbook-connector.ts")).toContain("PLAYBOOK-SCHOLAR-REGISTRATION-001");
         expect(generated.get("pbos/connector/playbook-system-manifest.ts")).toContain("PLAYBOOK-SCHOLAR-REGISTRATION-001");
         expect(result.functionalAcceptancePlan).toMatchObject({ commit: "abcdef123", branch: "agent/pbos-playbook-system-001-048-scholar-87654321",
-            workingDirectory: "/tmp/playbook", journeyId: "SCHOLAR-ONBOARDING-TO-DASHBOARD" });
+            workingDirectory: "/tmp/playbook", journeyId: "SCHOLAR-ONBOARDING-TO-DASHBOARD",
+            browserJourneys: [{ visualCanon: { screenId: "PGSL-007", requiredRoute: "/dashboard" } }] });
         expect(result.functionalAcceptancePlan?.protectedEnvironmentFiles?.map(item => item.path))
             .toContain("/tmp/playbook/.env.local");
     });
