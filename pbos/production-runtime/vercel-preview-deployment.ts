@@ -1,4 +1,4 @@
-import { FunctionalAcceptancePlan, PreviewDeploymentRequest } from "./contracts";
+import { FunctionalAcceptancePlan, VercelPreviewDeploymentRequest } from "./contracts";
 import { ProtectedEnvironmentResolver } from "./protected-environment";
 
 export type DurablePreview = NonNullable<FunctionalAcceptancePlan["durablePreview"]>;
@@ -92,7 +92,7 @@ export class VercelPreviewDeploymentGateway implements PreviewDeploymentGateway 
         return { webUrl: url, mobileUrl: url, healthPath: "/login", label: "SEEDED" };
     }
 
-    private assertRequest(plan: FunctionalAcceptancePlan): PreviewDeploymentRequest {
+    private assertRequest(plan: FunctionalAcceptancePlan): VercelPreviewDeploymentRequest {
         const request = plan.previewDeployment;
         if (!request || request.provider !== "VERCEL" || request.repository !== plan.repository ||
             request.branch !== plan.branch || request.commit !== plan.commit || request.environment !== "preview" ||
@@ -103,7 +103,7 @@ export class VercelPreviewDeploymentGateway implements PreviewDeploymentGateway 
         return request;
     }
 
-    private assertProjectBinding(project: VercelProject, request: PreviewDeploymentRequest): void {
+    private assertProjectBinding(project: VercelProject, request: VercelPreviewDeploymentRequest): void {
         const [owner, repository] = request.repository.split("/");
         if (!project.id || !project.name || project.link?.type !== "github" || !project.link.repoId ||
             ![repository, request.repository].includes(project.link.repo ?? "") ||
@@ -112,7 +112,7 @@ export class VercelPreviewDeploymentGateway implements PreviewDeploymentGateway 
         }
     }
 
-    private assertEnvironmentScopes(variables: readonly VercelEnvironmentVariable[], request: PreviewDeploymentRequest): void {
+    private assertEnvironmentScopes(variables: readonly VercelEnvironmentVariable[], request: VercelPreviewDeploymentRequest): void {
         const forKey = (key: string) => variables.filter(variable => variable.key === key);
         const missing = request.requiredProjectEnvironmentVariables.filter(key =>
             !forKey(key).some(variable => targets(variable).includes("preview")));

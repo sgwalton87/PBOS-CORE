@@ -313,25 +313,49 @@ export interface FunctionalAcceptancePlan {
     readonly durablePreview?: Readonly<{
         webUrl: string;
         mobileUrl: string;
+        iosUrl?: string;
+        androidUrl?: string;
         healthPath: string;
+        /** A provider install page is probed at its existing path, not the web application's health route. */
+        mobileHealthPath?: string;
+        providerEvidence?: Readonly<Record<string, string>>;
         label: "LIVE" | "SEEDED";
     }>;
 }
 
-export interface PreviewDeploymentRequest {
-    readonly provider: "VERCEL";
+interface PreviewDeploymentRequestBase {
     readonly repository: string;
     readonly branch: string;
     readonly commit: string;
     readonly environment: "preview";
     readonly approvalId: string;
+    readonly browserTarget: "DEPLOYED_PREVIEW";
+}
+
+export interface VercelPreviewDeploymentRequest extends PreviewDeploymentRequestBase {
+    readonly provider: "VERCEL";
     readonly tokenEnvironmentVariable: "VERCEL_TOKEN";
     readonly projectEnvironmentVariable: "VERCEL_PROJECT_ID";
     readonly teamEnvironmentVariable?: "VERCEL_TEAM_ID";
     readonly requiredProjectEnvironmentVariables: readonly string[];
     readonly previewOnlyEnvironmentVariables: readonly string[];
-    readonly browserTarget: "DEPLOYED_PREVIEW";
 }
+
+export interface EasPreviewDeploymentRequest extends PreviewDeploymentRequestBase {
+    readonly provider: "EAS";
+    readonly tokenEnvironmentVariable: "EXPO_TOKEN";
+    readonly projectEnvironmentVariable: "EXPO_PROJECT_ID";
+    readonly webPreviewEnvironmentVariable: "PBOS_WEB_PREVIEW_URL";
+    readonly applicationDirectory: "apps/mobile";
+    readonly cliVersion: string;
+    readonly previewProfile: "preview";
+    readonly storeProfile: "production";
+    readonly submitProfile: "production";
+    readonly platforms: readonly ["IOS", "ANDROID"];
+    readonly distributionTarget: "TESTFLIGHT_AND_PLAY_INTERNAL";
+}
+
+export type PreviewDeploymentRequest = VercelPreviewDeploymentRequest | EasPreviewDeploymentRequest;
 
 export interface MissionCompletionPolicy {
     readonly kind: "PLATFORM_ARTIFACT" | "FUNCTIONAL_APPLICATION";

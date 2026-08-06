@@ -522,9 +522,9 @@ export class FunctionalApplicationRuntime {
         const base = new URL(plan.launch.baseUrl);
         if (!["http:", "https:"].includes(base.protocol)) throw new Error("Functional application runtime requires an HTTP or HTTPS base URL.");
         if (plan.durablePreview) {
-            const web = new URL(plan.durablePreview.webUrl);
-            const mobile = new URL(plan.durablePreview.mobileUrl);
-            if (![web.protocol, mobile.protocol].every(protocol => ["http:", "https:"].includes(protocol))) {
+            const urls = [plan.durablePreview.webUrl, plan.durablePreview.mobileUrl,
+                plan.durablePreview.iosUrl, plan.durablePreview.androidUrl].filter((value): value is string => Boolean(value));
+            if (!urls.map(value => new URL(value).protocol).every(protocol => ["http:", "https:"].includes(protocol))) {
                 throw new Error("Durable application previews require HTTP or HTTPS URLs.");
             }
         }
@@ -532,11 +532,17 @@ export class FunctionalApplicationRuntime {
 
     private async verifyDurablePreview(plan: FunctionalAcceptancePlan): Promise<FunctionalAcceptancePlan["durablePreview"]> {
         if (!plan.durablePreview) return undefined;
-        for (const previewUrl of [plan.durablePreview.webUrl, plan.durablePreview.mobileUrl]) {
-            const response = await fetch(new URL(plan.durablePreview.healthPath, previewUrl), {
+        const targets = [
+            { url: plan.durablePreview.webUrl, path: plan.durablePreview.healthPath },
+            { url: plan.durablePreview.mobileUrl,
+                path: plan.durablePreview.mobileHealthPath ?? plan.durablePreview.healthPath }
+        ];
+        for (const target of targets) {
+            const probeUrl = target.path ? new URL(target.path, target.url) : new URL(target.url);
+            const response = await fetch(probeUrl, {
                 signal: AbortSignal.timeout(10_000)
             });
-            if (!response.ok) throw new Error(`Durable preview is not healthy: ${previewUrl} returned HTTP ${response.status}.`);
+            if (!response.ok) throw new Error(`Durable preview is not healthy: ${target.url} returned HTTP ${response.status}.`);
         }
         return plan.durablePreview;
     }

@@ -25,8 +25,10 @@ import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissi
 import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
-    playbookMobileFoundationExecutor, playbookMobileJourneysExecutor, playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    playbookMobileFoundationExecutor, playbookMobileJourneysExecutor, playbookMobileStoreReadinessExecutor,
+    playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
+    inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
@@ -212,6 +214,9 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     if (mission.missionId === "048-web-staging") {
         io.write("This approval includes one exact-revision Vercel preview deployment after independent CI passes.");
         io.write("Production deployment, merge, secret mutation, destructive migration, certification, and cross-repository work remain excluded.");
+    } else if (mission.missionId === "049-store-readiness") {
+        io.write("This approval includes exact-revision EAS internal builds and store-signed binaries after independent CI passes.");
+        io.write("Store submission is restricted to TestFlight and Google Play internal testing. Public release, merge, secret mutation, destructive migration, and certification remain excluded.");
     } else {
         io.write("Protected actions remain excluded: merge, production deployment, secrets, destructive migration, certification, and cross-repository work.");
     }
@@ -323,6 +328,11 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
         io.write(`Mission: ${mission.title}`);
         io.write(`Validated pull request: ${remediationRun.pullRequest.url}`);
         io.write("This decision certifies the mission and merges its validated application change. Production deployment remains separate.");
+        if (mission.missionId === "049-store-readiness") {
+            io.write("Before approving, open the commit-bound iOS and Android install links in the PBOS memo and confirm both internal builds were exercised.");
+            io.write("Approval attests that signing identities and store listings are correctly bound, privacy disclosures and screenshots were reviewed, and TestFlight plus Google Play internal testing passed.");
+            io.write("Public App Store and Google Play production release remain excluded.");
+        }
         const answer = (await io.prompt("Certify and merge this validated mission now? [y/N] ")).trim().toLowerCase();
         promote = answer === "y" || answer === "yes";
         if (!promote) io.write("Validated work remains unmerged and ready for later certification.");
@@ -546,6 +556,21 @@ async function runNextProductionMission(target?: string): Promise<number> {
         }
         stdout.write(`[PREREQUISITE] Protected Vercel preview configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
     }
+    if (next.missionId === "049-store-readiness") {
+        const readiness = await inspectPlaybookMobileReleaseReadiness();
+        if (!readiness.ready) {
+            stdout.write("[PREREQUISITE] Protected EAS mobile-release configuration is incomplete.\n");
+            stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
+            stdout.write(`Missing: ${readiness.missing.join(", ")}\n`);
+            playbookMobileReleaseProtectedEnvironmentFiles().forEach(source =>
+                stdout.write(`Accepted mode-0600 source: ${source.path}\n`));
+            stdout.write("No approval was consumed, no mobile build or store submission was started, and no repository changes were made.\n");
+            stdout.write("NEXT HUMAN STEP: configure only the named Expo project values, verify remotely managed iOS/Android credentials, run chmod 600 on the file, then rerun the same PBOS command.\n");
+            stdout.write("Setup details: npm run pbos:doctor -- playbook\n");
+            return 2;
+        }
+        stdout.write(`[PREREQUISITE] Protected EAS release configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -628,6 +653,12 @@ async function runNextProductionMission(target?: string): Promise<number> {
         .register("PLAYBOOK-SYSTEM-001", "049-mobile-journeys", () => playbookMobileJourneysExecutor({
             gateway: services.gateway, remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "049-store-readiness", () => playbookMobileStoreReadinessExecutor({
+            gateway: services.gateway, remediation: services.remediation, session,
+            deploymentApprovalId: missionApproval?.approvalId ?? "",
+            authorize: (action, risk, branch, explicitApprovalId) =>
+                services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
             { producesFunctionalAcceptancePlan: true });
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
@@ -923,6 +954,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
         const migration = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
         const webStaging = await inspectPlaybookWebStagingReadiness();
+        const mobileRelease = await inspectPlaybookMobileReleaseReadiness();
         const readiness = staging.environment;
         stdout.write("PBOS PROTECTED ACCEPTANCE DOCTOR\n");
         stdout.write(`Application: ${system.name}\nRepository: ${system.repository}\n`);
@@ -938,6 +970,14 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(webStaging.ready
             ? "WEB STAGING: READY — Vercel configuration names were verified without displaying values.\n"
             : "WEB STAGING: BLOCKED — add only the missing Vercel values to the accepted mode-0600 source.\n");
+        stdout.write("\nPBOS MOBILE RELEASE PROVIDER\n");
+        playbookMobileReleaseProtectedEnvironmentFiles().forEach(source =>
+            stdout.write(`Accepted source: ${source.path}\n`));
+        stdout.write(`Available: ${mobileRelease.available.length}/${mobileRelease.required.length}\n`);
+        stdout.write(`Missing: ${mobileRelease.missing.length ? mobileRelease.missing.join(", ") : "NONE"}\n`);
+        stdout.write(mobileRelease.ready
+            ? "MOBILE RELEASE: READY — Expo configuration names were verified without displaying values.\n"
+            : "MOBILE RELEASE: BLOCKED — add only the missing Expo values to the accepted mode-0600 source.\n");
         const missingTables = staging.resources.filter(resource => resource.resource.startsWith("table:") && !resource.ready);
         const migrationBootstrapReady = isAdditiveScholarMigrationEligible(staging) && migration.ready;
         if (missingTables.length) {

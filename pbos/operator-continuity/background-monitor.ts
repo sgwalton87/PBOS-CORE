@@ -12,7 +12,7 @@ import { AutonomousBatchService } from "./autonomous-batch-service";
 import { ApplicationAcceptanceEvidence, ProductionRecoveryAuthority, ProductionRuntimeService } from "../production-runtime";
 import { RemediationRun } from "../validation-automation";
 import { AutonomousProductionKernel } from "../kernel";
-import { PreviewDeploymentGateway, VercelPreviewDeploymentGateway } from "../production-runtime";
+import { GovernedPreviewDeploymentGateway, PreviewDeploymentGateway, VercelPreviewDeploymentGateway } from "../production-runtime";
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -50,7 +50,8 @@ export class BackgroundMonitor {
         private readonly workflows: GenesisWorkflowService, private readonly memos: OperatorMemoService,
         private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
         private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier(),
-        private readonly previewDeployment: PreviewDeploymentGateway = new VercelPreviewDeploymentGateway(),
+        private readonly previewDeployment: PreviewDeploymentGateway =
+            new GovernedPreviewDeploymentGateway(new VercelPreviewDeploymentGateway()),
         private readonly applicationVerifier: Pick<AutonomousProductionKernel, "verifyApplication"> =
             new AutonomousProductionKernel(state, new ProductionRuntimeService(state))) {}
 
