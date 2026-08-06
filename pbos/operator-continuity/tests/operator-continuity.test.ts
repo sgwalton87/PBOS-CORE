@@ -56,6 +56,18 @@ describe("operator continuity", () => {
         expect(notifications[0]).toContain("ready for certification");
     });
 
+    it("reports an infrastructure wait without consuming application remediation authority", () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-infrastructure-memo-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const memos = new OperatorMemoService(join(root, "memos"), state);
+        const infrastructure: RemediationRun = { ...run, state: "WAITING_FOR_INFRASTRUCTURE", attempt: 0,
+            infrastructureRetries: 1, maximumInfrastructureRetries: 3,
+            blockers: ["GitHub Actions infrastructure wait 1/3. No application remediation was consumed."] };
+        memos.write(session, infrastructure);
+        expect(memos.latest("SYSTEM-001")?.content).toContain("GitHub Actions did not execute the validation job");
+        expect(memos.latest("SYSTEM-001")?.content).toContain("No application remediation was consumed");
+    });
+
     it("moves a deferred production mission to human approval when GitHub validation passes", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-production-monitor-"));
         const state = new GenesisStateRepository(join(root, "state.json"));

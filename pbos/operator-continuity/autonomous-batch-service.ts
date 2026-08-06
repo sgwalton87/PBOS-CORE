@@ -111,6 +111,7 @@ export class AutonomousBatchService implements BatchTelemetryReporter {
         if (!batch) return undefined;
         const state: AutonomousBatchState = validation === "READY_FOR_CERTIFICATION" ? "READY_FOR_CERTIFICATION"
             : validation === "BLOCKED" ? "BLOCKED"
+            : validation === "WAITING_FOR_INFRASTRUCTURE" ? "WAITING_FOR_INFRASTRUCTURE"
             : validation === "REMEDIATION_REQUIRED" || validation === "REMEDIATION_PUSHED" ? "REMEDIATING" : "VALIDATING";
         const updated = { ...batch, state, updatedAt: new Date().toISOString() };
         this.state.saveAutonomousBatch(updated);
@@ -140,10 +141,16 @@ export class AutonomousBatchService implements BatchTelemetryReporter {
         }
         const last = this.state.batchTelemetry(batch.batchId).at(-1)?.type;
         const event = state === "READY_FOR_CERTIFICATION" ? "BATCH_READY_FOR_APPROVAL"
-            : state === "BLOCKED" ? "BATCH_BLOCKED" : state === "REMEDIATING" ? "REMEDIATION_STARTED" : undefined;
+            : state === "BLOCKED" ? "BATCH_BLOCKED" : state === "REMEDIATING" ? "REMEDIATION_STARTED"
+            : state === "WAITING_FOR_INFRASTRUCTURE" ? "INFRASTRUCTURE_WAIT" : undefined;
         if (event && last !== event) this.record(updated, event,
-            event === "BATCH_READY_FOR_APPROVAL" ? "Entire batch ready for human approval" : event === "BATCH_BLOCKED" ? "Batch blocked" : "Automatic remediation started",
-            event === "BATCH_READY_FOR_APPROVAL" ? `${updated.workPackages.length} work packages completed validation.` : `Validation state changed to ${validation}.`);
+            event === "BATCH_READY_FOR_APPROVAL" ? "Entire batch ready for human approval"
+                : event === "BATCH_BLOCKED" ? "Batch blocked"
+                : event === "INFRASTRUCTURE_WAIT" ? "External validation infrastructure unavailable"
+                : "Automatic remediation started",
+            event === "BATCH_READY_FOR_APPROVAL" ? `${updated.workPackages.length} work packages completed validation.`
+                : event === "INFRASTRUCTURE_WAIT" ? "PBOS preserved exact-revision lineage and used no application repair attempt."
+                : `Validation state changed to ${validation}.`);
         return updated;
     }
 

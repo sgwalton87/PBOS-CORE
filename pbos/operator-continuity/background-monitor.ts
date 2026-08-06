@@ -54,11 +54,17 @@ export class BackgroundMonitor {
         const session = this.state.sessions().find(item => item.sessionId === sessionId);
         if (!session) throw new Error(`Background session not found: ${sessionId}`);
         try {
+            let previousState: RemediationRun["state"] | undefined;
             for (let poll = 0; poll < maximumPolls; poll += 1) {
                 const result = await this.remediation.resume(runId, run => this.workflows.authorizeRemediation(session, run.pullRequest.branch));
                 await this.reconcileProductionMission(result);
                 this.memos.write(session, result);
                 const batch = this.batches.updateForValidation(runId, result.state);
+                if (result.state === "WAITING_FOR_INFRASTRUCTURE" && previousState !== result.state) {
+                    await this.notify("PBOS Genesis — Infrastructure wait",
+                        `${session.system.name}: GitHub Actions did not execute validation. PBOS preserved the exact revision and will retry without consuming an application repair attempt.`);
+                }
+                previousState = result.state;
                 if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(result.state)) {
                     this.completeJob(runId, result.state === "BLOCKED" ? "BLOCKED" : "COMPLETED");
                     const label = result.state === "READY_FOR_CERTIFICATION" ? "ready for certification" : "blocked";

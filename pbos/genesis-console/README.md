@@ -52,6 +52,11 @@ PBOS also prints capabilities already completed on the governed default branch. 
 
 Once confirmed, PBOS creates one governed branch and draft pull request for the selected package set, monitors GitHub Actions automatically, applies registered deterministic remediations, and stops once at `READY_FOR_CERTIFICATION` or `BLOCKED`.
 
+If GitHub Actions cancels or fails a workflow before any validation step executes, PBOS records
+`WAITING_FOR_INFRASTRUCTURE` instead of treating the event as an application defect. The exact
+revision remains fixed, a separate three-attempt infrastructure retry budget applies, operator
+telemetry and memos explain the wait, and the application remediation budget is not consumed.
+
 The operator does not need to repeatedly select evidence collection. PBOS writes every transition to durable state and the session memo, resumes unfinished monitors on the next launch, and sends a macOS notification when the batch is ready or blocked.
 
 The durable telemetry ledger records `BATCH_STARTED`, `WORK_PACKAGE_QUEUED`, `WORK_PACKAGE_STARTED`, `WORK_PACKAGE_COMPLETED`, `SECTION_COMPLETED`, `VALIDATION_STARTED`, `REMEDIATION_STARTED`, `BATCH_READY_FOR_APPROVAL`, and `BATCH_BLOCKED`. Both `pbos watch` and `pbos memo` render this timeline.

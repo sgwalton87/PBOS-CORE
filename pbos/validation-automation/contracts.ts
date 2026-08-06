@@ -1,15 +1,19 @@
 import { PullRequestReference } from "../platform";
 
-export type CheckState = "PENDING" | "PASSED" | "FAILED" | "SKIPPED";
+export type CheckState = "PENDING" | "PASSED" | "FAILED" | "SKIPPED" | "INFRASTRUCTURE_WAIT";
 export interface PullRequestCheckEvidence {
     readonly evidenceId: string;
     readonly name: string;
     readonly state: CheckState;
     readonly detailsUrl?: string;
     readonly failureLog?: string;
+    readonly externalRunId?: string;
+    readonly externalAttempt?: number;
+    readonly infrastructureReason?: string;
     readonly collectedAt: string;
 }
-export type RemediationState = "WAITING_FOR_CHECKS" | "REMEDIATION_REQUIRED" | "REMEDIATION_PUSHED" | "READY_FOR_CERTIFICATION" | "BLOCKED";
+export type RemediationState = "WAITING_FOR_CHECKS" | "WAITING_FOR_INFRASTRUCTURE" | "REMEDIATION_REQUIRED" |
+    "REMEDIATION_PUSHED" | "READY_FOR_CERTIFICATION" | "BLOCKED";
 export interface RemediationRun {
     readonly runId: string;
     readonly systemId: string;
@@ -21,6 +25,10 @@ export interface RemediationRun {
     readonly evidence: readonly PullRequestCheckEvidence[];
     readonly failureFingerprint?: string;
     readonly remediationRevision?: string;
+    readonly infrastructureRetries?: number;
+    readonly maximumInfrastructureRetries?: number;
+    readonly lastInfrastructureFailureKey?: string;
+    readonly nextInfrastructureRetryAt?: string;
     readonly blockers: readonly string[];
     readonly updatedAt: string;
 }

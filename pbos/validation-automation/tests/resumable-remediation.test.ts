@@ -40,6 +40,19 @@ class MovingHeadCommands implements CommandRunner {
     }
 }
 
+class InfrastructureCancelledCommands implements CommandRunner {
+    reruns = 0;
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1" }), stderr: "" };
+        if (args[0] === "api") return { stdout: JSON.stringify({ check_runs: [{ name: "validate", status: "completed",
+            conclusion: "cancelled", details_url: "https://github.com/acme/app/actions/runs/99" }] }), stderr: "" };
+        if (args[0] === "run" && args[1] === "view") return { stdout: JSON.stringify({ attempt: 2,
+            jobs: [{ status: "completed", conclusion: "cancelled", steps: [] }] }), stderr: "" };
+        if (args[0] === "run" && args[1] === "rerun") { this.reruns += 1; return { stdout: "", stderr: "" }; }
+        throw new Error(`Unexpected command: ${args.join(" ")}`);
+    }
+}
+
 describe("resumable validation remediation", () => {
     it("persists failed evidence, applies remediation, and resumes to certification readiness", async () => {
         const statePath = join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json");
@@ -114,5 +127,40 @@ describe("resumable validation remediation", () => {
             url: "https://github.com/acme/app/pull/50" });
         state.saveRemediationRun({ ...older, state: "BLOCKED", updatedAt: new Date(Date.now() + 1_000).toISOString() });
         expect(engine.latest("SYSTEM-001")?.runId).toBe(newer.runId);
+    });
+
+    it("classifies a zero-step cancellation as infrastructure wait and preserves the application repair budget", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new InfrastructureCancelledCommands();
+        const handler = new RepairHandler();
+        const now = new Date("2026-08-06T16:30:00.000Z");
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), handler, () => now);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        const waiting = await engine.resume(started.runId);
+        expect(waiting).toMatchObject({ state: "WAITING_FOR_INFRASTRUCTURE", attempt: 0, infrastructureRetries: 1,
+            maximumInfrastructureRetries: 3, lastInfrastructureFailureKey: "99:2" });
+        expect(waiting.blockers[0]).toContain("No application remediation was consumed");
+        expect(handler.applied).toBe(0);
+        expect(commands.reruns).toBe(1);
+        await engine.resume(started.runId);
+        expect(commands.reruns).toBe(1);
+    });
+
+    it("blocks for human review only after the separate infrastructure retry budget is exhausted", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new InfrastructureCancelledCommands();
+        const handler = new RepairHandler();
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), handler,
+            () => new Date("2026-08-06T17:00:00.000Z"), 0);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        state.saveRemediationRun({ ...started, infrastructureRetries: 3, maximumInfrastructureRetries: 3 });
+        const blocked = await engine.resume(started.runId);
+        expect(blocked.state).toBe("BLOCKED");
+        expect(blocked.attempt).toBe(0);
+        expect(blocked.blockers[0]).toContain("application repair attempts remain unchanged");
+        expect(commands.reruns).toBe(0);
+        expect(handler.applied).toBe(0);
     });
 });

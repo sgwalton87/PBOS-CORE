@@ -18,6 +18,7 @@ export class OperatorMemoService {
         const telemetry = batch ? this.state.batchTelemetry(batch.batchId) : [];
         const next = run?.state === "READY_FOR_CERTIFICATION" ? "Review certification memo and approve or reject certification."
             : run?.state === "BLOCKED" ? "Review the blockers and provide a governed decision."
+            : run?.state === "WAITING_FOR_INFRASTRUCTURE" ? "GitHub Actions did not execute the validation job. PBOS preserved the exact revision and is using its separate bounded infrastructure retry policy; no code repair or operator action is required."
             : run ? "PBOS is monitoring GitHub Actions automatically. No operator action is required until notification."
             : "Resume PBOS and select the next governed workflow action.";
         const certification = run?.state === "READY_FOR_CERTIFICATION"

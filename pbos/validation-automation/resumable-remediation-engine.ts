@@ -10,11 +10,14 @@ export interface RemediationHandler {
 }
 
 export class ResumableRemediationEngine {
-    constructor(private readonly state: GenesisStateRepository, private readonly checks: GitHubCheckCollector, private readonly handler: RemediationHandler) {}
+    constructor(private readonly state: GenesisStateRepository, private readonly checks: GitHubCheckCollector,
+        private readonly handler: RemediationHandler, private readonly now: () => Date = () => new Date(),
+        private readonly infrastructureRetryDelayMs = 60_000) {}
 
     start(systemId: string, pullRequest: PullRequestReference, maximumAttempts = 5): RemediationRun {
         const run: RemediationRun = { runId: randomUUID(), systemId, pullRequest, headSha: "UNKNOWN", attempt: 0,
-            maximumAttempts, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+            maximumAttempts, state: "WAITING_FOR_CHECKS", evidence: [], infrastructureRetries: 0,
+            maximumInfrastructureRetries: 3, blockers: [], updatedAt: this.now().toISOString() };
         this.state.saveRemediationRun(run);
         return run;
     }
@@ -37,6 +40,10 @@ export class ResumableRemediationEngine {
         if (collected.evidence.length === 0 || collected.evidence.some(item => item.state === "PENDING")) {
             return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
                 evidence: collected.evidence, blockers: [] });
+        }
+        const infrastructure = collected.evidence.filter(item => item.state === "INFRASTRUCTURE_WAIT");
+        if (infrastructure.length > 0) {
+            return this.waitForInfrastructure(current, collected.headSha, collected.evidence, infrastructure[0]);
         }
         const failures = collected.evidence.filter(item => item.state === "FAILED");
         const passed = collected.evidence.filter(item => item.state === "PASSED");
@@ -69,8 +76,35 @@ export class ResumableRemediationEngine {
             remediationRevision: revision, blockers: [], updatedAt: new Date().toISOString() });
     }
 
+    private async waitForInfrastructure(current: RemediationRun, headSha: string,
+        evidence: RemediationRun["evidence"], interrupted: RemediationRun["evidence"][number]): Promise<RemediationRun> {
+        const retries = current.infrastructureRetries ?? 0;
+        const maximum = current.maximumInfrastructureRetries ?? 3;
+        const failureKey = `${interrupted.externalRunId ?? "UNKNOWN"}:${interrupted.externalAttempt ?? "UNKNOWN"}`;
+        const nextRetryAt = current.nextInfrastructureRetryAt ? Date.parse(current.nextInfrastructureRetryAt) : 0;
+        if (current.lastInfrastructureFailureKey === failureKey && this.now().getTime() < nextRetryAt) {
+            return this.save({ ...current, headSha, state: "WAITING_FOR_INFRASTRUCTURE", evidence,
+                blockers: [`GitHub Actions infrastructure interrupted validation before any step ran. PBOS will retry after ${current.nextInfrastructureRetryAt}.`] });
+        }
+        if (retries >= maximum) {
+            return this.save({ ...current, headSha, state: "BLOCKED", evidence,
+                blockers: [`GitHub Actions infrastructure retry budget exhausted (${retries}/${maximum}); application repair attempts remain unchanged.`] });
+        }
+        let retryResult = "The exact-revision workflow retry was requested automatically.";
+        try {
+            await this.checks.retryInfrastructure(interrupted);
+        } catch (error) {
+            retryResult = `The retry request was not accepted: ${error instanceof Error ? error.message : String(error)}`;
+        }
+        const retryAt = new Date(this.now().getTime() + this.infrastructureRetryDelayMs).toISOString();
+        return this.save({ ...current, headSha, state: "WAITING_FOR_INFRASTRUCTURE", evidence,
+            infrastructureRetries: retries + 1, maximumInfrastructureRetries: maximum,
+            lastInfrastructureFailureKey: failureKey, nextInfrastructureRetryAt: retryAt,
+            blockers: [`GitHub Actions infrastructure wait ${retries + 1}/${maximum}. ${retryResult} No application remediation was consumed.`] });
+    }
+
     private save(run: RemediationRun): RemediationRun {
-        const updated = { ...run, updatedAt: new Date().toISOString() };
+        const updated = { ...run, updatedAt: this.now().toISOString() };
         this.state.saveRemediationRun(updated);
         this.state.appendAudit({ eventId: randomUUID(), type: "VALIDATION_REMEDIATION_STATE", actorId: run.systemId,
             resource: run.pullRequest.url, occurredAt: updated.updatedAt, evidence: { run: updated } });
