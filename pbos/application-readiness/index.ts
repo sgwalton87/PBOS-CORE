@@ -14,3 +14,5 @@ export * from "./playbook-support-journey-executor";
 export * from "./playbook-connected-journey-functional-acceptance";
 export * from "./playbook-messaging-journey-executor";
 export * from "./playbook-notification-journey-executor";
+export * from "./playbook-product-functional-acceptance";
+export * from "./playbook-product-journeys-executor";

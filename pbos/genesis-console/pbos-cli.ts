@@ -25,7 +25,7 @@ import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissi
 import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
-    playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
@@ -589,6 +589,10 @@ async function runNextProductionMission(target?: string): Promise<number> {
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
             { producesFunctionalAcceptancePlan: true })
         .register("PLAYBOOK-SYSTEM-001", "048-notification-journey", () => playbookNotificationJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-product-journeys", () => playbookProductJourneysExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
             { producesFunctionalAcceptancePlan: true });

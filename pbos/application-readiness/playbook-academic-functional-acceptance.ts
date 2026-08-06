@@ -96,7 +96,12 @@ test("Scholar transcript produces durable academic readiness through PBOS", asyn
   await context.tracing.stop({ path: artifacts + "/academic-trace.zip" });
   await writeFile(artifacts + "/academic-acceptance.json", JSON.stringify({ schemaVersion: 1,
     journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS", commit: required("PBOS_ACCEPTANCE_COMMIT"),
-    checks: ["AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "ACCESSIBILITY", "SECURITY"] }, null, 2));
+    checks: [
+      { dimension: "DURABLE_DATA", passed: true, detail: "Transcript-derived readiness survived an authenticated database read." },
+      { dimension: "PBOS_INTEGRATION", passed: true, detail: "The approval-bound transcript exchange produced provenance-bearing academic evidence." },
+      { dimension: "AUTHORITY", passed: true, detail: "Anonymous transcript mutation was denied before authenticated execution." },
+      { dimension: "SECURITY", passed: true, detail: "Protected academic configuration remained server controlled." }
+    ] }, null, 2));
 });
 `;
 
