@@ -10,13 +10,21 @@ export class MultiPlatformCertificationEngine {
         candidates.forEach(candidate => this.validate(candidate));
         const systems = candidates.map(candidate => this.system(candidate));
         const versions = new Set(candidates.map(candidate => candidate.pbosContractVersion));
+        const approvalIds = candidates.flatMap(candidate => Object.values(candidate.approvalIds))
+            .filter((value): value is string => Boolean(value));
+        const evidenceIds = candidates.flatMap(candidate => candidate.evidence.map(item => item.evidenceId));
+        const certificationIds = candidates.map(candidate => candidate.humanCertificationId)
+            .filter((value): value is string => Boolean(value));
         const independenceProven = versions.size === 1
             && new Set(candidates.map(candidate => candidate.systemId)).size === candidates.length
             && new Set(candidates.map(candidate => candidate.applicationId)).size === candidates.length
             && new Set(candidates.map(candidate => candidate.repository)).size === candidates.length
             && new Set(candidates.map(candidate => candidate.brandId)).size === candidates.length
             && new Set(candidates.map(candidate => candidate.dataOwnershipBoundary)).size === candidates.length
-            && new Set(candidates.map(candidate => candidate.releaseAuthority)).size === candidates.length;
+            && new Set(candidates.map(candidate => candidate.releaseAuthority)).size === candidates.length
+            && new Set(approvalIds).size === approvalIds.length
+            && new Set(evidenceIds).size === evidenceIds.length
+            && new Set(certificationIds).size === certificationIds.length;
         const allReady = independenceProven && systems.every(system => system.status !== "NOT_READY");
         const allCertified = allReady && systems.every(system => system.status === "CERTIFIED");
         return { reportId: randomUUID(), systems, sharedContractVersion: versions.size === 1 ? candidates[0].pbosContractVersion : undefined,
@@ -37,6 +45,13 @@ export class MultiPlatformCertificationEngine {
         }
         if (candidate.evidence.some(item => !item.evidenceId.trim() || !item.reference.trim() || item.provenance.length === 0)) {
             throw new Error("CIP-050 evidence requires identity, reference, and provenance.");
+        }
+        if (new Set(candidate.evidence.map(item => item.evidenceId)).size !== candidate.evidence.length) {
+            throw new Error("CIP-050 evidence identifiers must be unique within each application candidate.");
+        }
+        const approvalIds = Object.values(candidate.approvalIds).filter((value): value is string => Boolean(value));
+        if (new Set(approvalIds).size !== approvalIds.length) {
+            throw new Error("CIP-050 platform approvals must carry distinct identifiers.");
         }
         if (candidate.evidence.some(item => item.provenance.includes(candidate.applicationId) && item.domain === "AUTHORITY"
             && item.provenance.includes("SELF_AUTHORIZED"))) {

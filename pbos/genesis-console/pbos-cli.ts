@@ -39,6 +39,7 @@ import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlay
 import { RepositoryInspection } from "../platform";
 import { MissionQueueItem, ProductionRun } from "../production-runtime";
 import { ConstitutionalAuthorityLoader } from "../boot";
+import { ecosystemPlatformEvidenceExecutor, inspectEcosystemEvidenceReadiness } from "../ecosystem-certification";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -572,6 +573,18 @@ async function runNextProductionMission(target?: string): Promise<number> {
         }
         stdout.write(`[PREREQUISITE] Protected EAS release configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
     }
+    if (next.missionId === "050-platform-evidence") {
+        const readiness = inspectEcosystemEvidenceReadiness();
+        if (!readiness.ready) {
+            stdout.write("[PREREQUISITE] CIP-050 independent multi-platform evidence is incomplete.\n");
+            stdout.write(`Evidence source: ${readiness.path}\n`);
+            stdout.write(`Reason: ${readiness.reason ?? readiness.status ?? "NOT_READY"}\n`);
+            stdout.write("No production run was started and no application repository was changed.\n");
+            stdout.write("NEXT PBOS STEP: finish the missing Playbook or Bulletproof web/iOS/Android scorecard evidence and independent approvals, then rerun the same command.\n");
+            return 2;
+        }
+        stdout.write(`[PREREQUISITE] CIP-050 two-system platform evidence ready (${readiness.status}); exact repository lineage will now be verified.\n`);
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -668,7 +681,9 @@ async function runNextProductionMission(target?: string): Promise<number> {
                 services.identities.verify(historical, action, resource, new Date(historical.issuedAt)),
             authorize: (action, risk, branch, explicitApprovalId) =>
                 services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
-            { producesFunctionalAcceptancePlan: true });
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "050-platform-evidence", () => ecosystemPlatformEvidenceExecutor({
+            gateway: services.gateway, state: services.state }));
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,
@@ -964,6 +979,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const migration = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
         const webStaging = await inspectPlaybookWebStagingReadiness();
         const mobileRelease = await inspectPlaybookMobileReleaseReadiness();
+        const ecosystemEvidence = inspectEcosystemEvidenceReadiness();
         const readiness = staging.environment;
         stdout.write("PBOS PROTECTED ACCEPTANCE DOCTOR\n");
         stdout.write(`Application: ${system.name}\nRepository: ${system.repository}\n`);
@@ -987,6 +1003,11 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(mobileRelease.ready
             ? "MOBILE RELEASE: READY — Expo configuration names were verified without displaying values.\n"
             : "MOBILE RELEASE: BLOCKED — add only the missing Expo values to the accepted mode-0600 source.\n");
+        stdout.write("\nPBOS CIP-050 MULTI-PLATFORM EVIDENCE\n");
+        stdout.write(`Accepted source: ${ecosystemEvidence.path}\n`);
+        stdout.write(ecosystemEvidence.ready
+            ? `ECOSYSTEM EVIDENCE: READY — ${ecosystemEvidence.status}; governed revisions are rechecked during execution.\n`
+            : `ECOSYSTEM EVIDENCE: BLOCKED — ${ecosystemEvidence.reason ?? ecosystemEvidence.status ?? "NOT_READY"}\n`);
         const missingTables = staging.resources.filter(resource => resource.resource.startsWith("table:") && !resource.ready);
         const migrationBootstrapReady = isAdditiveScholarMigrationEligible(staging) && migration.ready;
         if (missingTables.length) {

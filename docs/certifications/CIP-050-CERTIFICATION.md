@@ -8,7 +8,7 @@ FRAMEWORK READY — APPLICATION EVIDENCE AND HUMAN CERTIFICATION PENDING
 
 CIP-050 closes the current CIP-045 through CIP-050 launch program by proving that one PBOS v1 contract foundation powers two independently owned application families:
 
-- Playbook Platform across responsive web, iOS, and Android
+- The Playbook across responsive web, iOS, and Android
 - Bulletproof Beneficiary across responsive web, iOS, and Android
 
 ## Certification standard
@@ -43,7 +43,15 @@ Apple and Google review outcomes are external evidence. They are never represent
 PBOS_ECOSYSTEM_CERTIFICATION_PATH=/protected/path/cip-050-candidates.json npm run pbos:certify:ecosystem
 ```
 
-The command may produce `NOT_READY`, `READY_FOR_HUMAN_CERTIFICATION`, or `CERTIFIED`. The final state is possible only when both independent human certification identifiers are present and every earlier evidence gate is satisfied.
+PBOS production missions also accept the durable default source at
+`~/.pbos/evidence/cip-050-candidates.json`. Before starting the automated
+`050-platform-evidence` mission, PBOS parses this source and fails closed when
+either system, platform, readiness domain, or independent approval is missing.
+The execution adapter then independently inspects both governed repositories,
+rejects stale revisions, and writes the compiled report to the PBOS audit
+ledger without changing either application repository.
+
+The command may produce `NOT_READY`, `READY_FOR_HUMAN_CERTIFICATION`, or `CERTIFIED`. The automated platform-evidence mission can complete only for the latter two states. The final state is possible only when both independent human certification identifiers are present and every earlier evidence gate is satisfied.
 
 ## Current decision
 

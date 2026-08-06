@@ -46,4 +46,18 @@ describe("CIP-050 multi-platform ecosystem certification", () => {
         expect(new MultiPlatformCertificationEngine().evaluate([playbook, candidate("BULLETPROOF", true)]).status)
             .toBe("READY_FOR_HUMAN_CERTIFICATION");
     });
+
+    it("rejects reused approval or evidence lineage across platforms and systems", () => {
+        const playbook = candidate("PLAYBOOK");
+        expect(() => new MultiPlatformCertificationEngine().evaluate([{ ...playbook,
+            approvalIds: { WEB: "REUSED", IOS: "REUSED", ANDROID: "PLAYBOOK-ANDROID" } }, candidate("BULLETPROOF")]))
+            .toThrow("distinct identifiers");
+        const bulletproof = candidate("BULLETPROOF");
+        const sharedApproval = { ...bulletproof,
+            approvalIds: { ...bulletproof.approvalIds, WEB: playbook.approvalIds.WEB } };
+        expect(new MultiPlatformCertificationEngine().evaluate([playbook, sharedApproval]).independenceProven).toBe(false);
+        const sharedEvidence = { ...bulletproof, evidence: bulletproof.evidence.map((item, index) =>
+            index === 0 ? { ...item, evidenceId: playbook.evidence[0].evidenceId } : item) };
+        expect(new MultiPlatformCertificationEngine().evaluate([playbook, sharedEvidence]).independenceProven).toBe(false);
+    });
 });

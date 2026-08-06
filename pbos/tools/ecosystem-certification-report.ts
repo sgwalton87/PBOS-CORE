@@ -1,10 +1,7 @@
-import { readFileSync } from "node:fs";
-import { EcosystemSystemCandidate, MultiPlatformCertificationEngine } from "../ecosystem-certification";
+import { ecosystemCandidatePath, loadEcosystemCandidates, MultiPlatformCertificationEngine } from "../ecosystem-certification";
 
-export function compileEcosystemCertificationFile(path = process.env.PBOS_ECOSYSTEM_CERTIFICATION_PATH?.trim()): unknown {
-    if (!path) throw new Error("Required ecosystem certification input is missing: PBOS_ECOSYSTEM_CERTIFICATION_PATH");
-    const candidates = JSON.parse(readFileSync(path, "utf8")) as EcosystemSystemCandidate[];
-    return new MultiPlatformCertificationEngine().evaluate(candidates);
+export function compileEcosystemCertificationFile(path = ecosystemCandidatePath()): unknown {
+    return new MultiPlatformCertificationEngine().evaluate(loadEcosystemCandidates(path));
 }
 
 if (require.main === module) {
