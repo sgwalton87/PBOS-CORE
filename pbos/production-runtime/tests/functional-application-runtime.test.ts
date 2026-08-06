@@ -51,7 +51,8 @@ describe("PBS-5000 functional application runtime", () => {
         const browser: BrowserJourneyRuntime = { run: async (_plan, journey) => ({ journey, durationMs: 2,
             artifacts: [...journey.screenshotArtifacts, journey.traceArtifact, journey.accessibilityArtifact, journey.acceptanceArtifact],
             verifiedDimensions: journey.verifiedDimensions, passed: true }) };
-        const result = await new FunctionalApplicationRuntime(launcher, probes, browser)
+        const result = await new FunctionalApplicationRuntime(launcher, probes, browser, undefined,
+            async () => 2 * 1024 * 1024 * 1024)
             .execute("run-1", plan(repo.path, repo.revision), event => telemetry.push(event));
         expect(stopped).toBe(true);
         expect(new Set(result.evidence.map(item => item.dimension))).toEqual(new Set([
@@ -68,6 +69,14 @@ describe("PBS-5000 functional application runtime", () => {
         const runtime = new FunctionalApplicationRuntime({ launch: async () => { throw new Error("must not launch"); } },
             {} as RuntimeProbeRunner, {} as BrowserJourneyRuntime);
         await expect(runtime.execute("run-1", plan(repo.path, "abcdef1"))).rejects.toThrow("lineage mismatch");
+    });
+
+    it("preserves the production disk safety gate without depending on host disk capacity", async () => {
+        const repo = repository();
+        const runtime = new FunctionalApplicationRuntime({ launch: async () => { throw new Error("must not launch"); } },
+            {} as RuntimeProbeRunner, {} as BrowserJourneyRuntime, undefined, async () => 128 * 1024 * 1024);
+        await expect(runtime.execute("run-1", plan(repo.path, repo.revision)))
+            .rejects.toThrow("requires 1073741824 free bytes but only 134217728 are available");
     });
 
     it("recovers a historical Node acceptance plan by deriving npm ci from its committed lockfile", async () => {

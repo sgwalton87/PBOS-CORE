@@ -56,6 +56,13 @@ export type FunctionalRuntimeTelemetryEvent = "PREREQUISITES_VERIFIED" | "APPLIC
 export type FunctionalRuntimeReporter = (event: FunctionalRuntimeTelemetryEvent,
     detail: Readonly<Record<string, unknown>>) => void;
 
+type AvailableDiskBytes = (workingDirectory: string) => Promise<number>;
+
+const availableDiskBytes: AvailableDiskBytes = async workingDirectory => {
+    const filesystem = await statfs(workingDirectory);
+    return filesystem.bavail * filesystem.bsize;
+};
+
 async function exists(path: string): Promise<boolean> {
     try { await stat(path); return true; } catch { return false; }
 }
@@ -256,7 +263,8 @@ export class FunctionalApplicationRuntime {
     constructor(private readonly launcher: ApplicationLauncher = new NodeApplicationLauncher(),
         private readonly probes: RuntimeProbeRunner = new HttpRuntimeProbeRunner(),
         private readonly browser: BrowserJourneyRuntime = new CommandBrowserJourneyRuntime(),
-        private readonly protectedEnvironment = new ProtectedEnvironmentResolver()) {}
+        private readonly protectedEnvironment = new ProtectedEnvironmentResolver(),
+        private readonly measureAvailableDiskBytes: AvailableDiskBytes = availableDiskBytes) {}
 
     async execute(runId: string, plan: FunctionalAcceptancePlan,
         report: FunctionalRuntimeReporter = () => undefined): Promise<FunctionalRuntimeResult> {
@@ -267,8 +275,7 @@ export class FunctionalApplicationRuntime {
         if (repositoryRevision !== plan.commit && !repositoryRevision.startsWith(plan.commit)) {
             throw new Error(`Functional runtime lineage mismatch: planned ${plan.commit}, checked out ${repositoryRevision}.`);
         }
-        const filesystem = await statfs(plan.workingDirectory);
-        const availableBytes = filesystem.bavail * filesystem.bsize;
+        const availableBytes = await this.measureAvailableDiskBytes(plan.workingDirectory);
         const minimumFreeBytes = plan.minimumFreeBytes ?? 1024 * 1024 * 1024;
         if (availableBytes < minimumFreeBytes) {
             throw new Error(`Functional runtime requires ${minimumFreeBytes} free bytes but only ${availableBytes} are available.`);

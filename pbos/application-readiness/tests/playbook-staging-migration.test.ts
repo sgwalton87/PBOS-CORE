@@ -24,7 +24,7 @@ describe("governed Playbook staging migration", () => {
         const ready = await inspectPlaybookScholarStagingReadiness(root, protectedEnvironment(), root,
             async () => new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
         expect(ready.ready).toBe(true);
-        expect(ready.resources.filter(item => item.resource.startsWith("table:"))).toHaveLength(4);
+        expect(ready.resources.filter(item => item.resource.startsWith("table:"))).toHaveLength(5);
         expect(JSON.stringify(ready)).not.toContain("service-role");
 
         const blocked = await inspectPlaybookScholarStagingReadiness(root, protectedEnvironment(), root,
@@ -69,6 +69,8 @@ describe("governed Playbook staging migration", () => {
             "create table if not exists scholar_profiles (id uuid primary key);\n");
         writeFileSync(join(migrations, "202608050003_pbos_scholar_dashboard.sql"),
             "create table if not exists scholar_dashboard_projections (id uuid primary key);\n");
+        writeFileSync(join(migrations, "202608050004_pbos_academic_journey.sql"),
+            "create table if not exists academic_journey_evidence (id uuid primary key);\n");
         const calls: string[] = [];
         const transport: StagingSqlTransport = { execute: async (projectRef, token, query) => {
             calls.push(projectRef, token, query);
@@ -80,10 +82,12 @@ describe("governed Playbook staging migration", () => {
         expect(calls[2]).toMatch(/^begin;/);
         expect(calls[2]).toContain("202608050002_pbos_scholar_foundation.sql");
         expect(calls[2]).toContain("202608050003_pbos_scholar_dashboard.sql");
+        expect(calls[2]).toContain("202608050004_pbos_academic_journey.sql");
         expect(calls[2]).toContain("to_regclass('public.scholar_profiles')");
+        expect(calls[2]).toContain("to_regclass('public.academic_journey_evidence')");
         expect(calls[2]).toContain("notify pgrst, 'reload schema'");
         expect(calls[2]).toMatch(/commit;$/);
-        expect(result.migrationPaths).toHaveLength(2);
+        expect(result.migrationPaths).toHaveLength(3);
         const audit = state.audit().find(item => item.type === "STAGING_MIGRATION_APPLIED")!;
         expect(audit.evidence.approvalId).toBe("approval-1");
         expect(audit.evidence).toMatchObject({ repository: "sgwalton87/playbook-platform",
@@ -108,7 +112,7 @@ describe("governed Playbook staging migration", () => {
             } });
         expect(readiness.ready).toBe(true);
         expect(waits).toEqual([500]);
-        expect(requests).toBe(8);
+        expect(requests).toBe(10);
     });
 
     it("rejects destructive SQL before contacting staging", async () => {
@@ -117,6 +121,7 @@ describe("governed Playbook staging migration", () => {
         mkdirSync(migrations, { recursive: true });
         writeFileSync(join(migrations, "202608050002_pbos_scholar_foundation.sql"), "drop table scholar_profiles;\n");
         writeFileSync(join(migrations, "202608050003_pbos_scholar_dashboard.sql"), "select 1;\n");
+        writeFileSync(join(migrations, "202608050004_pbos_academic_journey.sql"), "select 1;\n");
         const state = new GenesisStateRepository(join(root, "state.json"));
         await expect(new PlaybookStagingMigrationService(state, { execute: async () => undefined }).plan(root,
             "abcdefghijklmnopqrst")).rejects.toThrow("Destructive SQL");

@@ -5,11 +5,13 @@ import { GenesisStateRepository } from "../genesis-state";
 
 export const PLAYBOOK_SCHOLAR_STAGING_MIGRATIONS = [
     "supabase/migrations/202608050002_pbos_scholar_foundation.sql",
-    "supabase/migrations/202608050003_pbos_scholar_dashboard.sql"
+    "supabase/migrations/202608050003_pbos_scholar_dashboard.sql",
+    "supabase/migrations/202608050004_pbos_academic_journey.sql"
 ] as const;
 
 export const PLAYBOOK_SCHOLAR_STAGING_TABLES = [
-    "scholar_profiles", "scholar_goals", "scholar_milestones", "scholar_dashboard_projections"
+    "scholar_profiles", "scholar_goals", "scholar_milestones", "scholar_dashboard_projections",
+    "academic_journey_evidence"
 ] as const;
 
 export interface StagingMigrationPlan {
