@@ -15,7 +15,8 @@ export const PLAYBOOK_SCHOLAR_STAGING_TABLES = [
 ] as const;
 
 export interface PlaybookStagingMigrationDefinition {
-    readonly missionId: "048-scholar-slice" | "048-opportunity-journey" | "048-application-journey" | "048-support-journey";
+    readonly missionId: "048-scholar-slice" | "048-opportunity-journey" | "048-application-journey" |
+        "048-support-journey" | "048-messaging-journey" | "048-notification-journey";
     readonly label: string;
     readonly migrationPaths: readonly string[];
     readonly tableNames: readonly string[];
@@ -33,7 +34,13 @@ export const PLAYBOOK_STAGING_MIGRATION_DEFINITIONS: Readonly<Record<PlaybookSta
         tableNames: ["application_workspaces", "application_workspace_tasks", "application_workspace_documents", "application_workspace_events"] },
     "048-support-journey": { missionId: "048-support-journey", label: "application-to-authorized-support journey",
         migrationPaths: ["supabase/migrations/202608050007_pbos_application_support.sql"],
-        tableNames: ["application_support_requests"] }
+        tableNames: ["application_support_requests"] },
+    "048-messaging-journey": { missionId: "048-messaging-journey", label: "governed support messaging journey",
+        migrationPaths: ["supabase/migrations/202608050008_pbos_governed_messaging.sql"],
+        tableNames: ["pbos_conversations", "pbos_conversation_participants", "pbos_messages"] },
+    "048-notification-journey": { missionId: "048-notification-journey", label: "reliable notification outbox journey",
+        migrationPaths: ["supabase/migrations/202608050009_pbos_notification_outbox.sql"],
+        tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "notifications"] }
 };
 
 export function playbookStagingMigrationDefinition(missionId: string): PlaybookStagingMigrationDefinition | undefined {

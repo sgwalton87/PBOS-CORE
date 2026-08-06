@@ -24,7 +24,8 @@ import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnviron
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
-    playbookOpportunityJourneyExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
+    playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
@@ -580,6 +581,14 @@ async function runNextProductionMission(target?: string): Promise<number> {
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
             { producesFunctionalAcceptancePlan: true })
         .register("PLAYBOOK-SYSTEM-001", "048-support-journey", () => playbookSupportJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-messaging-journey", () => playbookMessagingJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-notification-journey", () => playbookNotificationJourneyExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
             { producesFunctionalAcceptancePlan: true });

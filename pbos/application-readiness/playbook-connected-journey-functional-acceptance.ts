@@ -2,7 +2,8 @@ import { GitHubRepositoryGateway, RepositoryFileChange, RepositoryReference } fr
 import { FunctionalAcceptancePlan } from "../production-runtime";
 import { PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT, playbookScholarProtectedEnvironmentFiles } from "./playbook-functional-acceptance";
 
-export type PlaybookConnectedJourneyMission = "048-opportunity-journey" | "048-application-journey" | "048-support-journey";
+export type PlaybookConnectedJourneyMission = "048-opportunity-journey" | "048-application-journey" |
+    "048-support-journey" | "048-messaging-journey" | "048-notification-journey";
 
 interface JourneyDefinition {
     readonly missionId: PlaybookConnectedJourneyMission;
@@ -96,6 +97,78 @@ const definitions: Readonly<Record<PlaybookConnectedJourneyMission, JourneyDefin
   expect(delivered.request?.requestId).toBeTruthy();
   await page.goto("/application-workspaces");
   await expect(page.getByRole("heading", { name: "Ask your support network for application help" })).toBeVisible();`
+    },
+    "048-messaging-journey": {
+        missionId: "048-messaging-journey", journeyId: "AUTHORIZED-SUPPORT-MESSAGING",
+        productNodeId: "PLAYBOOK-GOVERNED-MESSAGING", route: "/messages", apiPath: "/api/support-network/messages",
+        approvalEnvironment: "PBOS_MESSAGING_JOURNEY_APPROVAL_ID", port: 4315,
+        script: "test:acceptance:pbos:messaging", specificationPath: "tests/acceptance/pbos-messaging.spec.ts",
+        artifactPrefix: "messaging", behavior: "Authorized support participants exchange durable, moderated messages with unread state.",
+        action: `const email = required("PBOS_ACCEPTANCE_EMAIL");
+  const admin = createClient(required("NEXT_PUBLIC_SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), {
+    auth: { autoRefreshToken: false, persistSession: false }
+  });
+  const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (users.error) throw users.error;
+  const user = users.data.users.find(candidate => candidate.email === email);
+  if (!user) throw new Error("Governed Scholar acceptance identity was not found.");
+  const existing = await admin.from("support_relationships").select("id").eq("scholar_id", user.id)
+    .eq("supporter_email", "pbos-support@example.com").eq("status", "active").limit(1).maybeSingle();
+  if (existing.error) throw existing.error;
+  let relationshipId = existing.data?.id as string | undefined;
+  if (!relationshipId) {
+    const created = await admin.from("support_relationships").insert({ scholar_id: user.id,
+      supporter_email: "pbos-support@example.com", supporter_name: "PBOS Acceptance Mentor", relationship: "mentor",
+      permissions: ["view_progress", "support_tasks"], status: "active" }).select("id").single();
+    if (created.error || !created.data) throw created.error ?? new Error("Synthetic support relationship was not created.");
+    relationshipId = created.data.id as string;
+  }
+  const sent = await page.request.post("/api/support-network/messages", { data: { relationshipId,
+    body: "PBOS governed acceptance message", requestId: "pbos-acceptance-message" } });
+  expect(sent.status()).toBe(201);
+  const sentBody = await sent.json() as { message?: { id?: string }; conversation?: { id?: string } };
+  expect(sentBody.message?.id).toBeTruthy();
+  const loaded = await page.request.get("/api/support-network/messages");
+  expect(loaded.status()).toBe(200);
+  const inbox = await loaded.json() as { conversations?: Array<{ id: string; messages?: Array<{ id: string }> }> };
+  expect(inbox.conversations?.some(conversation => conversation.id === sentBody.conversation?.id &&
+    conversation.messages?.some(message => message.id === sentBody.message?.id))).toBe(true);
+  await page.goto("/messages");
+  await expect(page.getByRole("heading", { name: "Your governed support conversations" })).toBeVisible();`,
+    },
+    "048-notification-journey": {
+        missionId: "048-notification-journey", journeyId: "EVENT-TO-ACKNOWLEDGED-NOTIFICATION",
+        productNodeId: "PLAYBOOK-RELIABLE-NOTIFICATIONS", route: "/notifications", apiPath: "/api/notifications",
+        approvalEnvironment: "PBOS_NOTIFICATION_JOURNEY_APPROVAL_ID", port: 4316,
+        script: "test:acceptance:pbos:notifications", specificationPath: "tests/acceptance/pbos-notifications.spec.ts",
+        artifactPrefix: "notifications", behavior: "A domain event produces one preference-aware notification that can be acknowledged.",
+        action: `const event = { eventKey: "pbos-acceptance-notification", type: "message", title: "Application support replied",
+    body: "Your mentor added a governed response.", href: "/messages", priority: "medium" };
+  const first = await page.request.post("/api/notifications", { data: event });
+  expect(first.status()).toBe(200);
+  const firstBody = await first.json() as { notification?: { id?: string } };
+  expect(firstBody.notification?.id).toBeTruthy();
+  const duplicate = await page.request.post("/api/notifications", { data: event });
+  expect(duplicate.status()).toBe(200);
+  const duplicateBody = await duplicate.json() as { notification?: { id?: string } };
+  expect(duplicateBody.notification?.id).toBe(firstBody.notification?.id);
+  const acknowledged = await page.request.patch("/api/notifications", { data: {
+    action: "READ", notificationId: firstBody.notification!.id
+  } });
+  expect(acknowledged.status()).toBe(200);
+  const preference = await page.request.patch("/api/notifications", { data: {
+    action: "PREFERENCE", notificationType: "mail_reply", mode: "daily_digest"
+  } });
+  expect(preference.status()).toBe(200);
+  const loaded = await page.request.get("/api/notifications");
+  const center = await loaded.json() as { notifications?: Array<{ id: string; read: boolean }>;
+    preferences?: Array<{ notification_type: string; mode: string }> };
+  expect(center.notifications?.filter(item => item.id === firstBody.notification?.id)).toEqual([
+    expect.objectContaining({ read: true })
+  ]);
+  expect(center.preferences).toContainEqual(expect.objectContaining({ notification_type: "mail_reply", mode: "daily_digest" }));
+  await page.goto("/notifications");
+  await expect(page.getByRole("heading", { name: "What needs your attention?" })).toBeVisible();`,
     }
 };
 

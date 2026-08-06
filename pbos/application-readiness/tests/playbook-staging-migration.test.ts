@@ -121,6 +121,17 @@ describe("governed Playbook staging migration", () => {
             commit: "abcdef2", migrationPaths: ["supabase/migrations/202608050005_pbos_opportunity_journey.sql"] });
     });
 
+    it("registers isolated messaging and notification staging boundaries", () => {
+        expect(PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-messaging-journey"]).toMatchObject({
+            migrationPaths: ["supabase/migrations/202608050008_pbos_governed_messaging.sql"],
+            tableNames: ["pbos_conversations", "pbos_conversation_participants", "pbos_messages"]
+        });
+        expect(PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-notification-journey"]).toMatchObject({
+            migrationPaths: ["supabase/migrations/202608050009_pbos_notification_outbox.sql"],
+            tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "notifications"]
+        });
+    });
+
     it("waits for PostgREST to reload its schema cache after the transaction commits", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-staging-schema-cache-"));
         let requests = 0;
