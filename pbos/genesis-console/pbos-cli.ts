@@ -738,7 +738,7 @@ async function migratePlaybookStaging(remediationRunId?: string): Promise<number
         io.write("PBOS PROTECTED STAGING MIGRATION CHECKPOINT");
         io.write(`Application: ${system.name}`);
         io.write(`Project: ${projectRef}`);
-        io.write("Scope: apply only the two additive Scholar staging migrations in one atomic transaction.");
+        io.write("Scope: apply only the three additive Scholar staging migrations in one atomic transaction.");
         io.write("Production, destructive SQL, secrets, and unrelated schemas remain excluded.");
         const answer = (await io.prompt("Authorize this Playbook staging migration now? [y/N] ")).trim().toLowerCase();
         authorized = answer === "y" || answer === "yes";
