@@ -11,6 +11,7 @@ import { OperatorMemoService } from "./operator-memo-service";
 import { AutonomousBatchService } from "./autonomous-batch-service";
 import { ApplicationAcceptanceEvidence, ProductionRuntimeService } from "../production-runtime";
 import { RemediationRun } from "../validation-automation";
+import { AutonomousProductionKernel } from "../kernel";
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -55,7 +56,7 @@ export class BackgroundMonitor {
         try {
             for (let poll = 0; poll < maximumPolls; poll += 1) {
                 const result = await this.remediation.resume(runId, run => this.workflows.authorizeRemediation(session, run.pullRequest.branch));
-                this.reconcileProductionMission(result);
+                await this.reconcileProductionMission(result);
                 this.memos.write(session, result);
                 const batch = this.batches.updateForValidation(runId, result.state);
                 if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(result.state)) {
@@ -86,14 +87,33 @@ export class BackgroundMonitor {
         if (job) this.state.saveBackgroundJob({ ...job, status, updatedAt: new Date().toISOString() });
     }
 
-    private reconcileProductionMission(remediation: RemediationRun): void {
+    private async reconcileProductionMission(remediation: RemediationRun): Promise<void> {
         const remediationRunId = remediation.runId;
         const validation = remediation.state;
         const production = new ProductionRuntimeService(this.state);
-        const run = [...this.state.productionRuns()].reverse().find(item =>
+        const linkedRun = [...this.state.productionRuns()].reverse().find(item =>
             item.evidenceIds.includes(`remediation-run:${remediationRunId}`));
-        if (!run || run.status !== "VALIDATING") return;
+        if (!linkedRun) return;
+        let run = linkedRun;
+        if (run.status === "BLOCKED") {
+            const selectedMission = run.selectedMission;
+            const blockedMission = this.state.missionQueue(run.systemId).find(item => item.title === selectedMission);
+            run = blockedMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
+                ? production.recoverBlockedFunctionalValidation(run.runId, remediationRunId, remediation.headSha)
+                : production.recoverBlockedValidation(run.runId, remediationRunId, remediation.headSha);
+        }
+        if (run.status !== "VALIDATING") return;
         production.heartbeat(run.runId);
+        if (validation === "REMEDIATION_PUSHED") {
+            const revision = remediation.remediationRevision;
+            if (!revision || !/^[a-f0-9]{7,40}$/i.test(revision)) {
+                throw new Error("Remediation completed without an exact replacement revision.");
+            }
+            run = run.functionalAcceptancePlan
+                ? production.rebindRepositoryAfterRemediation(run.runId, remediationRunId,
+                    remediation.pullRequest.branch, revision)
+                : production.updateRepositoryPosition(run.runId, remediation.pullRequest.branch, revision);
+        }
         if (validation === "READY_FOR_CERTIFICATION") {
             try {
                 if (!/^[a-f0-9]{7,40}$/i.test(remediation.headSha) || remediation.headSha !== run.currentCommit) {
@@ -114,6 +134,11 @@ export class BackgroundMonitor {
                     passed: true,
                     source: "CI_VALIDATION"
                 };
+                if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+                    await new AutonomousProductionKernel(this.state, production)
+                        .verifyApplication(run.runId, validationEvidence);
+                    return;
+                }
                 production.recordAcceptanceEvidence(run.runId, [validationEvidence]);
                 production.completeActiveStage(run.runId, { validation: "PASSED", remediationRunId },
                     [`remediation-run:${remediationRunId}`]);
@@ -122,19 +147,23 @@ export class BackgroundMonitor {
                 production.transition(run.runId, "AWAITING_APPROVAL",
                     "Exact-revision functional acceptance evidence passed; human certification and merge approval are required.");
             } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
                 const current = production.run(run.runId);
                 if (current?.activeStageId) production.completeActiveStage(run.runId, { validation: "BLOCKED", remediationRunId });
                 if (current && !["BLOCKED", "FAILED", "CANCELLED"].includes(current.status)) {
-                    production.transition(run.runId, "BLOCKED", "Functional acceptance evidence is incomplete or has invalid lineage.", {
-                        remediationRunId, reason: error instanceof Error ? error.message : String(error)
+                    production.transition(run.runId, "BLOCKED", `Functional acceptance blocked: ${reason}`, {
+                        remediationRunId, reason
                     });
                 }
+                production.blockMissionForRun(run.runId, reason, [`remediation-run:${remediationRunId}`]);
                 throw error;
             }
         } else if (validation === "BLOCKED") {
             production.completeActiveStage(run.runId, { validation: "BLOCKED", remediationRunId },
                 [`remediation-run:${remediationRunId}`]);
             production.transition(run.runId, "BLOCKED", "Foundation validation requires human intervention.");
+            production.blockMissionForRun(run.runId, "Independent validation requires human remediation.",
+                [`remediation-run:${remediationRunId}`]);
         } else if (validation === "REMEDIATION_REQUIRED" || validation === "REMEDIATION_PUSHED") {
             production.completeActiveStage(run.runId, { validation, remediationRunId });
             production.transition(run.runId, "REPAIRING", "Deterministic validation remediation is active.");
@@ -143,4 +172,5 @@ export class BackgroundMonitor {
             production.startStage(run.runId, "VALIDATION", "Revalidate Playbook foundation", { remediationRunId });
         }
     }
+
 }

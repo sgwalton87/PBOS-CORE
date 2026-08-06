@@ -39,7 +39,7 @@ export class GitHubCheckCollector {
     private state(value: string): PullRequestCheckEvidence["state"] {
         const normalized = value.toLowerCase();
         if (["pass", "success", "successful"].includes(normalized)) return "PASSED";
-        if (["fail", "failure", "cancel", "cancelled", "timed_out", "action_required"].includes(normalized)) return "FAILED";
+        if (["fail", "failure", "cancel", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(normalized)) return "FAILED";
         if (["skipping", "skipped", "neutral"].includes(normalized)) return "SKIPPED";
         return "PENDING";
     }

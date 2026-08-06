@@ -78,6 +78,8 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("src/domain/legacy/vertical-slice.ts");
         const migration = scaffold.files.find(file => file.path === "supabase/migrations/202608050002_pbos_scholar_foundation.sql")?.content ?? "";
         expect(migration).toContain("scholar_profiles");
+        expect(migration).toContain("create table if not exists scholar_profiles");
+        expect(migration).toContain('drop policy if exists "scholar-profile-own"');
         expect(migration).not.toContain("beneficiary_searches");
         expect(paths).not.toContain("src/app/page.tsx");
         expect(paths).not.toContain("package.json");

@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, statSync } from "fs";
+import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -32,6 +32,8 @@ describe("GitHub repository gateway", () => {
         expect(inspection.findings).toContain("GOVERNED_BASE:origin/main");
         expect(inspection.findings).toContain("DEPENDENCY_LOCK:PRESENT");
         expect(inspection.findings).toContain("CAPABILITY:ANALYTICS:PRESENT");
+        expect(await new GitHubRepositoryGateway(root, commands).currentRevision(reference)).toBe("abc123");
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["rev-parse", "HEAD"] }));
     });
 
     it("rejects branch and file traversal outside governed boundaries", async () => {
@@ -49,6 +51,20 @@ describe("GitHub repository gateway", () => {
         const gateway = new GitHubRepositoryGateway(root, new FakeCommands());
         await gateway.applyChange(reference, [{ path: ".githooks/pbos-archivist-post-commit", content: "#!/bin/sh\n", executable: true }]);
         expect(statSync(join(checkout, ".githooks/pbos-archivist-post-commit")).mode & 0o111).not.toBe(0);
+    });
+
+    it("applies exact idempotent text remediation without accepting source drift", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        const checkout = join(root, "acme--app");
+        mkdirSync(checkout);
+        writeFileSync(join(checkout, "connector.ts"), "registration=legacy\n");
+        const gateway = new GitHubRepositoryGateway(root, new FakeCommands());
+        const replacement = { path: "connector.ts", search: "legacy", replacement: "canonical" };
+        await gateway.applyTextReplacements(reference, [replacement]);
+        await gateway.applyTextReplacements(reference, [replacement]);
+        expect(readFileSync(join(checkout, "connector.ts"), "utf8")).toBe("registration=canonical\n");
+        await expect(gateway.applyTextReplacements(reference,
+            [{ path: "connector.ts", search: "missing", replacement: "new" }])).rejects.toThrow("source changed");
     });
 
     it("opens draft pull requests for an agent branch", async () => {

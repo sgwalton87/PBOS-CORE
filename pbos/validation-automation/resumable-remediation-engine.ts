@@ -26,15 +26,28 @@ export class ResumableRemediationEngine {
     }
 
     async resume(runId: string, beforeApply?: (run: RemediationRun) => void): Promise<RemediationRun> {
-        const current = this.state.remediationRun(runId);
-        if (!current) throw new Error(`Remediation run not found: ${runId}`);
-        if (["READY_FOR_CERTIFICATION", "BLOCKED"].includes(current.state)) return current;
+        const persisted = this.state.remediationRun(runId);
+        if (!persisted) throw new Error(`Remediation run not found: ${runId}`);
+        if (persisted.state === "BLOCKED") return persisted;
+        const falselyReady = persisted.state === "READY_FOR_CERTIFICATION" &&
+            !persisted.evidence.some(item => item.state === "PASSED");
+        if (persisted.state === "READY_FOR_CERTIFICATION" && !falselyReady) return persisted;
+        const current = falselyReady ? this.save({ ...persisted, state: "WAITING_FOR_CHECKS",
+            blockers: ["Independent validation has not reported a passing check for the exact revision."] }) : persisted;
         const collected = await this.checks.collect(current.pullRequest);
         if (collected.evidence.length === 0 || collected.evidence.some(item => item.state === "PENDING")) {
-            return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS", evidence: collected.evidence });
+            return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
+                evidence: collected.evidence, blockers: [] });
         }
         const failures = collected.evidence.filter(item => item.state === "FAILED");
-        if (failures.length === 0) return this.save({ ...current, headSha: collected.headSha, state: "READY_FOR_CERTIFICATION", evidence: collected.evidence });
+        const passed = collected.evidence.filter(item => item.state === "PASSED");
+        if (failures.length === 0 && passed.length === 0) {
+            return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
+                evidence: collected.evidence,
+                blockers: ["GitHub reported only skipped checks; PBOS is waiting for an independent passing check."] });
+        }
+        if (failures.length === 0) return this.save({ ...current, headSha: collected.headSha,
+            state: "READY_FOR_CERTIFICATION", evidence: collected.evidence, blockers: [] });
         const fingerprint = this.checks.fingerprint(collected.evidence);
         if (current.attempt >= current.maximumAttempts || (current.attempt > 0 && current.failureFingerprint === fingerprint)) {
             return this.save({ ...current, headSha: collected.headSha, state: "BLOCKED", evidence: collected.evidence,

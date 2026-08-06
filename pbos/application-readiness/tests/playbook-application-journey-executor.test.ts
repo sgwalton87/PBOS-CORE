@@ -47,14 +47,12 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
             openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/55", number: 55,
                 branch: "agent/pbos-playbook-system-001-048-application-11223344", repository: "sgwalton87/playbook-platform" })
         } as unknown as GitHubRepositoryGateway;
-        const monitors: string[] = [];
         const executor = playbookApplicationJourneyExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-application", action, allowed: true,
                 reason: "authorized", decidedAt: new Date() }),
             remediation: { start: (_systemId, pullRequest) => ({ runId: "validation-application", systemId: "PLAYBOOK-SYSTEM-001",
                 pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
-                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
-            startMonitor: validation => { monitors.push(validation.runId); } });
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) } });
 
         const result = await executor({ run, mission, report: () => undefined });
 
@@ -81,7 +79,6 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(generated.get("pbos/readiness/048-application-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         expect(result.files?.modified).toContain("app/api/application-workspaces/route.ts");
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/55");
-        expect(monitors).toEqual(["validation-application"]);
 
         const expected: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY",
             "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
@@ -99,7 +96,7 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         const executor = playbookApplicationJourneyExecutor({ gateway: {} as GitHubRepositoryGateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-application", action, allowed: false,
                 reason: "revoked", decidedAt: new Date() }),
-            remediation: { start: () => { throw new Error("not reached"); } }, startMonitor: () => undefined });
+            remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("denied: revoked");
     });
 });

@@ -18,7 +18,7 @@ const mission = { missionId: "048-foundation", systemId: "PLAYBOOK-SYSTEM-001", 
     dependencies: [], status: "ACTIVE" as const, rationale: "Gap analysis complete.", approvalRequired: true, evidenceIds: [] };
 
 describe("CIP-048 Playbook foundation execution adapter", () => {
-    it("publishes real foundation code, prepares the lock, and starts durable validation", async () => {
+    it("publishes real foundation code, prepares the lock, and returns a durable validation handoff", async () => {
         const calls: string[] = [];
         const gateway = {
             inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
@@ -31,12 +31,10 @@ describe("CIP-048 Playbook foundation execution adapter", () => {
             openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/52", number: 52,
                 branch: "agent/pbos-playbook-system-001-048-foundation-12345678", repository: "sgwalton87/playbook-platform" })
         } as unknown as GitHubRepositoryGateway;
-        const started: string[] = [];
         const executor = playbookFoundationExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-048", action, allowed: true, reason: "authorized", decidedAt: new Date() }),
             remediation: { start: (_systemId, pullRequest) => ({ runId: "validation-048", systemId: "PLAYBOOK-SYSTEM-001", pullRequest,
-                headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
-            startMonitor: validation => { started.push(validation.runId); } });
+                headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) } });
         const result = await executor({ run, mission, report: () => undefined });
         expect(calls).toContain("lock");
         expect(calls.some(call => call.includes("lib/pbos/foundation.ts") && call.includes("package-lock.json"))).toBe(true);
@@ -45,13 +43,12 @@ describe("CIP-048 Playbook foundation execution adapter", () => {
         expect(result.files?.added).toContain(".github/workflows/pbos-engineering-memory.yml");
         expect(result.deferredValidation).toEqual({ remediationRunId: "validation-048",
             pullRequestUrl: "https://github.com/sgwalton87/playbook-platform/pull/52" });
-        expect(started).toEqual(["validation-048"]);
     });
 
     it("fails closed before mutation when repository authority denies an action", async () => {
         const executor = playbookFoundationExecutor({ gateway: {} as GitHubRepositoryGateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-048", action, allowed: false, reason: "revoked", decidedAt: new Date() }),
-            remediation: { start: () => { throw new Error("not reached"); } }, startMonitor: () => undefined });
+            remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("denied: revoked");
     });
 });

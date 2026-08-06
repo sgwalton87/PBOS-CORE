@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
 import { GovernedMissionQueue } from "./mission-queue";
-import { ApplicationAcceptanceEvidence, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
 import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 import { ProductionRuntimeService } from "./production-runtime-service";
 
@@ -19,6 +19,7 @@ export interface MissionExecutionResult {
     readonly validations: readonly Readonly<{ name: string; passed: boolean; durationMs: number; evidenceId: string }>[];
     readonly deferredValidation?: Readonly<{ remediationRunId: string; pullRequestUrl: string }>;
     readonly acceptanceEvidence?: readonly ApplicationAcceptanceEvidence[];
+    readonly functionalAcceptancePlan?: FunctionalAcceptancePlan;
 }
 
 export type ProductionMissionExecutor = (context: MissionExecutionContext) => Promise<MissionExecutionResult>;
@@ -104,10 +105,12 @@ export class ProductionMissionRunner {
             try {
                 const result = await executor({ run: this.runtime.run(run.runId)!, mission, report: this.report });
                 const revision = typeof result.outputs.revision === "string" ? result.outputs.revision : undefined;
-                if (revision && /^[a-f0-9]{7,40}$/i.test(revision)) this.runtime.updateRepositoryPosition(run.runId, request.branch, revision);
+                const resultBranch = typeof result.outputs.branch === "string" ? result.outputs.branch : request.branch;
+                if (revision && /^[a-f0-9]{7,40}$/i.test(revision)) this.runtime.updateRepositoryPosition(run.runId, resultBranch, revision);
                 const verifier = new FunctionalAcceptanceVerifier();
                 verifier.assertImplementationEvidence(mission, result.acceptanceEvidence ?? [], request.repository, revision ?? request.commit);
                 if (result.acceptanceEvidence?.length) this.runtime.recordAcceptanceEvidence(run.runId, result.acceptanceEvidence);
+                if (result.functionalAcceptancePlan) this.runtime.recordFunctionalAcceptancePlan(run.runId, result.functionalAcceptancePlan);
                 result.commands?.forEach(item => this.runtime.recordCommand(run.runId, item.command, item.exitCode, item.durationMs, item.output));
                 if (result.files) this.runtime.recordFiles(run.runId, result.files);
                 this.runtime.completeStage(stage.stageId, result.outputs, result.evidenceIds);
@@ -126,7 +129,8 @@ export class ProductionMissionRunner {
                 this.runtime.completeStage(validationStage.stageId, { passed: failed.length === 0, validations: result.validations.length },
                     result.validations.map(item => item.evidenceId));
                 if (failed.length) {
-                    this.runtime.updateMissionStatus(request.systemId, mission.missionId, "BLOCKED", result.evidenceIds);
+                    this.runtime.blockMissionForRun(run.runId,
+                        `Mission validation failed: ${failed.map(item => item.name).join(", ")}.`, result.evidenceIds);
                     this.runtime.transition(run.runId, "BLOCKED", "Mission validation failed and requires governed remediation.", {
                         failures: failed.map(item => item.name)
                     });
@@ -151,7 +155,7 @@ export class ProductionMissionRunner {
                 const current = this.runtime.run(run.runId);
                 if (current && !["BLOCKED", "FAILED", "CANCELLED"].includes(current.status)) {
                     if (current.activeStageId) this.runtime.failStage(current.activeStageId, error instanceof Error ? error.message : String(error));
-                    this.runtime.updateMissionStatus(request.systemId, mission.missionId, "BLOCKED");
+                    this.runtime.blockMissionForRun(run.runId, error instanceof Error ? error.message : String(error));
                     this.runtime.transition(run.runId, "FAILED", "Mission execution failed.", {
                         error: error instanceof Error ? error.message : String(error)
                     });
@@ -169,11 +173,22 @@ export class ProductionMissionRunner {
         const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission && item.status === "ACTIVE");
         if (!mission) throw new Error(`Active mission for run ${runId} was not found.`);
         new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run);
-        const certified = this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", {
-            approvalId, missionId: mission.missionId
-        });
+        const certified = mission.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
+            ? this.runtime.certifyFunctionalApplication(runId, approvalId)
+            : this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", {
+                approvalId, missionId: mission.missionId
+            });
         this.runtime.updateMissionStatus(run.systemId, mission.missionId, "COMPLETE", [`approval:${approvalId}`]);
         return certified;
+    }
+
+    assertCertifiable(runId: string): void {
+        const run = this.runtime.run(runId);
+        if (!run || run.status !== "AWAITING_APPROVAL") throw new Error(`Run ${runId} is not awaiting approval.`);
+        const mission = this.state.missionQueue(run.systemId)
+            .find(item => item.title === run.selectedMission && item.status === "ACTIVE");
+        if (!mission) throw new Error(`Active mission for run ${runId} was not found.`);
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run);
     }
 
     private plan(runId: string, mission: MissionQueueItem): ProductionExecutionPlan {

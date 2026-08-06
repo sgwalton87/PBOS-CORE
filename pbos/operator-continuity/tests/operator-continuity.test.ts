@@ -18,7 +18,9 @@ const session = {
 };
 const run: RemediationRun = { runId: "run-1", systemId: "SYSTEM-001",
     pullRequest: { number: 1, repository: "example/app", branch: "agent/build", url: "https://github.com/example/app/pull/1" },
-    headSha: "sha", attempt: 1, maximumAttempts: 5, state: "READY_FOR_CERTIFICATION", evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+    headSha: "abcdef1", attempt: 1, maximumAttempts: 5, state: "READY_FOR_CERTIFICATION",
+    evidence: [{ evidenceId: "check", name: "validate", state: "PASSED", collectedAt: new Date().toISOString() }],
+    blockers: [], updatedAt: new Date().toISOString() };
 
 describe("operator continuity", () => {
     it("writes a durable exit memo with status, pull request, and next action", () => {
@@ -106,7 +108,41 @@ describe("operator continuity", () => {
         const workflows = { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService;
         await expect(new BackgroundMonitor(state, remediation, workflows, new OperatorMemoService(join(root, "memos"), state),
             async () => undefined, new AutonomousBatchService(state), { notify: async () => undefined })
-            .run(result.runId, session.sessionId, 0, 1)).rejects.toThrow("missing acceptance evidence");
+            .run(result.runId, session.sessionId, 0, 1)).rejects.toThrow("no executable functional acceptance plan");
         expect(production.run(productionRun.runId)?.status).toBe("BLOCKED");
+    });
+
+    it("recovers the same functional run after a premature all-skipped validation terminal", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-functional-recovery-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        state.saveSession(session);
+        const production = new ProductionRuntimeService(state);
+        production.reconcileQueue("SYSTEM-001", [{ missionId: "functional", systemId: "SYSTEM-001", title: "Functional journey",
+            dependencies: [], status: "ACTIVE", rationale: "Ready", approvalRequired: true, evidenceIds: [],
+            completionPolicy: { kind: "FUNCTIONAL_APPLICATION", requiredDimensions: ["INDEPENDENT_VALIDATION"],
+                acceptanceCriteria: ["Independent validation passes"] } }]);
+        const productionRun = production.begin({ systemId: "SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
+            repository: "example/app", branch: "agent/build", commit: "abcdef1", objective: "Functional journey",
+            mission: "Functional journey", rationale: "Ready" });
+        production.transition(productionRun.runId, "QUEUED", "Queued");
+        production.transition(productionRun.runId, "STARTING", "Starting");
+        production.transition(productionRun.runId, "RUNNING", "Running");
+        production.transition(productionRun.runId, "VALIDATING", "Validating");
+        const validation = production.startStage(productionRun.runId, "VALIDATION", "Validate journey");
+        production.recordValidation(productionRun.runId, "Validation monitor started", true, 0, "remediation-run:run-1");
+        production.completeStage(validation.stageId, { validation: "BLOCKED" });
+        production.transition(productionRun.runId, "BLOCKED", "Functional acceptance blocked", {
+            reason: "Functional completion requires at least one independent application check on the exact revision."
+        });
+        const waiting: RemediationRun = { ...run, state: "WAITING_FOR_CHECKS",
+            evidence: [{ evidenceId: "skipped", name: "archive", state: "SKIPPED", collectedAt: new Date().toISOString() }] };
+        const remediation = { resume: async () => waiting } as unknown as ResumableRemediationEngine;
+        const workflows = { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService;
+        await expect(new BackgroundMonitor(state, remediation, workflows, new OperatorMemoService(join(root, "memos"), state),
+            async () => undefined, new AutonomousBatchService(state), { notify: async () => undefined })
+            .run(waiting.runId, session.sessionId, 0, 1)).rejects.toThrow("polling limit");
+        expect(production.run(productionRun.runId)?.status).toBe("VALIDATING");
+        expect(production.run(productionRun.runId)?.terminalSummary).toBeUndefined();
+        expect(state.productionStages(productionRun.runId).at(-1)?.title).toBe("Resume validation for Functional journey");
     });
 });

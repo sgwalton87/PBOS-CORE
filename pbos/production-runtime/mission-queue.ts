@@ -11,6 +11,7 @@ export class GovernedMissionQueue {
         const complete = new Set(items.filter(item => item.status === "COMPLETE").map(item => item.missionId));
         return items.map(item => {
             if (["COMPLETE", "ACTIVE"].includes(item.status)) return item;
+            if (item.executionBlocker) return { ...item, status: "BLOCKED" as const };
             const blockers = item.dependencies.filter(dependency => !complete.has(dependency));
             return { ...item, status: blockers.length ? "BLOCKED" : "ELIGIBLE",
                 rationale: blockers.length ? `Waiting for: ${blockers.join(", ")}` : "All declared dependencies are complete." };
@@ -18,6 +19,7 @@ export class GovernedMissionQueue {
     }
 
     next(items: readonly MissionQueueItem[]): MissionQueueItem | undefined {
+        if (items.some(item => item.status === "ACTIVE" || Boolean(item.executionBlocker))) return undefined;
         return this.reconcile(items).find(item => item.status === "ELIGIBLE");
     }
 

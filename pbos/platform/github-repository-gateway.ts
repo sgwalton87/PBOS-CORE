@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { chmod, mkdir, writeFile } from "fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
@@ -41,6 +41,14 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         return { repository, revision, findings, inspectedAt: new Date(), files };
     }
 
+    async workingDirectory(repository: RepositoryReference): Promise<string> {
+        return this.checkout(repository);
+    }
+
+    async currentRevision(repository: RepositoryReference): Promise<string> {
+        return (await this.commands.run("git", ["rev-parse", "HEAD"], await this.checkout(repository))).stdout.trim();
+    }
+
     async createBranch(repository: RepositoryReference, branch: string, baseRevision: string): Promise<string> {
         this.assertBranch(branch);
         const cwd = await this.checkout(repository);
@@ -65,6 +73,22 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
             if (change.executable) await chmod(target, 0o755);
         }
         return changes.map(change => change.path);
+    }
+
+    async applyTextReplacements(repository: RepositoryReference,
+        replacements: readonly { readonly path: string; readonly search: string; readonly replacement: string }[]): Promise<readonly string[]> {
+        const cwd = await this.checkout(repository);
+        for (const change of replacements) {
+            if (!change.search) throw new Error(`Repository text replacement requires a non-empty search value: ${change.path}`);
+            const target = this.safePath(cwd, change.path);
+            const current = await readFile(target, "utf8");
+            if (!current.includes(change.search)) {
+                if (current.includes(change.replacement)) continue;
+                throw new Error(`Repository source changed before deterministic remediation: ${change.path}`);
+            }
+            await writeFile(target, current.replaceAll(change.search, change.replacement), "utf8");
+        }
+        return [...new Set(replacements.map(item => item.path))];
     }
 
     async readFileAtRevision(repository: RepositoryReference, path: string, revision: string): Promise<string> {

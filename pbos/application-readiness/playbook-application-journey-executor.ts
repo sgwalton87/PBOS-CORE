@@ -2,7 +2,7 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -18,7 +18,6 @@ export interface PlaybookApplicationJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const journeyServiceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -175,7 +174,7 @@ function applicationService(supabase: Awaited<ReturnType<typeof requireUser>>["s
     },
     async publish(identity, input) {
       const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
-        domainRegistrationId: "PLAYBOOK-DOMAIN-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
+        domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
         correlationId: input.correlationId, purpose: "Publish approved application workspace lifecycle evidence.", payload: {
           eventType: input.eventType, schemaVersion: "1.0.0", workspaceId: input.workspaceId,
           opportunityId: input.opportunityId, action: input.action, readiness: input.readiness, status: input.status
@@ -535,7 +534,6 @@ export function playbookApplicationJourneyExecutor(dependencies: PlaybookApplica
             "feat: complete governed opportunity-to-application journey",
             `PBOS Genesis mission \`048-application-journey\` replaces the demonstration-only workspace with authenticated owner-scoped creation, tasks, deadlines, private documents, readiness, submission state, and signed PBOS lifecycle evidence at governed revision \`${inspection.revision}\`.\n\nImplementation is pending independent validation and human certification.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },

@@ -18,8 +18,10 @@ const mission: MissionQueueItem = { missionId: "048-functional-test", systemId: 
 const proof = (dimension: ApplicationAcceptanceDimension, revision = commit): ApplicationAcceptanceEvidence => ({
     evidenceId: `${dimension.toLowerCase()}:${revision}`, dimension, behavior: `${dimension} behavior is proven.`,
     repository, commit: revision, artifact: `artifact/${dimension.toLowerCase()}`, passed: true,
-    source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION" : dimension === "ACCEPTANCE_TEST"
-        ? "APPLICATION_TEST" : "IMPLEMENTATION"
+    source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION"
+        : dimension === "USER_INTERFACE" || dimension === "ACCEPTANCE_TEST" ? "BROWSER_JOURNEY"
+        : dimension === "ACCESSIBILITY" ? "ACCESSIBILITY_AUDIT"
+        : dimension === "AUTHORITY" || dimension === "SECURITY" ? "SECURITY_TEST" : "RUNTIME_PROBE"
 });
 
 describe("functional application completion truth", () => {
@@ -48,7 +50,7 @@ describe("functional application completion truth", () => {
         runtime.transition(run.runId, "VALIDATING", "Validating");
         runtime.recordValidation(run.runId, "GitHub Actions", true, 1, "green-check");
         expect(() => runtime.transition(run.runId, "AWAITING_APPROVAL", "Green"))
-            .toThrow("missing acceptance evidence");
+            .toThrow("PBOS Kernel functional authority");
         expect(runtime.run(run.runId)?.status).toBe("VALIDATING");
     });
 
@@ -57,5 +59,14 @@ describe("functional application completion truth", () => {
         const run = { repository, currentCommit: commit, acceptanceEvidence: evidence, previewArtifactIds: [] } as
             unknown as import("../index").ProductionRun;
         expect(() => new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run)).not.toThrow();
+    });
+
+    it("rejects adapter-authored claims that were not observed by runtime or browser execution", () => {
+        const evidence = dimensions.map(item => ({ ...proof(item), source: item === "INDEPENDENT_VALIDATION"
+            ? "CI_VALIDATION" as const : "IMPLEMENTATION" as const }));
+        const run = { repository, currentCommit: commit, acceptanceEvidence: evidence, previewArtifactIds: [] } as
+            unknown as import("../index").ProductionRun;
+        expect(() => new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run))
+            .toThrow("missing acceptance evidence");
     });
 });

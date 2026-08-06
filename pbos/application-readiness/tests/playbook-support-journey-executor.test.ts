@@ -52,14 +52,12 @@ describe("CIP-048 application-to-support execution adapter", () => {
             openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/57", number: 57,
                 branch: "agent/pbos-playbook-system-001-048-support-12345678", repository: "sgwalton87/playbook-platform" })
         } as unknown as GitHubRepositoryGateway;
-        const monitors: string[] = [];
         const executor = playbookSupportJourneyExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-support", action, allowed: true,
                 reason: "authorized", decidedAt: new Date() }),
             remediation: { start: (_systemId, pullRequest) => ({ runId: "validation-support", systemId: "PLAYBOOK-SYSTEM-001",
                 pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [],
-                blockers: [], updatedAt: new Date().toISOString() }) },
-            startMonitor: validation => { monitors.push(validation.runId); } });
+                blockers: [], updatedAt: new Date().toISOString() }) } });
         const result = await executor({ run, mission, report: () => undefined });
 
         expect(calls).toEqual(expect.arrayContaining([
@@ -87,7 +85,6 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(result.acceptanceEvidence?.every(item => item.commit === "support123")).toBe(true);
         expect(result.acceptanceEvidence?.some(item => item.dimension === "INDEPENDENT_VALIDATION")).toBe(false);
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/57");
-        expect(monitors).toEqual(["validation-support"]);
     });
 
     it("preserves the application workspace and refuses unrecognized source", () => {
@@ -101,7 +98,7 @@ describe("CIP-048 application-to-support execution adapter", () => {
         const executor = playbookSupportJourneyExecutor({ gateway: {} as GitHubRepositoryGateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-support", action, allowed: false,
                 reason: "revoked", decidedAt: new Date() }),
-            remediation: { start: () => { throw new Error("not reached"); } }, startMonitor: () => undefined });
+            remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("denied: revoked");
     });
 });

@@ -20,7 +20,8 @@ Application repository
   exact revision ─ agent branch ─ implementation ─ tests ─ draft PR
       │ independent evidence
       ▼
-Validation ─ remediation ─ preview ─ human certification ─ merge ─ release
+Validation ─ application launch ─ runtime probes ─ browser journeys
+     ─ acceptance evidence ─ bounded repair ─ human certification ─ merge ─ release
 ```
 
 ## One command from the operator's perspective
@@ -68,10 +69,16 @@ The command must:
 - A mission without a registered execution adapter stops before repository mutation.
 - Application connectors cannot self-authorize protected operations.
 - Repository changes originate from an exact governed revision and use an `agent/*` branch.
+- External staging mutations are bound to the same production run, pull request, agent branch, and exact commit as the generated application change.
 - Validation evidence is collected independently from implementation.
 - A green build is not certification, and certification is not production deployment.
+- Functional work can reach approval only through the PBOS Kernel after application launch, runtime probes, desktop/mobile browser execution, accessibility validation, security validation, and exact-commit evidence succeed.
+- Adapter-authored implementation claims may support engineering review but cannot satisfy functional acceptance.
+- A stopped local development server is never represented as a live preview; preview certification requires independently reachable desktop and mobile URLs.
 - Playbook and Bulletproof channels can share PBOS v1 contracts without sharing application behavior or data.
 
 ## Current execution coverage
 
-The Playbook channel has registered execution adapters for repository gap analysis, the CIP-048 foundation, the Scholar onboarding-to-dashboard vertical slice, and the transcript-to-academic-readiness journey. Opportunity, application, support, messaging, notification, aggregate journey certification, web staging, CIP-049 mobile delivery, and CIP-050 ecosystem certification remain separate queue items. PBOS may report a journey complete only after its route, UI, durable-data, authority, integration, and acceptance evidence is certified on the governed default branch.
+The Playbook channel registers only repository gap analysis, the CIP-048 foundation, and the Scholar onboarding-to-dashboard slice for live execution. The Scholar adapter installs a reproducible Playwright contract and records an exact-commit PBOS Kernel acceptance plan. Engineering adapters exist for academic, opportunity, application, and support journeys, but they are intentionally not live-registered until each has its own executable browser contract, staging migration boundary, and Kernel acceptance plan. Messaging, notification, aggregate journey certification, web staging, CIP-049 mobile delivery, and CIP-050 ecosystem certification remain separate queue items. This prevents implementation-only adapters from mutating a repository and then stalling at functional acceptance. PBOS may report a journey complete only after its route, UI, durable-data, authority, integration, browser, accessibility, security, and acceptance evidence is verified through the Kernel and certified on the governed default branch.
+
+Before a functional mission consumes approval or mutates a repository, its application adapter declares protected acceptance requirements. PBOS resolves those values transiently from the live process or mode-`0600`, non-versioned dotenv sources, reports names but never values, and fails closed when prerequisites are incomplete. The same runtime contract is reusable by every domain application; application-specific adapters own only their required variable names and approved source locations.

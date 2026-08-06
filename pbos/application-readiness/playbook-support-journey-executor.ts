@@ -2,7 +2,7 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -19,7 +19,6 @@ export interface PlaybookSupportJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const serviceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -160,7 +159,7 @@ export async function POST(request: NextRequest) {
       },
       async publishRequest(identity, input) {
         const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
-          domainRegistrationId: "PLAYBOOK-DOMAIN-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
+          domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
           correlationId: input.correlationId, purpose: "Publish an approved application support request.", payload: {
             eventType: "APPLICATION_SUPPORT_REQUESTED", schemaVersion: "1.0.0", requestId: input.requestId,
             applicationWorkspaceId: input.workspaceId, supportRelationshipId: input.relationshipId, category: input.category
@@ -423,7 +422,6 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             "feat: complete authorized application support journey",
             `PBOS Genesis mission \`048-support-journey\` connects a Scholar-owned application workspace to an active, permission-bearing support relationship at governed revision \`${inspection.revision}\`. Requests are durable under RLS and publish an approval-bound signed PBOS lifecycle event.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],

@@ -58,12 +58,10 @@ describe("CIP-048 academic journey execution adapter", () => {
             openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/54", number: 54,
                 branch: "agent/pbos-playbook-system-001-048-academic-12345678", repository: "sgwalton87/playbook-platform" })
         } as unknown as GitHubRepositoryGateway;
-        const monitors: string[] = [];
         const executor = playbookAcademicJourneyExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-academic", action, allowed: true, reason: "authorized", decidedAt: new Date() }),
             remediation: { start: (_systemId, pullRequest) => ({ runId: "validation-academic", systemId: "PLAYBOOK-SYSTEM-001", pullRequest,
-                headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
-            startMonitor: validation => { monitors.push(validation.runId); } });
+                headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) } });
         const result = await executor({ run, mission, report: () => undefined });
         expect(calls).toEqual(expect.arrayContaining(["read:836e6ae:app/api/parse-transcript/route.ts", "files", "lock", "commit", "push"]));
         const route = generated.get("app/api/parse-transcript/route.ts") ?? "";
@@ -79,7 +77,6 @@ describe("CIP-048 academic journey execution adapter", () => {
         expect(generated.get("pbos/readiness/048-academic-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         expect(result.files?.modified).toContain("app/api/parse-transcript/route.ts");
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/54");
-        expect(monitors).toEqual(["validation-academic"]);
     });
 
     it("fails closed when the governed transcript UI no longer matches the inspected source", () => {
@@ -89,7 +86,7 @@ describe("CIP-048 academic journey execution adapter", () => {
     it("fails before repository inspection when authority is denied", async () => {
         const executor = playbookAcademicJourneyExecutor({ gateway: {} as GitHubRepositoryGateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-academic", action, allowed: false, reason: "revoked", decidedAt: new Date() }),
-            remediation: { start: () => { throw new Error("not reached"); } }, startMonitor: () => undefined });
+            remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("denied: revoked");
     });
 });

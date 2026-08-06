@@ -1,0 +1,149 @@
+graph:
+
+  id: PBS-6000
+
+  title: Distributed Platform Architecture
+
+  version: 1.0.0
+
+  root: 6000_EXECUTIVE_SUMMARY
+
+nodes:
+
+  - id: PBS-6000-000
+    title: Executive Summary
+
+  - id: PBS-6000-001
+    title: Platform Inventory
+
+  - id: PBS-6000-002
+    title: Canonical Ownership Matrix
+
+  - id: PBS-6000-003
+    title: GitHub Architecture
+
+  - id: PBS-6000-004
+    title: Supabase Architecture
+
+  - id: PBS-6000-005
+    title: Google Cloud Architecture
+
+  - id: PBS-6000-006
+    title: Vercel Architecture
+
+  - id: PBS-6000-007
+    title: Domain and DNS Architecture
+
+  - id: PBS-6000-008
+    title: External Services Architecture
+
+  - id: PBS-6000-009
+    title: Secrets Architecture
+
+  - id: PBS-6000-010
+    title: Environment Architecture
+
+  - id: PBS-6000-011
+    title: Deployment Architecture
+
+  - id: PBS-6000-012
+    title: Distributed Platform Graph
+
+  - id: PBS-6000-013
+    title: Platform Health
+
+  - id: PBS-6000-014
+    title: Platform Convergence
+
+  - id: PBS-6000-015
+    title: Definition of Done
+
+entrypoint:
+
+  - PBS-6000-000
+
+terminal:
+
+  - PBS-6000-015
+schema_version: 1
+graph_id: PBS-6000-DISTRIBUTED-PLATFORM-GRAPH
+status: Canonical
+execution_authority: PBOS_KERNEL
+completion_authority: PBOS_KERNEL_FUNCTIONAL_ACCEPTANCE
+scopes:
+  - FUNCTIONAL_ACCEPTANCE
+  - PRODUCTION_RELEASE
+  - CONTINUOUS
+
+nodes:
+  CONSTITUTION:
+    platforms: [PBS, PPS]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: []
+  SOURCE_CONTROL:
+    platforms: [GitHub]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [CONSTITUTION]
+  BUILD_OS:
+    platforms: [PBOS]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [SOURCE_CONTROL]
+  SECRETS:
+    platforms: [GitHub Secrets, Vercel, Supabase Secrets]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [CONSTITUTION, SOURCE_CONTROL]
+  DATA_PLATFORM:
+    platforms: [Supabase]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [BUILD_OS, SECRETS]
+  CLOUD_IDENTITY:
+    platforms: [Google Cloud]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [DATA_PLATFORM, SECRETS]
+  CLIENT:
+    platforms: [Next.js, React]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [BUILD_OS, DATA_PLATFORM, CLOUD_IDENTITY]
+  DEPLOYMENT:
+    platforms: [Vercel]
+    required_for: [PRODUCTION_RELEASE]
+    depends_on: [CLIENT, CLOUD_IDENTITY, SECRETS]
+  DOMAIN_DNS:
+    platforms: [Hostinger, DNS Provider]
+    required_for: [PRODUCTION_RELEASE]
+    depends_on: [DEPLOYMENT]
+  EMAIL:
+    platforms: [Hostinger Mail, Transactional Provider]
+    required_for: [PRODUCTION_RELEASE]
+    depends_on: [DOMAIN_DNS, SECRETS]
+  OBSERVABILITY:
+    platforms: [Logs, Analytics, Monitoring]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on: [BUILD_OS]
+  AI_PROVIDERS:
+    platforms: [OpenAI, Anthropic, Local Models]
+    required_when_declared: true
+    depends_on: [CLOUD_IDENTITY, SECRETS]
+  EXTERNAL_SERVICES:
+    platforms: [Stripe, Persona, Twilio, Resend, Maps]
+    required_when_declared: true
+    depends_on: [CLOUD_IDENTITY, SECRETS]
+  PRODUCT:
+    platforms: [Playbook Operating Systems]
+    required_for: [FUNCTIONAL_ACCEPTANCE, PRODUCTION_RELEASE, CONTINUOUS]
+    depends_on:
+      all_scopes: [CLIENT, OBSERVABILITY]
+      production_release: [DOMAIN_DNS, EMAIL]
+
+completion_rules:
+  functional_acceptance:
+    requires: [reproducible_dependencies, exact_commit, runtime_probe, desktop_journey, mobile_journey,
+      durable_data, authority, accessibility, security, telemetry]
+  production_release:
+    requires: [functional_acceptance, exact_revision_deployment, environment_parity, dns, tls, email,
+      observability, declared_provider_health, human_certification]
+  forbidden_shortcuts:
+    - command_exit_zero_only
+    - files_generated_only
+    - pull_request_opened_only
+    - ci_green_only

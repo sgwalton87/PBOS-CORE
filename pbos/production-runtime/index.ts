@@ -6,3 +6,5 @@ export * from "./mission-queue";
 export * from "./preview-pipeline";
 export * from "./mission-adapter-registry";
 export * from "./functional-acceptance-verifier";
+export * from "./functional-application-runtime";
+export * from "./protected-environment";

@@ -48,7 +48,8 @@ describe("partner-ready CLI durable state", () => {
         expect(latestUnfinishedRuns([
             run("old", "PLAYBOOK-SYSTEM-001", "REMEDIATION_REQUIRED", 48),
             run("latest", "PLAYBOOK-SYSTEM-001", "WAITING_FOR_CHECKS", 49),
-            run("certified", "BULLETPROOF-SYSTEM-001", "READY_FOR_CERTIFICATION")
+            { ...run("certified", "BULLETPROOF-SYSTEM-001", "READY_FOR_CERTIFICATION"),
+                evidence: [{ evidenceId: "check", name: "validate", state: "PASSED", collectedAt: new Date().toISOString() }] }
         ]).map(item => item.runId)).toEqual(["latest"]);
     });
 
@@ -59,8 +60,18 @@ describe("partner-ready CLI durable state", () => {
             pullRequest: { number, branch: `agent/${runId}`, repository: "example/app", url: `https://github.com/example/app/pull/${number}` } });
         expect(latestUnfinishedRuns([
             make("pr-49", 49, "REMEDIATION_REQUIRED"),
-            make("pr-50", 50, "READY_FOR_CERTIFICATION")
+            { ...make("pr-50", 50, "READY_FOR_CERTIFICATION"),
+                evidence: [{ evidenceId: "check", name: "validate", state: "PASSED", collectedAt: new Date().toISOString() }] }
         ])).toEqual([]);
+    });
+
+    it("resumes a historical false-ready run that contains only skipped checks", () => {
+        const run: RemediationRun = { runId: "false-ready", systemId: "PLAYBOOK-SYSTEM-001",
+            state: "READY_FOR_CERTIFICATION", headSha: "abcdef1", attempt: 0, maximumAttempts: 5, blockers: [],
+            evidence: [{ evidenceId: "archive", name: "archive", state: "SKIPPED", collectedAt: new Date().toISOString() }],
+            updatedAt: new Date().toISOString(), pullRequest: { number: 54, branch: "agent/build",
+                repository: "sgwalton87/playbook-platform", url: "https://github.com/sgwalton87/playbook-platform/pull/54" } };
+        expect(latestUnfinishedRuns([run]).map(item => item.runId)).toEqual(["false-ready"]);
     });
 
     it("bootstraps the Playbook readiness queue from governed capability evidence", async () => {
@@ -145,5 +156,24 @@ describe("partner-ready CLI durable state", () => {
         expect(result).toBe("AWAITING_APPROVAL");
         expect(output.some(line => line.includes("HUMAN APPROVAL REQUIRED"))).toBe(true);
         expect(output.some(line => line.includes("RUN_AWAITING_APPROVAL"))).toBe(true);
+    });
+
+    it("prints the governed failure reason instead of hiding it behind a generic blocked state", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-cli-failure-telemetry-")), "state.json"));
+        const production = new ProductionRuntimeService(state);
+        const run = production.begin({ systemId: "PLAYBOOK-SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
+            repository: "sgwalton87/playbook-platform", branch: "agent/scholar", commit: "abcdef1",
+            objective: "Scholar", mission: "Scholar", rationale: "Ready" });
+        production.transition(run.runId, "QUEUED", "Queued");
+        production.transition(run.runId, "STARTING", "Starting");
+        production.transition(run.runId, "RUNNING", "Running");
+        production.transition(run.runId, "VALIDATING", "Validating");
+        const stage = production.startStage(run.runId, "APPLICATION_LAUNCH", "Launch Scholar");
+        production.failStage(stage.stageId, "Application exited: next command not found");
+        production.transition(run.runId, "BLOCKED", "Application launch failed", { reason: "next command not found" });
+        const output: string[] = [];
+        const result = await streamProductionTelemetry(state, run.runId, message => output.push(message), async () => undefined, 0, 1);
+        expect(result).toBe("BLOCKED");
+        expect(output.some(line => line.includes("next command not found"))).toBe(true);
     });
 });

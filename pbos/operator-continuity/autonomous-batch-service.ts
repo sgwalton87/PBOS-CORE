@@ -14,14 +14,12 @@ const FUNCTIONAL_DIMENSIONS: readonly ApplicationAcceptanceDimension[] = [
 ];
 
 function completionPolicy(task: (typeof PLAYBOOK_LAUNCH_TASKS)[number]): MissionCompletionPolicy {
-    if (["048-repository-gap-analysis", "050-platform-evidence"].includes(task.taskId)) {
+    if (["048-repository-gap-analysis", "048-foundation", "049-mobile-foundation", "050-platform-evidence"].includes(task.taskId)) {
         return { kind: "PLATFORM_ARTIFACT", requiredDimensions: [], acceptanceCriteria: task.acceptanceCriteria };
     }
-    const foundationDimensions = task.taskId === "048-foundation"
-        ? FUNCTIONAL_DIMENSIONS.filter(dimension => dimension !== "ROUTE") : FUNCTIONAL_DIMENSIONS;
     const previewRequired = ["048-web-staging", "049-store-readiness", "049-certification", "050-certification"].includes(task.taskId);
     return { kind: "FUNCTIONAL_APPLICATION",
-        requiredDimensions: previewRequired ? [...foundationDimensions, "PREVIEW"] : foundationDimensions,
+        requiredDimensions: previewRequired ? [...FUNCTIONAL_DIMENSIONS, "PREVIEW"] : FUNCTIONAL_DIMENSIONS,
         acceptanceCriteria: task.acceptanceCriteria };
 }
 

@@ -1,4 +1,4 @@
-import { execFile } from "child_process";
+import { execFile, spawn } from "child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -9,7 +9,7 @@ import { AuthenticatedOperator, GenesisStateRepository, OperatorIdentityService,
 import { GitHubRepositoryGateway } from "../platform";
 import { GenesisPbosBuildChannel } from "../platform";
 import { REFERENCE_SYSTEMS } from "./system-definition";
-import { GenesisControlPlane } from "./genesis-control-plane";
+import { GenesisBuildSession, GenesisControlPlane } from "./genesis-control-plane";
 import { GenesisSystemCatalog } from "./system-catalog";
 import { GenesisTerminal, SessionAuthorityProvider } from "./genesis-terminal";
 import { GenesisWorkflowService } from "./genesis-workflow-service";
@@ -20,11 +20,13 @@ import { stdin, stdout } from "process";
 import { createDefaultRemediationHandler, GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
 import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
-import { ProductionRuntimeService } from "../production-runtime";
+import { ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookAcademicJourneyExecutor, playbookFoundationExecutor, playbookScholarSliceExecutor,
-    repositoryGapAnalysisExecutor } from "../application-readiness";
+import { playbookFoundationExecutor, playbookScholarSliceExecutor,
+    inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
+    playbookScholarProtectedEnvironmentFiles, waitForPlaybookScholarStagingReadiness,
+    PlaybookStagingMigrationService, repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
@@ -49,7 +51,13 @@ export function latestRunsBySystem(runs: readonly RemediationRun[]): readonly Re
 }
 
 export function latestUnfinishedRuns(runs: readonly RemediationRun[]): readonly RemediationRun[] {
-    return latestRunsBySystem(runs).filter(run => !["READY_FOR_CERTIFICATION", "BLOCKED"].includes(run.state));
+    return latestRunsBySystem(runs).filter(run => run.state !== "BLOCKED" &&
+        (run.state !== "READY_FOR_CERTIFICATION" || !run.evidence.some(item => item.state === "PASSED")));
+}
+
+export function effectiveRemediationState(run: RemediationRun): RemediationRun["state"] {
+    return run.state === "READY_FOR_CERTIFICATION" && !run.evidence.some(item => item.state === "PASSED")
+        ? "WAITING_FOR_CHECKS" : run.state;
 }
 
 async function login(): Promise<number> {
@@ -71,6 +79,32 @@ async function login(): Promise<number> {
 function profile(): LocalProfile {
     try { return JSON.parse(readFileSync(profilePath, "utf8")) as LocalProfile; }
     catch { throw new Error("PBOS login required. Run: pbos login"); }
+}
+
+async function ensureGitHubAuthentication(local: LocalProfile): Promise<void> {
+    const run = promisify(execFile);
+    try {
+        await run("gh", ["auth", "status", "-h", "github.com"]);
+    } catch {
+        const io = new NodeTerminalIO();
+        let approved = false;
+        try {
+            io.write("PBOS GitHub authentication has expired.");
+            approved = ["y", "yes"].includes((await io.prompt("Reauthenticate GitHub now and continue this build? [y/N] ")).trim().toLowerCase());
+        } finally { io.close(); }
+        if (!approved) throw new Error("GitHub authentication is required before PBOS can continue.");
+        const exitCode = await new Promise<number>((resolve, reject) => {
+            const child = spawn("gh", ["auth", "login", "-h", "github.com", "--web"], { stdio: "inherit" });
+            child.once("error", reject);
+            child.once("exit", code => resolve(code ?? 1));
+        });
+        if (exitCode !== 0) throw new Error("GitHub authentication did not complete successfully.");
+        await run("gh", ["auth", "status", "-h", "github.com"]);
+    }
+    const login = (await run("gh", ["api", "user", "--jq", ".login"])).stdout.trim();
+    if (login.toLowerCase() !== local.githubLogin.toLowerCase()) {
+        throw new Error(`GitHub account mismatch: PBOS is enrolled for ${local.githubLogin}, but gh is authenticated as ${login}.`);
+    }
 }
 
 function runtime() {
@@ -122,6 +156,7 @@ export async function ensureReadinessQueue(services: Pick<ReturnType<typeof runt
         const revision = existing.find(item => item.missionId === "playbook-capability-foundation")?.evidenceIds
             .find(item => item.startsWith("repository:"))?.slice("repository:".length) ?? "UNKNOWN";
         services.batches.prepareReadinessQueue(systemId, revision);
+        new ProductionRuntimeService(services.state).reconcileMissionExecutionState(systemId);
         report("Readiness queue synchronized with the current evidence-gated mission architecture.");
         return undefined;
     }
@@ -201,6 +236,11 @@ export async function streamProductionTelemetry(state: GenesisStateRepository, r
         production.events(runId).filter(event => !seen.has(event.eventId)).forEach(event => {
             seen.add(event.eventId);
             write(`${event.timestamp} ${event.type}: ${event.summary}`);
+            if (["STAGE_FAILED", "RUN_BLOCKED", "REPAIR_FAILED"].includes(event.type)) {
+                const detail = [event.payload.error, event.payload.reason, event.payload.classification]
+                    .find(value => typeof value === "string" && value.trim());
+                if (typeof detail === "string") write(`  ↳ ${detail.replace(/\s+/g, " ").slice(0, 2_000)}`);
+            }
         });
         const run = production.run(runId);
         if (!run) throw new Error(`Production telemetry run not found: ${runId}`);
@@ -220,12 +260,144 @@ export async function streamProductionTelemetry(state: GenesisStateRepository, r
     return "DETACHED";
 }
 
+async function promptForValidatedMissionPromotion(services: ReturnType<typeof runtime>, session: GenesisBuildSession,
+    mission: MissionQueueItem, productionRunId: string, remediationRun: RemediationRun): Promise<boolean> {
+    const io = new NodeTerminalIO();
+    let promote = false;
+    try {
+        io.write("");
+        io.write("PBOS PROTECTED RELEASE CHECKPOINT");
+        io.write(`Mission: ${mission.title}`);
+        io.write(`Validated pull request: ${remediationRun.pullRequest.url}`);
+        io.write("This decision certifies the mission and merges its validated application change. Production deployment remains separate.");
+        const answer = (await io.prompt("Certify and merge this validated mission now? [y/N] ")).trim().toLowerCase();
+        promote = answer === "y" || answer === "yes";
+        if (!promote) io.write("Validated work remains unmerged and ready for later certification.");
+    } finally {
+        io.close();
+    }
+    if (!promote) return false;
+    const certificationApproval = services.identities.approve(services.operator, "CERTIFY_PRODUCTION_MISSION", productionRunId, 15);
+    const mergeApproval = services.identities.approve(services.operator, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url, 15);
+    if (!services.identities.verify(certificationApproval, "CERTIFY_PRODUCTION_MISSION", productionRunId) ||
+        !services.identities.verify(mergeApproval, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url)) {
+        throw new Error("Protected promotion approval signature verification failed.");
+    }
+    const certificationDecision = services.control.authorizeAction(session.sessionId, "CERTIFY_SYSTEM", "HIGH",
+        remediationRun.pullRequest.branch, certificationApproval.approvalId);
+    const mergeDecision = services.control.authorizeAction(session.sessionId, "MERGE_MAIN", "HIGH",
+        remediationRun.pullRequest.branch, mergeApproval.approvalId);
+    if (!certificationDecision.allowed || !mergeDecision.allowed) {
+        throw new Error(`Protected promotion denied: ${!certificationDecision.allowed ? certificationDecision.reason : mergeDecision.reason}`);
+    }
+    services.state.appendAudit({ eventId: certificationApproval.approvalId, type: "VERIFIABLE_APPROVAL",
+        actorId: services.operator.operatorId, resource: productionRunId, occurredAt: certificationApproval.issuedAt,
+        evidence: { approval: certificationApproval, purpose: "CERTIFY_PRODUCTION_MISSION" } });
+    services.state.appendAudit({ eventId: mergeApproval.approvalId, type: "VERIFIABLE_APPROVAL",
+        actorId: services.operator.operatorId, resource: remediationRun.pullRequest.url, occurredAt: mergeApproval.issuedAt,
+        evidence: { approval: mergeApproval, purpose: "MERGE_VALIDATED_PULL_REQUEST" } });
+    const missionRunner = new ProductionMissionRunner(services.state, services.production);
+    missionRunner.assertCertifiable(productionRunId);
+    await services.gateway.mergePullRequest(remediationRun.pullRequest);
+    missionRunner.certify(productionRunId, certificationApproval.approvalId);
+    stdout.write(`[CERTIFIED] ${mission.title}\n[MERGED] ${remediationRun.pullRequest.url}\n`);
+    return true;
+}
+
+async function resumeExistingProductionValidation(services: ReturnType<typeof runtime>, systemId: string,
+    target?: string): Promise<number | undefined> {
+    const productionRun = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
+        ["VALIDATING", "BLOCKED", "PAUSED"].includes(item.status) &&
+        item.evidenceIds.some(evidenceId => evidenceId.startsWith("remediation-run:")));
+    if (!productionRun) return undefined;
+    const remediationId = productionRun.evidenceIds.find(item => item.startsWith("remediation-run:"))!
+        .slice("remediation-run:".length);
+    let remediationRun = services.state.remediationRun(remediationId);
+    if (!remediationRun) throw new Error(`Production run ${productionRun.runId} references missing remediation state ${remediationId}.`);
+    if (remediationRun.state === "BLOCKED") {
+        stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
+        return 1;
+    }
+    const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
+        item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
+    if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
+    remediationRun = await services.remediation.resume(remediationRun.runId,
+        run => services.workflows.authorizeRemediation(session, run.pullRequest.branch));
+    if (remediationRun.state === "BLOCKED") {
+        stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
+        return 1;
+    }
+    const productionMission = services.state.missionQueue(systemId).find(item => item.title === productionRun.selectedMission);
+    let governedRun = services.production.run(productionRun.runId)!;
+    if (remediationRun.remediationRevision && governedRun.currentCommit !== remediationRun.remediationRevision) {
+        governedRun = productionMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
+            ? services.production.rebindRepositoryAfterRemediation(productionRun.runId, remediationRun.runId,
+                remediationRun.pullRequest.branch, remediationRun.remediationRevision)
+            : services.production.updateRepositoryPosition(productionRun.runId, remediationRun.pullRequest.branch,
+                remediationRun.remediationRevision);
+    }
+    if (productionRun.selectedMission === "Complete Scholar onboarding-to-dashboard slice") {
+        const [owner, name] = productionRun.repository.split("/");
+        if (!owner || !name) throw new Error(`Invalid repository identity: ${productionRun.repository}`);
+        const workingDirectory = await services.gateway.workingDirectory({ owner, name, defaultBranch: "main" });
+        const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
+        stdout.write(`Protected Scholar staging resources: ${staging.resources.filter(item => item.ready).length}/${staging.resources.length}\n`);
+        if (!staging.ready) {
+            stdout.write(`PBOS STAGING MIGRATION REQUIRED: ${staging.blockers.join(", ")}\n`);
+            try {
+                const migration = await migratePlaybookStaging(remediationRun.runId);
+                if (migration !== 0) {
+                    const current = services.production.run(productionRun.runId);
+                    if (current?.status === "VALIDATING") services.production.pause(current.runId, current.actorId);
+                    return migration;
+                }
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                const current = services.production.run(productionRun.runId);
+                if (current && current.status !== "BLOCKED") {
+                    services.production.blockMissionForRun(productionRun.runId, reason);
+                    services.production.transition(productionRun.runId, "BLOCKED",
+                        "Protected Scholar staging preparation failed.", { reason });
+                }
+                throw error;
+            }
+        }
+    }
+    const resumableRun = services.production.run(productionRun.runId)!;
+    if (resumableRun.status === "PAUSED") {
+        services.production.resume(productionRun.runId, resumableRun.actorId);
+    } else if (productionMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+        services.production.recoverBlockedFunctionalValidation(productionRun.runId, remediationRun.runId, governedRun.currentCommit);
+    } else {
+        services.production.recoverBlockedValidation(productionRun.runId, remediationRun.runId, governedRun.currentCommit);
+    }
+    const launcher = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
+    const job = launcher.launch(systemId, session.sessionId, remediationRun.runId);
+    stdout.write("PBOS RESUMING EXISTING FUNCTIONAL BUILD\n");
+    stdout.write(`Run: ${productionRun.runId}\nPull request: ${remediationRun.pullRequest.url}\n`);
+    stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+    stdout.write("Live telemetry is attached here; PBOS will not create a duplicate branch or pull request.\n");
+    const telemetry = await streamProductionTelemetry(services.state, productionRun.runId);
+    if (telemetry !== "AWAITING_APPROVAL") return telemetry === "BLOCKED" ? 1 : 0;
+    const currentRemediation = services.state.remediationRun(remediationRun.runId);
+    const mission = services.state.missionQueue(systemId).find(item => item.title === productionRun.selectedMission);
+    if (!currentRemediation || currentRemediation.state !== "READY_FOR_CERTIFICATION" ||
+        !currentRemediation.evidence.some(item => item.state === "PASSED") || !mission) {
+        throw new Error("Production validation reached approval without matching passed pull-request evidence and mission lineage.");
+    }
+    const promoted = await promptForValidatedMissionPromotion(services, session, mission, productionRun.runId, currentRemediation);
+    return promoted ? runNextProductionMission(target) : 0;
+}
+
 async function runNextProductionMission(target?: string): Promise<number> {
     const services = runtime();
+    await ensureGitHubAuthentication(profile());
     const requestedSystemId = systemIdFor(target);
     if (target && !requestedSystemId) throw new Error("Production run target must be playbook or bulletproof.");
     const selectedSystemId = requestedSystemId ?? services.state.missionQueue().find(item => item.status === "ELIGIBLE")?.systemId
         ?? "PLAYBOOK-SYSTEM-001";
+    const resumed = await resumeExistingProductionValidation(services, selectedSystemId, target);
+    if (resumed !== undefined) return resumed;
     const bootstrappedInspection = await ensureReadinessQueue(services, selectedSystemId,
         message => stdout.write(`[READINESS] ${message}\n`));
     const candidates = services.state.missionQueue(selectedSystemId);
@@ -245,6 +417,33 @@ async function runNextProductionMission(target?: string): Promise<number> {
     const repository = { owner, name, defaultBranch: system.defaultBranch };
     stdout.write(`[DISCOVERY] Resolving ${system.repository} at its governed revision…\n`);
     const inspection = bootstrappedInspection ?? await services.gateway.inspectRepository(repository);
+    if (next.missionId === "048-scholar-slice") {
+        const workingDirectory = await services.gateway.workingDirectory(repository);
+        const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
+        const readiness = staging.environment;
+        const additiveBootstrapReady = isAdditiveScholarMigrationEligible(staging);
+        if (!staging.ready && !additiveBootstrapReady) {
+            stdout.write("[PREREQUISITE] Protected Scholar acceptance configuration is incomplete.\n");
+            stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
+            stdout.write(`Missing: ${readiness.missing.join(", ")}\n`);
+            if (staging.blockers.length) stdout.write(`Staging blockers: ${staging.blockers.join(", ")}\n`);
+            stdout.write("No approval was consumed and no repository changes were started.\n");
+            stdout.write("NEXT HUMAN STEP: securely configure missing values or authorize the governed staging migration, then rerun the same PBOS build command.\n");
+            stdout.write("Setup details: npm run pbos:doctor -- playbook\n");
+            return 2;
+        }
+        stdout.write(`[PREREQUISITE] Protected Scholar acceptance configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
+        if (additiveBootstrapReady) {
+            const migrationEnvironment = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
+            if (!migrationEnvironment.ready) {
+                stdout.write(`[PREREQUISITE] Governed staging migration cannot start. Missing: ${migrationEnvironment.missing.join(", ")}\n`);
+                stdout.write("No approval was consumed and no repository changes were started.\n");
+                stdout.write("NEXT HUMAN STEP: add the named value to the protected mode-0600 Playbook acceptance file, then rerun the same command.\n");
+                return 2;
+            }
+            stdout.write("[PREREQUISITE] The Scholar schema is absent or partially initialized. PBOS will generate the governed idempotent migrations, request protected staging approval, and verify every table before functional acceptance.\n");
+        }
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -279,30 +478,14 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`[BUILD_CHANNEL] ${channel.factory} → ${channel.runtime} → ${system.name}\n`);
     stdout.write(`[PBOS_V1] ${channel.operatingSystemId} | ${channel.connectorId} | domains ${channel.domainRegistrationIds.join(", ")}\n`);
     stdout.write(`[REPOSITORY] ${channel.repository}@${inspection.revision} | branch boundary agent/*\n`);
-    const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state, join(stateRoot, "logs"));
     const adapters = new ProductionMissionAdapterRegistry()
         .register("PLAYBOOK-SYSTEM-001", "048-repository-gap-analysis", () => repositoryGapAnalysisExecutor(services.gateway, repository, inspection))
         .register("PLAYBOOK-SYSTEM-001", "048-foundation", () => playbookFoundationExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
-            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
-            startMonitor: validation => {
-                const job = background.launch(next.systemId, session.sessionId, validation.runId);
-                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
-            } }))
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
         .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => playbookScholarSliceExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
-            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
-            startMonitor: validation => {
-                const job = background.launch(next.systemId, session.sessionId, validation.runId);
-                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
-            } }))
-        .register("PLAYBOOK-SYSTEM-001", "048-academic-journey", () => playbookAcademicJourneyExecutor({ gateway: services.gateway,
-            remediation: services.remediation, session,
-            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch),
-            startMonitor: validation => {
-                const job = background.launch(next.systemId, session.sessionId, validation.runId);
-                stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
-            } }));
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }));
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,
@@ -313,9 +496,33 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`AUTONOMOUS STOP: ${sequence.stopReason}\n`);
     let continueAfterApproval = false;
     if (sequence.stopReason === "VALIDATION_IN_PROGRESS") {
+        const activeRun = sequence.runs.at(-1);
+        const remediationId = activeRun ? services.production.run(activeRun.runId)?.evidenceIds
+            .find(item => item.startsWith("remediation-run:"))?.slice("remediation-run:".length) : undefined;
+        if (!activeRun || !remediationId) {
+            throw new Error("Deferred validation cannot start without durable production and remediation linkage.");
+        }
+        if (next.missionId === "048-scholar-slice") {
+            try {
+                const migration = await migratePlaybookStaging(remediationId);
+                if (migration !== 0) {
+                    services.production.pause(activeRun.runId, activeRun.actorId);
+                    stdout.write("PBOS PAUSED AT PROTECTED STAGING GATE. The exact application run remains durable and will resume without creating a duplicate pull request.\n");
+                    return migration;
+                }
+            } catch (error) {
+                const reason = error instanceof Error ? error.message : String(error);
+                services.production.blockMissionForRun(activeRun.runId, reason);
+                services.production.transition(activeRun.runId, "BLOCKED", "Protected Scholar staging preparation failed.", { reason });
+                throw error;
+            }
+        }
+        const background = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"),
+            services.state, join(stateRoot, "logs"));
+        const job = background.launch(next.systemId, session.sessionId, remediationId);
+        stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
         stdout.write("PBOS CONTINUES: GitHub validation and bounded remediation are running durably.\n");
         stdout.write("Live telemetry remains attached in this terminal. Press Ctrl-C only if you want to detach; background monitoring will continue.\n");
-        const activeRun = sequence.runs.at(-1);
         if (activeRun) {
             const telemetryResult = await streamProductionTelemetry(services.state, activeRun.runId);
             if (telemetryResult === "AWAITING_APPROVAL") {
@@ -325,43 +532,7 @@ async function runNextProductionMission(target?: string): Promise<number> {
                 if (!remediationRun || remediationRun.state !== "READY_FOR_CERTIFICATION") {
                     throw new Error("Production validation reached approval without matching green pull-request evidence.");
                 }
-                const io = new NodeTerminalIO();
-                let promote = false;
-                try {
-                    io.write("");
-                    io.write("PBOS PROTECTED RELEASE CHECKPOINT");
-                    io.write(`Mission: ${next.title}`);
-                    io.write(`Validated pull request: ${remediationRun.pullRequest.url}`);
-                    io.write("This decision certifies the mission and merges its validated application change. Production deployment remains separate.");
-                    const answer = (await io.prompt("Certify and merge this validated mission now? [y/N] ")).trim().toLowerCase();
-                    promote = answer === "y" || answer === "yes";
-                    if (!promote) io.write("Validated work remains unmerged and ready for later certification.");
-                } finally {
-                    io.close();
-                }
-                if (promote) {
-                    const certificationApproval = services.identities.approve(services.operator, "CERTIFY_PRODUCTION_MISSION", activeRun.runId, 15);
-                    const mergeApproval = services.identities.approve(services.operator, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url, 15);
-                    if (!services.identities.verify(certificationApproval, "CERTIFY_PRODUCTION_MISSION", activeRun.runId) ||
-                        !services.identities.verify(mergeApproval, "MERGE_VALIDATED_PULL_REQUEST", remediationRun.pullRequest.url)) {
-                        throw new Error("Protected promotion approval signature verification failed.");
-                    }
-                    const certificationDecision = services.control.authorizeAction(session.sessionId, "CERTIFY_SYSTEM", "HIGH",
-                        remediationRun.pullRequest.branch, certificationApproval.approvalId);
-                    const mergeDecision = services.control.authorizeAction(session.sessionId, "MERGE_MAIN", "HIGH",
-                        remediationRun.pullRequest.branch, mergeApproval.approvalId);
-                    if (!certificationDecision.allowed || !mergeDecision.allowed) {
-                        throw new Error(`Protected promotion denied: ${!certificationDecision.allowed ? certificationDecision.reason : mergeDecision.reason}`);
-                    }
-                    services.state.appendAudit({ eventId: certificationApproval.approvalId, type: "VERIFIABLE_APPROVAL",
-                        actorId: services.operator.operatorId, resource: activeRun.runId, occurredAt: certificationApproval.issuedAt,
-                        evidence: { approval: certificationApproval, purpose: "CERTIFY_PRODUCTION_MISSION" } });
-                    services.state.appendAudit({ eventId: mergeApproval.approvalId, type: "VERIFIABLE_APPROVAL",
-                        actorId: services.operator.operatorId, resource: remediationRun.pullRequest.url, occurredAt: mergeApproval.issuedAt,
-                        evidence: { approval: mergeApproval, purpose: "MERGE_VALIDATED_PULL_REQUEST" } });
-                    await services.gateway.mergePullRequest(remediationRun.pullRequest);
-                    runner.certify(activeRun.runId, certificationApproval.approvalId);
-                    stdout.write(`[CERTIFIED] ${next.title}\n[MERGED] ${remediationRun.pullRequest.url}\n`);
+                if (await promptForValidatedMissionPromotion(services, session, next, activeRun.runId, remediationRun)) {
                     return runNextProductionMission(target);
                 }
             }
@@ -425,6 +596,97 @@ async function buildApplication(target: string): Promise<number> {
     return runNextProductionMission(target);
 }
 
+async function migratePlaybookStaging(remediationRunId?: string): Promise<number> {
+    const services = runtime();
+    const system = services.state.systems().find(item => item.systemId === "PLAYBOOK-SYSTEM-001");
+    if (!system) throw new Error("The Playbook is not registered in the Genesis system catalog.");
+    const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === system.systemId &&
+        item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
+    if (!session) throw new Error("A governed Playbook build session is required before staging migration.");
+    const [owner, name] = system.repository.split("/");
+    if (!owner || !name) throw new Error(`Invalid repository identity: ${system.repository}`);
+    const reference = { owner, name, defaultBranch: system.defaultBranch };
+    const remediation = remediationRunId
+        ? services.state.remediationRun(remediationRunId)
+        : [...services.state.remediationRuns()].reverse().find(item => item.systemId === system.systemId);
+    if (!remediation || remediation.systemId !== system.systemId || remediation.pullRequest.repository !== system.repository) {
+        throw new Error("Staging migration requires the exact active Playbook remediation lineage.");
+    }
+    if (!remediation.pullRequest.branch.startsWith("agent/")) {
+        throw new Error("Staging migration requires an active governed agent branch.");
+    }
+    const productionRun = [...services.state.productionRuns()].reverse().find(item =>
+        item.systemId === system.systemId && item.evidenceIds.includes(`remediation-run:${remediation.runId}`));
+    if (!productionRun || productionRun.repository !== system.repository ||
+        productionRun.currentBranch !== remediation.pullRequest.branch || !/^[a-f0-9]{7,40}$/i.test(productionRun.currentCommit)) {
+        throw new Error("Staging migration cannot resolve exact production-run repository lineage.");
+    }
+    await services.gateway.checkoutPullRequest(reference, remediation.pullRequest.number);
+    const checkedOutRevision = await services.gateway.currentRevision(reference);
+    if (checkedOutRevision !== productionRun.currentCommit) {
+        throw new Error(`Staging migration lineage mismatch: PBOS authorized ${productionRun.currentCommit}, but the pull request resolved to ${checkedOutRevision}.`);
+    }
+    const workingDirectory = await services.gateway.workingDirectory(reference);
+    const before = await inspectPlaybookScholarStagingReadiness(workingDirectory);
+    if (before.ready) {
+        stdout.write("PBOS Playbook staging schema is already ready; no migration was applied.\n");
+        return 0;
+    }
+    if (!isAdditiveScholarMigrationEligible(before)) {
+        throw new Error(`Staging migration is not eligible for automatic bootstrap: ${before.blockers.join(", ")}.`);
+    }
+    const migrationReadiness = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
+    if (!migrationReadiness.ready) {
+        stdout.write(`PBOS staging migration is missing protected configuration: ${migrationReadiness.missing.join(", ")}.\n`);
+        stdout.write("Add only the named value to the accepted mode-0600 protected file; no secret value was displayed or persisted.\n");
+        return 2;
+    }
+    const environment = await new ProtectedEnvironmentResolver().resolve([{
+        command: "pbos-staging-migration", args: [],
+        requiredEnvironmentVariables: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_ACCESS_TOKEN"]
+    }], playbookScholarProtectedEnvironmentFiles(workingDirectory));
+    const projectRef = new URL(environment.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0];
+    const branch = remediation.pullRequest.branch;
+    const io = new NodeTerminalIO();
+    let authorized = false;
+    try {
+        io.write("");
+        io.write("PBOS PROTECTED STAGING MIGRATION CHECKPOINT");
+        io.write(`Application: ${system.name}`);
+        io.write(`Project: ${projectRef}`);
+        io.write("Scope: apply only the two additive Scholar staging migrations in one atomic transaction.");
+        io.write("Production, destructive SQL, secrets, and unrelated schemas remain excluded.");
+        const answer = (await io.prompt("Authorize this Playbook staging migration now? [y/N] ")).trim().toLowerCase();
+        authorized = answer === "y" || answer === "yes";
+    } finally { io.close(); }
+    if (!authorized) {
+        stdout.write("Staging migration not authorized; no external state changed.\n");
+        return 2;
+    }
+    const resource = `supabase:${projectRef}`;
+    const approval = services.identities.approve(services.operator, "APPLY_STAGING_MIGRATION", resource, 10);
+    if (!services.identities.verify(approval, "APPLY_STAGING_MIGRATION", resource)) {
+        throw new Error("Staging migration approval verification failed.");
+    }
+    const decision = services.control.authorizeAction(session.sessionId, "APPLY_STAGING_MIGRATION", "HIGH", branch,
+        approval.approvalId);
+    if (!decision.allowed) throw new Error(`Staging migration denied: ${decision.reason}`);
+    services.state.appendAudit({ eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL",
+        actorId: services.operator.operatorId, resource, occurredAt: approval.issuedAt,
+        evidence: { approval, purpose: "APPLY_STAGING_MIGRATION" } });
+    const result = await new PlaybookStagingMigrationService(services.state).apply({ workingDirectory, projectRef,
+        accessToken: environment.SUPABASE_ACCESS_TOKEN!, approvalId: approval.approvalId,
+        actorId: services.operator.operatorId, repository: productionRun.repository,
+        branch: productionRun.currentBranch, commit: productionRun.currentCommit });
+    stdout.write("[VERIFYING] Migration committed; waiting for the Supabase Data API schema cache to expose the governed tables.\n");
+    const after = await waitForPlaybookScholarStagingReadiness({ workingDirectory });
+    if (!after.ready) throw new Error(`Migration committed and requested a schema-cache reload, but bounded staging verification failed: ${after.blockers.join(", ")}.`);
+    stdout.write(`PBOS staging migration complete: ${result.migrationId}\n`);
+    stdout.write(`Verified resources: ${after.resources.filter(item => item.ready).length}/${after.resources.length}\n`);
+    stdout.write("PBOS CONTINUES: the verified staging schema is ready for exact-revision functional acceptance.\n");
+    return 0;
+}
+
 async function launch(preselectedSystemId?: string): Promise<number> {
     const services = runtime();
     const unfinished = latestUnfinishedRuns(services.state.remediationRuns());
@@ -461,13 +723,47 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         } else if (snapshot.lastRun) stdout.write(`Last production result: ${snapshot.lastRun.status} — ${snapshot.lastRun.terminalSummary ?? snapshot.lastRun.selectedMission}\n`);
         stdout.write(`Health: ${snapshot.health.health}\nNext mission: ${snapshot.nextMission?.title ?? "NONE"}\n`);
         runs.forEach(run => {
-            stdout.write(`Validation: ${run.systemId} — PR #${run.pullRequest.number} — ${run.state}\n`);
+            stdout.write(`Validation: ${run.systemId} — PR #${run.pullRequest.number} — ${effectiveRemediationState(run)}\n`);
             const job = state.backgroundJobForRun(run.runId);
             if (job) stdout.write(`Monitor: ${run.systemId} — ${job.status} — PID ${job.pid}\n`);
             const batch = [...state.autonomousBatches()].reverse().find(item => item.runId === run.runId);
             if (batch) stdout.write(`Batch: ${batch.systemId} — ${batch.state} — ${batch.workPackages.length}/${batch.packageLimit} packages\n`);
         });
         return 0;
+    }
+    if (args[0] === "doctor") {
+        profile();
+        const selectedSystemId = systemIdFor(args[1] ?? "playbook");
+        if (selectedSystemId !== "PLAYBOOK-SYSTEM-001") {
+            throw new Error("No protected acceptance doctor is registered for that application yet.");
+        }
+        const services = runtime();
+        const system = services.state.systems().find(item => item.systemId === selectedSystemId)!;
+        const [owner, name] = system.repository.split("/");
+        const workingDirectory = await services.gateway.workingDirectory({ owner, name, defaultBranch: system.defaultBranch });
+        const files = playbookScholarProtectedEnvironmentFiles(workingDirectory);
+        const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
+        const migration = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
+        const readiness = staging.environment;
+        stdout.write("PBOS PROTECTED ACCEPTANCE DOCTOR\n");
+        stdout.write(`Application: ${system.name}\nRepository: ${system.repository}\n`);
+        files.forEach(source => stdout.write(`Accepted source: ${source.path}\n`));
+        stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
+        stdout.write(`Missing: ${readiness.missing.length ? readiness.missing.join(", ") : "NONE"}\n`);
+        staging.resources.forEach(resource => stdout.write(`Resource: ${resource.resource} — ${resource.ready ? "READY" : "BLOCKED"} — ${resource.status}\n`));
+        const missingTables = staging.resources.filter(resource => resource.resource.startsWith("table:") && !resource.ready);
+        const migrationBootstrapReady = isAdditiveScholarMigrationEligible(staging) && migration.ready;
+        if (missingTables.length) {
+            stdout.write(`Migration authority: ${migration.ready ? "READY" : "BLOCKED"}` +
+                `${migration.missing.length ? ` — missing ${migration.missing.join(", ")}` : ""}\n`);
+        }
+        stdout.write(staging.ready
+            ? "READINESS: READY — protected values and staging resources were verified without displaying secrets.\n"
+            : migrationBootstrapReady
+                ? "READINESS: READY_FOR_GOVERNED_MIGRATION — the additive Scholar schema and its protected migration authority are ready for the in-terminal approval checkpoint.\n"
+                : `READINESS: BLOCKED — ${staging.blockers.join(", ") || "add the missing protected values"}` +
+                    `${missingTables.length && !migration.ready ? `; migration configuration missing ${migration.missing.join(", ")}` : ""}.\n`);
+        return staging.ready || migrationBootstrapReady ? 0 : 2;
     }
     if (args[0] === "health") {
         profile();
@@ -497,6 +793,11 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(next ? `${next.missionId} — ${next.title}\nReason: ${next.rationale}\nApproval required: ${next.approvalRequired ? "YES" : "NO"}\n` : "No eligible mission.\n"); return 0;
     }
     if (args[0] === "run") return runNextProductionMission(args[1]);
+    if (args[0] === "migrate") {
+        const systemId = systemIdFor(args[1]);
+        if (systemId !== "PLAYBOOK-SYSTEM-001") throw new Error("Staging migration currently supports only playbook.");
+        return migratePlaybookStaging();
+    }
     if (args[0] === "build") {
         if (!args[1]) throw new Error("Build requires an application target: playbook or bulletproof.");
         return buildApplication(args[1]);

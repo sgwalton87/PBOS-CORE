@@ -2,7 +2,7 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -19,7 +19,6 @@ export interface PlaybookOpportunityJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const serviceSource = `import { createHash } from "crypto";
@@ -159,7 +158,7 @@ function runtime() {
     },
     async publish(identity: ReturnType<PlaybookIdentityMapper["mapSupabaseIdentity"]>, payload: Readonly<Record<string, unknown>>, correlationId: string) {
       const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
-        domainRegistrationId: "PLAYBOOK-DOMAIN-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
+        domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
         correlationId, purpose: "Publish an approved owner-scoped opportunity journey event.", payload }, correlationId, correlationId);
       if (!response.success) throw new Error(response.error.message);
       return response.provenance;
@@ -596,7 +595,6 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
             "feat: complete governed opportunity journey",
             `PBOS Genesis mission \`048-opportunity-journey\` replaces demo data and browser-only decisions with authenticated explainable matching, owner-scoped RLS persistence, accessible UI states, and signed PBOS events at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },

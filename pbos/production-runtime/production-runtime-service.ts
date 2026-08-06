@@ -1,8 +1,9 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ApplicationAcceptanceEvidence, ExecutionLease, MissionControlSnapshot, MissionQueueItem, PreviewManifest, ProductionEvent,
-    ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus, RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
+import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlSnapshot, MissionQueueItem,
+    PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
+    RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
 import { GovernedMissionQueue } from "./mission-queue";
 import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
@@ -59,6 +60,47 @@ export class ProductionRuntimeService {
 
     transition(runId: string, status: ProductionStatus, summary: string, payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
         const current = this.requireRun(runId);
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (["AWAITING_APPROVAL", "CERTIFIED"].includes(status) && mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Functional mission ${mission.missionId} may advance only through PBOS Kernel functional authority.`);
+        }
+        return this.commitTransition(current, status, summary, payload);
+    }
+
+    acceptFunctionalApplication(runId: string, summary: string,
+        payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
+        const current = this.requireRun(runId);
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Run ${runId} is not governed by a functional application completion policy.`);
+        }
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        const completedTypes = new Set(this.state.productionStages(runId)
+            .filter(stage => stage.status === "COMPLETED").map(stage => stage.type));
+        const requiredStages: StageType[] = ["PREREQUISITE", "APPLICATION_LAUNCH", "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE"];
+        if (mission.completionPolicy.requiredDimensions.includes("PREVIEW")) requiredStages.push("PREVIEW");
+        const missing = requiredStages.filter(type => !completedTypes.has(type));
+        if (missing.length) throw new Error(`Functional mission ${mission.missionId} is missing kernel stages: ${missing.join(", ")}.`);
+        return this.commitTransition(current, "AWAITING_APPROVAL", summary, payload);
+    }
+
+    certifyFunctionalApplication(runId: string, approvalId: string): ProductionRun {
+        const current = this.requireRun(runId);
+        if (current.status !== "AWAITING_APPROVAL" || !approvalId.trim()) {
+            throw new Error(`Functional run ${runId} requires a verifiable human certification approval.`);
+        }
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Run ${runId} is not governed by a functional application completion policy.`);
+        }
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        return this.commitTransition(current, "CERTIFIED", "Human functional certification granted.", {
+            approvalId, missionId: mission.missionId
+        });
+    }
+
+    private commitTransition(current: ProductionRun, status: ProductionStatus, summary: string,
+        payload: Readonly<Record<string, unknown>>): ProductionRun {
         assertProductionTransition(current.status, status);
         if (["AWAITING_APPROVAL", "COMPLETED", "CERTIFIED"].includes(status)) {
             const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
@@ -67,13 +109,13 @@ export class ProductionRuntimeService {
         const timestamp = this.now().toISOString();
         const terminal = isTerminalProductionStatus(status);
         const updated: ProductionRun = { ...current, status, lastHeartbeatAt: timestamp,
-            completedAt: terminal ? timestamp : current.completedAt,
-            durationMs: terminal ? Math.max(0, this.now().getTime() - Date.parse(current.startedAt)) : current.durationMs,
-            terminalSummary: terminal ? summary : current.terminalSummary };
+            completedAt: terminal ? timestamp : undefined,
+            durationMs: terminal ? Math.max(0, this.now().getTime() - Date.parse(current.startedAt)) : undefined,
+            terminalSummary: terminal ? summary : undefined };
         this.state.saveProductionRun(updated);
         this.event(updated, `RUN_${status}`, summary, payload, status === "FAILED" ? "ERROR" : status === "BLOCKED" ? "WARN" : "INFO");
-        if (terminal) this.releaseLease(runId, status === "CANCELLED" ? "CANCELLED" : "COMPLETED");
-        else if (status === "PAUSED" || status === "AWAITING_APPROVAL") this.releaseLease(runId, status);
+        if (terminal) this.releaseLease(current.runId, status === "CANCELLED" ? "CANCELLED" : "COMPLETED");
+        else if (status === "PAUSED" || status === "AWAITING_APPROVAL") this.releaseLease(current.runId, status);
         return updated;
     }
 
@@ -124,7 +166,9 @@ export class ProductionRuntimeService {
         const updated: ProductionStage = { ...stage, status: "FAILED", completedAt: timestamp, lastHeartbeatAt: timestamp,
             durationMs: Math.max(0, this.now().getTime() - Date.parse(stage.startedAt)), error: this.redact(error) };
         this.state.saveProductionStage(updated);
-        this.event(this.requireRun(stage.runId), "STAGE_FAILED", `${stage.title} failed.`, { stageId, error: updated.error }, "ERROR", stageId);
+        const run = this.requireRun(stage.runId);
+        if (run.activeStageId === stageId) this.state.saveProductionRun({ ...run, activeStageId: undefined, lastHeartbeatAt: timestamp });
+        this.event(run, "STAGE_FAILED", `${stage.title} failed.`, { stageId, error: updated.error }, "ERROR", stageId);
         return updated;
     }
 
@@ -160,6 +204,68 @@ export class ProductionRuntimeService {
         const run = this.heartbeat(runId); const updated = { ...run, currentBranch: branch, currentCommit: commit };
         this.state.saveProductionRun(updated);
         this.event(updated, "REPOSITORY_POSITION_UPDATED", "Production run advanced to a governed repository revision.", { branch, commit });
+        return updated;
+    }
+
+    rebindRepositoryAfterRemediation(runId: string, remediationRunId: string, branch: string, commit: string): ProductionRun {
+        if (!branch.trim() || !/^[a-f0-9]{7,40}$/i.test(commit)) {
+            throw new Error("Remediation lineage requires an exact branch and commit.");
+        }
+        const run = this.heartbeat(runId);
+        if (!run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Remediation lineage is not linked to the production run.");
+        }
+        if (!run.functionalAcceptancePlan) {
+            throw new Error("Functional remediation requires an executable acceptance plan.");
+        }
+        const browserJourneys = run.functionalAcceptancePlan.browserJourneys.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
+        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys,
+            planId: `${run.functionalAcceptancePlan.planId.split(":remediation:")[0]}:remediation:${commit}` };
+        const updated: ProductionRun = { ...run, currentBranch: branch, currentCommit: commit,
+            repositoryContextId: `repository:${run.repository}:${commit}`, functionalAcceptancePlan: plan,
+            acceptanceEvidence: [], previewArtifactIds: [], lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "REMEDIATION_LINEAGE_REBOUND",
+            "Production and functional acceptance lineage advanced to the remediated revision.", {
+                remediationRunId, branch, commit, planId: plan.planId
+            });
+        return updated;
+    }
+
+    /**
+     * Repairs nested acceptance lineage in durable plans written by older PBOS
+     * revisions. This does not authorize a new revision: it may only make the
+     * plan agree with the already-governed current repository position.
+     */
+    normalizeFunctionalAcceptanceLineage(runId: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const current = run.functionalAcceptancePlan;
+        if (!current) return run;
+        const browserJourneys = current.browserJourneys.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
+        const changed = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
+            browserJourneys.some((journey, index) =>
+                journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
+                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
+        if (!changed) return run;
+        const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
+            browserJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
+            acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
+            previewArtifactIds: current.commit === run.currentCommit ? run.previewArtifactIds : [],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED",
+            "Durable functional acceptance lineage synchronized to the governed repository revision.", {
+                branch: run.currentBranch, commit: run.currentCommit, planId: plan.planId
+            });
         return updated;
     }
 
@@ -211,6 +317,21 @@ export class ProductionRuntimeService {
         return updated;
     }
 
+    recordFunctionalAcceptancePlan(runId: string, plan: FunctionalAcceptancePlan): ProductionRun {
+        const run = this.heartbeat(runId);
+        if (plan.systemId !== run.systemId || plan.repository !== run.repository || plan.branch !== run.currentBranch ||
+            plan.commit !== run.currentCommit || !plan.planId.trim() || !plan.productNodeId.trim() || !plan.journeyId.trim()) {
+            throw new Error("Functional acceptance plan does not match the active production lineage.");
+        }
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "FUNCTIONAL_ACCEPTANCE_PLANNED", "Executable application acceptance plan recorded.", {
+            planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId,
+            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId)
+        });
+        return updated;
+    }
+
     updateMissionStatus(systemId: string, missionId: string, status: MissionQueueItem["status"],
         evidenceIds: readonly string[] = []): MissionQueueItem {
         const items = this.state.missionQueue(systemId);
@@ -222,15 +343,59 @@ export class ProductionRuntimeService {
             if (!run) throw new Error(`Functional mission ${missionId} has no production run acceptance evidence.`);
             new FunctionalAcceptanceVerifier().assertCertificationEvidence(current, this.normalizeRun(run));
         }
-        const updated = { ...current, status, evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])] };
+        const updated = { ...current, status, evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])],
+            executionBlocker: status === "ACTIVE" || status === "COMPLETE" ? undefined : current.executionBlocker,
+            blockedRunId: status === "ACTIVE" || status === "COMPLETE" ? undefined : current.blockedRunId };
         this.reconcileQueue(systemId, items.map(item => item.missionId === missionId ? updated : item));
         return this.state.missionQueue(systemId).find(item => item.missionId === missionId)!;
+    }
+
+    blockMissionForRun(runId: string, reason: string, evidenceIds: readonly string[] = []): MissionQueueItem {
+        const run = this.requireRun(runId);
+        const items = this.state.missionQueue(run.systemId);
+        const current = items.find(item => item.title === run.selectedMission);
+        if (!current) throw new Error(`Mission for production run ${runId} was not found.`);
+        const updated: MissionQueueItem = { ...current, status: "BLOCKED", rationale: `Execution blocked: ${reason}`,
+            executionBlocker: reason, blockedRunId: runId,
+            evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])] };
+        this.reconcileQueue(run.systemId, items.map(item => item.missionId === current.missionId ? updated : item));
+        this.event(run, "MISSION_EXECUTION_BLOCKED", "Mission selection is blocked until the existing run is recovered.", {
+            missionId: current.missionId, reason
+        }, "WARN");
+        return this.state.missionQueue(run.systemId).find(item => item.missionId === current.missionId)!;
     }
 
     reconcileQueue(systemId: string, items: readonly MissionQueueItem[]): readonly MissionQueueItem[] {
         const reconciled = new GovernedMissionQueue().reconcile(items);
         this.state.saveMissionQueue(reconciled, systemId);
         return reconciled;
+    }
+
+    reconcileMissionExecutionState(systemId: string): readonly MissionQueueItem[] {
+        const items = this.state.missionQueue(systemId);
+        let updated = [...items];
+        for (const mission of items.filter(item => item.status === "ACTIVE" || item.executionBlocker)) {
+            const run = [...this.state.productionRuns()].reverse().find(item =>
+                item.systemId === systemId && item.selectedMission === mission.title);
+            if (!run) {
+                if (mission.status === "ACTIVE") {
+                    updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "BLOCKED" as const,
+                        rationale: "Execution blocked: active mission has no durable production run.",
+                        executionBlocker: "Active mission has no durable production run." } : item);
+                }
+                continue;
+            }
+            if (["BLOCKED", "FAILED", "CANCELLED"].includes(run.status)) {
+                updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "BLOCKED" as const,
+                    rationale: `Execution blocked: ${run.terminalSummary ?? run.status}.`,
+                    executionBlocker: run.terminalSummary ?? run.status, blockedRunId: run.runId } : item);
+            } else if (["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING",
+                "GENERATING_PREVIEW", "AWAITING_APPROVAL", "PAUSED", "RECOVERING"].includes(run.status)) {
+                updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "ACTIVE" as const,
+                    executionBlocker: undefined, blockedRunId: undefined } : item);
+            }
+        }
+        return this.reconcileQueue(systemId, updated);
     }
 
     activeRun(repository?: string): ProductionRun | undefined {
@@ -258,7 +423,64 @@ export class ProductionRuntimeService {
         const run = this.requireActor(runId, actorId);
         if (!["PAUSED", "RECOVERING"].includes(run.status)) throw new Error(`Run ${runId} is not resumable from ${run.status}.`);
         if (!this.activeLease(runId)) this.acquireLease(run);
-        return this.transition(runId, run.activeStageId ? "RUNNING" : "VALIDATING", "Authorized run resumed from its durable checkpoint.", { actorId });
+        const activeStage = run.activeStageId
+            ? this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId) : undefined;
+        const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
+            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE", "PREVIEW"];
+        const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
+        return this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
+    }
+
+    recoverPrematureIndependentValidation(runId: string, remediationRunId: string, headSha: string): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Premature validation recovery does not match the governed production lineage.");
+        }
+        const blocked = [...this.state.productionEvents(runId)].reverse().find(item => item.type === "RUN_BLOCKED");
+        if (blocked?.payload.reason !==
+            "Functional completion requires at least one independent application check on the exact revision.") {
+            throw new Error("The blocked production run is not eligible for automatic independent-validation recovery.");
+        }
+        return this.recoverBlockedFunctionalValidation(runId, remediationRunId, headSha,
+            "PREMATURE_INDEPENDENT_VALIDATION_TERMINAL");
+    }
+
+    recoverBlockedFunctionalValidation(runId: string, remediationRunId: string, headSha: string,
+        recovery = "FUNCTIONAL_ACCEPTANCE_RETRY"): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error("Only a functional application mission can use functional validation recovery.");
+        }
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Functional validation recovery does not match the governed production lineage.");
+        }
+        return this.recoverBlockedValidation(runId, remediationRunId, headSha, recovery);
+    }
+
+    recoverBlockedValidation(runId: string, remediationRunId: string, headSha: string,
+        recovery = "VALIDATION_RETRY"): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Validation recovery does not match the governed production lineage.");
+        }
+        const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+        this.transition(runId, "RECOVERING",
+            "Recovering a blocked run at the last exact-revision validation checkpoint.", {
+                remediationRunId, headSha, recovery
+            });
+        if (mission) this.updateMissionStatus(run.systemId, mission.missionId, "ACTIVE");
+        this.resume(runId, run.actorId);
+        this.startStage(runId, "VALIDATION", `Resume validation for ${run.selectedMission}`, {
+            remediationRunId, recovery
+        });
+        return this.requireRun(runId);
     }
 
     cancel(runId: string, actorId: string): ProductionRun {

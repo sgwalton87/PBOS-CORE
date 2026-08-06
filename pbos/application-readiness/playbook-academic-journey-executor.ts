@@ -2,7 +2,7 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -39,7 +39,6 @@ export interface PlaybookAcademicJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const academicServiceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -167,7 +166,7 @@ export async function POST(request: NextRequest) {
       },
       async publish(identity, evidenceId, readinessScore, correlationId) {
         const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
-          domainRegistrationId: "PLAYBOOK-DOMAIN-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
+          domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
           correlationId, purpose: "Publish approved academic readiness evidence.", payload: {
             eventType: "ACADEMIC_READINESS_UPDATED", schemaVersion: "1.0.0", evidenceId, readinessScore
           } }, correlationId, correlationId);
@@ -310,7 +309,6 @@ export function playbookAcademicJourneyExecutor(dependencies: PlaybookAcademicJo
             "feat: complete authenticated academic readiness journey",
             `PBOS Genesis mission \`048-academic-journey\` replaces browser-selected ownership and service-role mutation with an authenticated, RLS-scoped transcript-to-readiness journey at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],

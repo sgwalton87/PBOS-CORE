@@ -53,14 +53,12 @@ describe("CIP-048 opportunity journey execution adapter", () => {
                 branch: "agent/pbos-playbook-system-001-048-opportunity-12345678",
                 repository: "sgwalton87/playbook-platform" })
         } as unknown as GitHubRepositoryGateway;
-        const monitors: string[] = [];
         const executor = playbookOpportunityJourneyExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-opportunity", action, allowed: true,
                 reason: "authorized", decidedAt: new Date() }),
             remediation: { start: (_systemId, pullRequest) => ({ runId: "validation-opportunity",
                 systemId: "PLAYBOOK-SYSTEM-001", pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5,
-                state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
-            startMonitor: validation => { monitors.push(validation.runId); } });
+                state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() }) } });
 
         const result = await executor({ run, mission, report: () => undefined });
 
@@ -89,7 +87,6 @@ describe("CIP-048 opportunity journey execution adapter", () => {
             "ACCESSIBILITY", "SECURITY"
         ]));
         expect(result.acceptanceEvidence?.every(item => item.commit === generatedRevision && item.passed)).toBe(true);
-        expect(monitors).toEqual(["validation-opportunity"]);
     });
 
     it("refuses to overwrite a changed opportunity implementation", () => {
@@ -101,7 +98,7 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         const executor = playbookOpportunityJourneyExecutor({ gateway: {} as GitHubRepositoryGateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-opportunity", action, allowed: false,
                 reason: "revoked", decidedAt: new Date() }),
-            remediation: { start: () => { throw new Error("not reached"); } }, startMonitor: () => undefined });
+            remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("denied: revoked");
     });
 });

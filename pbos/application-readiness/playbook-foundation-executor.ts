@@ -4,7 +4,7 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { createPlaybookBlueprint } from "../reference-systems";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -14,7 +14,6 @@ export interface PlaybookFoundationExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const foundationSource = `import { PlaybookIdentityMapper } from "../../pbos/connector/identity-mapper";
@@ -152,7 +151,6 @@ export function playbookFoundationExecutor(dependencies: PlaybookFoundationExecu
             "feat: complete Playbook web foundation",
             `PBOS Genesis mission \`048-foundation\` composed the existing Playbook identity mapper, owner authority, Scholar RLS foundation, and canonical design tokens at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },

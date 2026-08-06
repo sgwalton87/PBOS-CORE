@@ -5,6 +5,7 @@ const buildActions: readonly BuildAction[] = [
     "INSPECT_REPOSITORY",
     "MODIFY_APPLICATION_CODE",
     "OPEN_DRAFT_PR",
+    "APPLY_STAGING_MIGRATION",
     "MERGE_MAIN",
     "DEPLOY_PRODUCTION"
 ];
@@ -55,6 +56,9 @@ describe("delegated autonomous build authority", () => {
         });
         expect(authority.authorize(request(grant.grantId, "MODIFY_APPLICATION_CODE", "MEDIUM")).allowed).toBe(true);
         expect(authority.authorize(request(grant.grantId, "MERGE_MAIN", "HIGH")).allowed).toBe(false);
+        expect(authority.authorize(request(grant.grantId, "APPLY_STAGING_MIGRATION", "HIGH")).allowed).toBe(false);
+        expect(authority.authorize({ ...request(grant.grantId, "APPLY_STAGING_MIGRATION", "HIGH"),
+            explicitApprovalId: "migration-approval" }).allowed).toBe(true);
         expect(authority.authorize({
             ...request(grant.grantId, "MERGE_MAIN", "HIGH"), explicitApprovalId: "merge-approval"
         }).allowed).toBe(true);

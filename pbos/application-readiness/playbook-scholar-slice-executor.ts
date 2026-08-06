@@ -2,11 +2,16 @@ import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-a
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookScholarAcceptanceFiles, playbookScholarAcceptancePlan } from "./playbook-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
 const ONBOARDING_PAGE = "app/start/page.tsx";
+const CONNECTOR_SOURCE = "pbos/connector/playbook-connector.ts";
+const CONNECTOR_MANIFEST_SOURCE = "pbos/connector/playbook-system-manifest.ts";
+const LEGACY_SCHOLAR_REGISTRATION_ID = "PLAYBOOK-DOMAIN-SCHOLAR-REGISTRATION-001";
+const SCHOLAR_REGISTRATION_ID = "PLAYBOOK-SCHOLAR-REGISTRATION-001";
 
 function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
     const evidence = (dimension: ApplicationAcceptanceEvidence["dimension"], evidenceId: string, behavior: string,
@@ -38,7 +43,6 @@ export interface PlaybookScholarSliceExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
-    readonly startMonitor: (run: RemediationRun) => void;
 }
 
 const serviceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -51,6 +55,7 @@ export interface ScholarJourneyRepository {
 
 export interface ScholarPbosRuntime {
   registerIdentity(userId: string): Promise<PlaybookIdentityMapping>;
+  verifyReady(identity: PlaybookIdentityMapping, correlationId: string): Promise<readonly string[]>;
   publishOnboarding(identity: PlaybookIdentityMapping, scholarRecordId: string, correlationId: string): Promise<readonly string[]>;
   projectDashboard(identity: PlaybookIdentityMapping, scholarRecordId: string, sectionIds: readonly string[], exchangeApprovalId: string, correlationId: string): Promise<readonly string[]>;
 }
@@ -73,7 +78,8 @@ export class ScholarOnboardingService {
     if (!input.idempotencyKey) throw new Error("Scholar journey idempotency key required.");
     const authority = authorizePlaybookFoundation({ userId: input.actorId, ownerId: input.ownerId, role: "SCHOLAR", approvalId: input.identityApprovalId });
     const identity = await this.runtime.registerIdentity(input.actorId);
-    const baseProvenance = [...authority.provenance, identity.pbosIdentity.provenance];
+    const readinessProvenance = await this.runtime.verifyReady(identity, input.idempotencyKey + "-health");
+    const baseProvenance = [...authority.provenance, identity.pbosIdentity.provenance, ...readinessProvenance];
     const record = await this.repository.persistOnboarding({ scholarId: input.ownerId, displayName: input.displayName,
       goalTitle: input.goalTitle, approvalId: input.identityApprovalId, idempotencyKey: input.idempotencyKey, provenance: baseProvenance });
     const onboardingProvenance = await this.runtime.publishOnboarding(identity, record.scholarRecordId, input.idempotencyKey + "-onboarding");
@@ -113,8 +119,14 @@ export class SignedPlaybookPbosTransport implements PbosTransport {
       "content-type": "application/json", "x-pbos-api-version": "v1", "x-pbos-organization-id": this.credentials.organizationId,
       "x-pbos-connector-id": this.credentials.connectorId, "x-pbos-key-id": this.credentials.keyId,
       "x-pbos-timestamp": timestamp, "x-pbos-nonce": nonce, "x-pbos-signature": signature
-    } });
-    return await response.json() as PbosResponse<T>;
+    }, signal: AbortSignal.timeout(15_000) });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!response.ok || !contentType.includes("application/json")) {
+      throw new Error("PBOS v1 transport rejected the signed request with HTTP " + response.status + ".");
+    }
+    const result = await response.json() as PbosResponse<T>;
+    if (result.correlationId !== request.correlationId) throw new Error("PBOS v1 response correlation mismatch.");
+    return result;
   }
 }
 `;
@@ -167,6 +179,14 @@ export async function POST(request: NextRequest) {
       }
     }, {
       registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
+      async verifyReady(identity, correlationId) {
+        const response = await connector.health(identity, "Verify the certified Scholar runtime before durable onboarding.");
+        if (!response.success) throw new Error(response.error.message);
+        if (response.correlationId !== "playbook-health-" + identity.externalIdentity.externalIdentityId) {
+          throw new Error("PBOS Scholar health response correlation mismatch.");
+        }
+        return [...response.provenance, correlationId];
+      },
       async publishOnboarding(identity, scholarRecordId, correlationId) {
         const response = await connector.publishScholarOnboarding(identity, { eventType: "SCHOLAR_ONBOARDING_COMPLETED", schemaVersion: "1.0.0", scholarRecordId }, correlationId);
         if (!response.success) throw new Error(response.error.message); return response.provenance;
@@ -196,18 +216,20 @@ describe("governed Scholar onboarding-to-dashboard", () => {
       persistDashboard: async input => { calls.push("dashboard:" + input.exchangeApprovalId); }
     }, {
       registerIdentity: async userId => ({ mappingId: "mapping-1", externalIdentity: { externalIdentityId: userId, externalSystemId: "PLAYBOOK-SYSTEM-001", role: "SCHOLAR", authorityReferences: [], active: true }, pbosIdentity: { actorId: "PLAYBOOK-ACTOR-" + userId, systemId: "PLAYBOOK-OS-001", role: "SCHOLAR", authorityContext: [], provenance: "identity:" + userId, active: true }, mappedAt: new Date() }),
-      publishOnboarding: async () => ["pbos:onboarding"], projectDashboard: async () => ["pbos:dashboard"]
+      verifyReady: async () => ["pbos:health"], publishOnboarding: async () => ["pbos:onboarding"],
+      projectDashboard: async () => ["pbos:dashboard"]
     });
     const result = await service.complete({ actorId: "scholar-1", ownerId: "scholar-1", displayName: "Scholar One",
       goalTitle: "Graduate", identityApprovalId: "identity-approval", exchangeApprovalId: "exchange-approval", idempotencyKey: "journey-1" });
     expect(calls).toEqual(["persist:journey-1", "dashboard:exchange-approval"]);
     expect(result.sectionIds).toEqual(["identity", "goals"]);
-    expect(result.provenance).toEqual(expect.arrayContaining(["identity-approval", "pbos:onboarding", "pbos:dashboard", "exchange-approval"]));
+    expect(result.provenance).toEqual(expect.arrayContaining(["identity-approval", "pbos:health", "pbos:onboarding", "pbos:dashboard", "exchange-approval"]));
   });
 
   it("fails closed before persistence for cross-owner access or missing exchange approval", async () => {
     const repository = { persistOnboarding: async () => { throw new Error("must not persist"); }, persistDashboard: async () => undefined };
-    const runtime = { registerIdentity: async () => { throw new Error("must not register"); }, publishOnboarding: async () => [], projectDashboard: async () => [] };
+    const runtime = { registerIdentity: async () => { throw new Error("must not register"); }, verifyReady: async () => [],
+      publishOnboarding: async () => [], projectDashboard: async () => [] };
     const service = new ScholarOnboardingService(repository, runtime);
     await expect(service.complete({ actorId: "one", ownerId: "two", displayName: "One", goalTitle: "Graduate",
       identityApprovalId: "approval", exchangeApprovalId: "exchange", idempotencyKey: "key" })).rejects.toThrow("Access denied");
@@ -300,6 +322,9 @@ create index if not exists scholar_dashboard_projections_scholar_idx on scholar_
 `;
 
 export function wireScholarOnboardingPage(source: string): string {
+    if (source.includes('/api/pbos/scholar/onboarding') && source.includes('role="alert"') && source.includes("journeyError")) {
+        return source;
+    }
     const stateNeedle = "  const [created, setCreated] = useState(false);";
     const stateReplacement = `${stateNeedle}\n  const [journeyError, setJourneyError] = useState<string | null>(null);`;
     const blockNeedle = `    if (isLast) {
@@ -342,7 +367,26 @@ export function wireScholarOnboardingPage(source: string): string {
     return source.replace(stateNeedle, stateReplacement).replace(blockNeedle, blockReplacement).replace(renderNeedle, renderReplacement);
 }
 
-function changes(revision: string, runId: string, onboardingPage: string): readonly RepositoryFileChange[] {
+export function normalizeScholarRegistrationBoundary(source: string): string {
+    if (source.includes(SCHOLAR_REGISTRATION_ID) && !source.includes(LEGACY_SCHOLAR_REGISTRATION_ID)) return source;
+    if (!source.includes(LEGACY_SCHOLAR_REGISTRATION_ID)) {
+        throw new Error("Playbook connector registration boundary changed; re-inspect before wiring the governed Scholar journey.");
+    }
+    return source.replaceAll(LEGACY_SCHOLAR_REGISTRATION_ID, SCHOLAR_REGISTRATION_ID);
+}
+
+export function normalizeScholarRegistrationManifest(source: string): string {
+    if (source.includes(SCHOLAR_REGISTRATION_ID)) return source;
+    const legacyFactory = 'registrationId: `${domainId}-REGISTRATION-001`,';
+    if (!source.includes(legacyFactory)) {
+        throw new Error("Playbook system manifest registration factory changed; re-inspect before wiring the governed Scholar journey.");
+    }
+    return source.replace(legacyFactory,
+        'registrationId: domainId === "PLAYBOOK-DOMAIN-SCHOLAR"\n        ? "PLAYBOOK-SCHOLAR-REGISTRATION-001"\n        : `${domainId}-REGISTRATION-001`,');
+}
+
+function changes(revision: string, runId: string, onboardingPage: string,
+    packageSource: string, connectorSource: string, manifestSource: string): readonly RepositoryFileChange[] {
     return [
         { path: "lib/pbos/scholar-onboarding-service.ts", content: serviceSource },
         { path: "pbos/connector/signed-server-transport.ts", content: signedTransportSource },
@@ -352,6 +396,9 @@ function changes(revision: string, runId: string, onboardingPage: string): reado
         { path: ".env.example", content: environmentExample },
         { path: "docs/integrations/PBOS-SCHOLAR-ONBOARDING.md", content: integrationGuide },
         { path: ONBOARDING_PAGE, content: onboardingPage },
+        { path: CONNECTOR_SOURCE, content: connectorSource },
+        { path: CONNECTOR_MANIFEST_SOURCE, content: manifestSource },
+        ...playbookScholarAcceptanceFiles(packageSource),
         { path: "pbos/readiness/048-scholar-slice.json", content: `${JSON.stringify({ missionId: "048-scholar-slice",
             systemId: SYSTEM_ID, repository: REPOSITORY, governedRevision: revision, productionRunId: runId,
             state: "IMPLEMENTED_PENDING_VALIDATION", surfaces: ["WEB"], journey: "IDENTITY_ONBOARDING_TO_DASHBOARD",
@@ -384,8 +431,14 @@ export function playbookScholarSliceExecutor(dependencies: PlaybookScholarSliceE
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before mutation.`);
         }
-        const source = await dependencies.gateway.readFileAtRevision(reference, ONBOARDING_PAGE, inspection.revision);
-        const files = changes(inspection.revision, context.run.runId, wireScholarOnboardingPage(source));
+        const [source, packageSource, connectorSource, manifestSource] = await Promise.all([
+            dependencies.gateway.readFileAtRevision(reference, ONBOARDING_PAGE, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, CONNECTOR_SOURCE, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, CONNECTOR_MANIFEST_SOURCE, inspection.revision)
+        ]);
+        const files = changes(inspection.revision, context.run.runId, wireScholarOnboardingPage(source), packageSource,
+            normalizeScholarRegistrationBoundary(connectorSource), normalizeScholarRegistrationManifest(manifestSource));
         context.report("BUILDING", `Wiring the governed Scholar onboarding-to-dashboard journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -398,15 +451,16 @@ export function playbookScholarSliceExecutor(dependencies: PlaybookScholarSliceE
             "feat: complete governed Scholar onboarding journey",
             `PBOS Genesis mission \`048-scholar-slice\` wires authenticated onboarding through signed PBOS communication, owner-scoped Supabase persistence, idempotent goal and milestone records, and an approved private dashboard projection at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        dependencies.startMonitor(remediation);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookScholarAcceptancePlan(dependencies.gateway, reference, branch, revision);
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
-            files: { added: files.filter(file => file.path !== ONBOARDING_PAGE).map(file => file.path), modified: [ONBOARDING_PAGE, "package-lock.json"] },
+            files: { added: files.filter(file => ![ONBOARDING_PAGE, CONNECTOR_SOURCE, CONNECTOR_MANIFEST_SOURCE].includes(file.path)).map(file => file.path),
+                modified: [ONBOARDING_PAGE, CONNECTOR_SOURCE, CONNECTOR_MANIFEST_SOURCE, "package-lock.json"] },
             commands: [{ command: "governed Scholar journey publication", exitCode: 0, durationMs: 0, output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Scholar journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: acceptanceEvidence(revision) };
+            acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan };
     };
 }
