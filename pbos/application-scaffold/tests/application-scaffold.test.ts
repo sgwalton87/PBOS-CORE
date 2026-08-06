@@ -1,16 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createPlaybookBlueprint } from "../../reference-systems";
-import { SystemBlueprintFactory } from "../../system-blueprint";
+import { createBulletproofBlueprint, createPlaybookBlueprint } from "../../reference-systems";
 import { ApplicationScaffoldGenerator } from "../index";
 
-const blueprint = new SystemBlueprintFactory().create({ organizationName: "Bulletproof", systemName: "Bulletproof Beneficiary", mission: "Protect family legacy.",
-    users: ["Members"], desiredOutcomes: ["Policy discovery"], domain: "LEGACY_PLANNING", capabilities: ["IDENTITY", "WORKFLOWS", "DOCUMENTS"],
-    applicationStrategy: "CONNECT_EXISTING", existingRepository: "vycoywalton/bulletproof-beneficiary-registry", autonomyMode: "HUMAN_GATED",
-    businessOwner: "Viveca", technicalOwner: "PBOS", operatingRegions: ["US"], dataClassifications: ["BENEFICIARY_DATA"], regulatoryFrameworks: ["HUMAN_REVIEW"],
-    brand: { personalities: ["TRUSTWORTHY"], visualDirection: "EXISTING_BRAND", theme: "BOTH", cornerStyle: "ROUNDED", density: "COMFORTABLE",
+const bulletproof = createBulletproofBlueprint();
+const blueprint = { ...bulletproof, design: { ...bulletproof.design,
+    brand: { ...bulletproof.design.brand,
+        personalities: ["TRUSTWORTHY"] as const, visualDirection: "EXISTING_BRAND" as const,
         tagline: "Built to Leave a Legacy.", headingFont: "Inter", bodyFont: "Inter",
-        assets: [{ assetId: "BULLETPROOF-LOGO-CARD-001", kind: "LOGO_CARD",
-            location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } });
+        assets: [{ assetId: "BULLETPROOF-LOGO-CARD-001", kind: "LOGO_CARD" as const,
+            location: "brand/bulletproof-logo-card.png", rightsConfirmed: true }] } } };
 
 describe("application scaffold generator", () => {
     it("generates a non-destructive Bulletproof overlay for an existing application", () => {
@@ -26,6 +24,16 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("supabase/migrations/001_foundation.sql");
         expect(scaffold.securityBoundaries).toContain("PRIVATE_DOCUMENT_BUCKET");
         expect(scaffold.dependencyLock).toEqual({ manager: "NPM", path: "package-lock.json", required: true });
+        expect(scaffold.platformCapabilities).toEqual(["PBOS_ENGINEERING_MEMORY"]);
+        expect(paths).toContain(".pbos/archivist.json");
+        expect(paths).toContain(".githooks/pbos-archivist-post-commit");
+        expect(paths).toContain(".github/workflows/pbos-engineering-memory.yml");
+        expect(scaffold.files.find(file => file.path === ".githooks/pbos-archivist-post-commit")?.executable).toBe(true);
+        expect(paths).not.toContain("docs/project-management/milestones/index.md");
+        const archivist = scaffold.files.find(file => file.path === ".pbos/archivist.json")?.content ?? "";
+        expect(archivist).toContain("BULLETPROOF-SYSTEM-001");
+        expect(archivist).toContain("vycoywalton/bulletproof-beneficiary-registry");
+        expect(scaffold.files.find(file => file.path === "PBOS.yaml")?.content).toContain("PBOS_ENGINEERING_MEMORY");
         expect(scaffold.files.find(file => file.path.endsWith("vertical-slice.ts"))?.content).toContain("verifyIdentity");
         const tokens = scaffold.files.find(file => file.path === "pbos/generated/design/tokens.ts")?.content;
         expect(tokens).toMatch(/\}\s+as const;\n$/);
@@ -48,6 +56,7 @@ describe("application scaffold generator", () => {
         expect(result.generatedPaths).toContain("package-lock.json");
         expect(result.generatedPaths).toContain("tsconfig.json");
         expect(result.generatedPaths).toContain("src/app/page.tsx");
+        expect(result.generatedPaths).toContain("docs/project-management/milestones/index.md");
     });
 
     it("prepares a reproducible dependency lock for an existing application", async () => {
@@ -69,10 +78,17 @@ describe("application scaffold generator", () => {
         expect(paths).not.toContain("src/domain/legacy/vertical-slice.ts");
         const migration = scaffold.files.find(file => file.path === "supabase/migrations/202608050002_pbos_scholar_foundation.sql")?.content ?? "";
         expect(migration).toContain("scholar_profiles");
+        expect(migration).toContain("create table if not exists scholar_profiles");
+        expect(migration).toContain('drop policy if exists "scholar-profile-own"');
         expect(migration).not.toContain("beneficiary_searches");
         expect(paths).not.toContain("src/app/page.tsx");
         expect(paths).not.toContain("package.json");
         expect(scaffold.securityBoundaries).not.toContain("PRIVATE_DOCUMENT_BUCKET");
+        expect(paths).toContain("scripts/pbos-archive-milestone.mjs");
+        expect(paths).toContain("scripts/pbos-install-archivist.mjs");
+        const archivist = scaffold.files.find(file => file.path === ".pbos/archivist.json")?.content ?? "";
+        expect(archivist).toContain("PLAYBOOK-SYSTEM-001");
+        expect(archivist).not.toContain("BULLETPROOF-SYSTEM-001");
     });
 
     it("materializes only the authorized capability package and its durable evidence marker", () => {

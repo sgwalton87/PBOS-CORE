@@ -2,6 +2,8 @@
 
 Run `npm run pbos` to enter the factory, choose **Build or continue an existing application**, and explicitly select The Playbook or Bulletproof Beneficiary. Choose **Create and register a new operating system** only for a new product intake.
 
+For the direct operator path, run `npm run pbos:build:playbook` or `pbos build playbook`. The command opens or reuses one governed build session, verifies the PBOS v1 connector and domain contracts, selects the next eligible mission, prompts only when human authority is actually required, executes through the registered mission adapter, and keeps telemetry attached through validation. Once checks pass, the same terminal presents the protected certification-and-merge decision and continues to the next eligible mission after an affirmative signed approval. Bulletproof uses the same channel through `npm run pbos:build:bulletproof` or `pbos build bulletproof`; its application implementation and data remain independent.
+
 Use a direct shortcut when the application is already known:
 
 ```bash

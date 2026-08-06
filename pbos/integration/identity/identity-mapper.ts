@@ -23,7 +23,13 @@ export class IdentityMapper {
         repository?.identities(organizationId).forEach(mapping => this.mappings.set(mapping.mappingId, mapping));
     }
     map(mapping: IdentityMapping): void {
-        if (this.get(mapping.mappingId)) throw new Error(`Identity mapping already registered: ${mapping.mappingId}`);
+        const existing = this.get(mapping.mappingId);
+        if (existing) {
+            const sameIdentity = JSON.stringify(existing.externalIdentity) === JSON.stringify(mapping.externalIdentity) &&
+                JSON.stringify(existing.pbosIdentity) === JSON.stringify(mapping.pbosIdentity);
+            if (sameIdentity) return;
+            throw new Error(`Identity mapping already registered with different authority context: ${mapping.mappingId}`);
+        }
         if (mapping.externalIdentity.active !== mapping.pbosIdentity.active ||
             !mapping.externalIdentity.authorityReferences.every(reference => mapping.pbosIdentity.authorityContext.includes(reference))) {
             throw new Error("Identity mapping does not preserve authority context.");

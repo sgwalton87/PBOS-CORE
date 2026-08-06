@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
 import { GovernedMissionQueue } from "./mission-queue";
-import { MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 import { ProductionRuntimeService } from "./production-runtime-service";
 
 export interface MissionExecutionContext {
@@ -16,6 +17,9 @@ export interface MissionExecutionResult {
     readonly files?: Readonly<{ added?: readonly string[]; modified?: readonly string[]; deleted?: readonly string[] }>;
     readonly commands?: readonly Readonly<{ command: string; exitCode: number; durationMs: number; output?: string }>[];
     readonly validations: readonly Readonly<{ name: string; passed: boolean; durationMs: number; evidenceId: string }>[];
+    readonly deferredValidation?: Readonly<{ remediationRunId: string; pullRequestUrl: string }>;
+    readonly acceptanceEvidence?: readonly ApplicationAcceptanceEvidence[];
+    readonly functionalAcceptancePlan?: FunctionalAcceptancePlan;
 }
 
 export type ProductionMissionExecutor = (context: MissionExecutionContext) => Promise<MissionExecutionResult>;
@@ -31,11 +35,19 @@ export interface ProductionMissionRequest {
     readonly autonomousContinuation?: boolean;
     readonly maximumMissions?: number;
     readonly triggerSource?: ProductionRun["triggerSource"];
+    readonly buildChannel: Readonly<{
+        channelId: string;
+        systemId: string;
+        operatingSystemId: string;
+        connectorId: string;
+        repository: string;
+        domainRegistrationIds: readonly string[];
+    }>;
 }
 
 export interface ProductionMissionSequence {
     readonly runs: readonly ProductionRun[];
-    readonly stopReason: "APPROVAL_REQUIRED" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
+    readonly stopReason: "APPROVAL_REQUIRED" | "VALIDATION_IN_PROGRESS" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
     readonly nextMission?: MissionQueueItem;
 }
 
@@ -52,6 +64,11 @@ export class ProductionMissionRunner {
         }
         if (!/^[a-f0-9]{7,40}$/i.test(request.commit) || !request.repository.includes("/")) {
             throw new Error("Production mission requires exact repository lineage.");
+        }
+        if (!request.buildChannel.channelId || request.buildChannel.systemId !== request.systemId ||
+            request.buildChannel.repository !== request.repository || !request.buildChannel.operatingSystemId ||
+            !request.buildChannel.connectorId || request.buildChannel.domainRegistrationIds.length === 0) {
+            throw new Error("Production mission requires a matching Genesis to PBOS v1 build channel.");
         }
         const completed: ProductionRun[] = [];
         let parentRunId: string | undefined;
@@ -72,7 +89,12 @@ export class ProductionMissionRunner {
                 triggerSource: parentRunId ? "CONTINUATION" : request.triggerSource ?? "CLI",
                 autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS" });
             this.runtime.updateMissionStatus(request.systemId, mission.missionId, "ACTIVE");
-            this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", { missionId: mission.missionId });
+            this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", {
+                missionId: mission.missionId, buildChannelId: request.buildChannel.channelId,
+                operatingSystemId: request.buildChannel.operatingSystemId,
+                connectorId: request.buildChannel.connectorId,
+                domainRegistrationIds: request.buildChannel.domainRegistrationIds
+            });
             this.runtime.transition(run.runId, "STARTING", "Authorized mission execution is starting.");
             const plan = this.plan(run.runId, mission);
             this.runtime.recordExecutionPlan(run.runId, plan);
@@ -82,6 +104,16 @@ export class ProductionMissionRunner {
 
             try {
                 const result = await executor({ run: this.runtime.run(run.runId)!, mission, report: this.report });
+                if (mission.completionPolicy?.kind === "FUNCTIONAL_APPLICATION" && !result.functionalAcceptancePlan) {
+                    throw new Error(`Functional mission ${mission.missionId} execution adapter did not produce an executable acceptance plan.`);
+                }
+                const revision = typeof result.outputs.revision === "string" ? result.outputs.revision : undefined;
+                const resultBranch = typeof result.outputs.branch === "string" ? result.outputs.branch : request.branch;
+                if (revision && /^[a-f0-9]{7,40}$/i.test(revision)) this.runtime.updateRepositoryPosition(run.runId, resultBranch, revision);
+                const verifier = new FunctionalAcceptanceVerifier();
+                verifier.assertImplementationEvidence(mission, result.acceptanceEvidence ?? [], request.repository, revision ?? request.commit);
+                if (result.acceptanceEvidence?.length) this.runtime.recordAcceptanceEvidence(run.runId, result.acceptanceEvidence);
+                if (result.functionalAcceptancePlan) this.runtime.recordFunctionalAcceptancePlan(run.runId, result.functionalAcceptancePlan);
                 result.commands?.forEach(item => this.runtime.recordCommand(run.runId, item.command, item.exitCode, item.durationMs, item.output));
                 if (result.files) this.runtime.recordFiles(run.runId, result.files);
                 this.runtime.completeStage(stage.stageId, result.outputs, result.evidenceIds);
@@ -89,10 +121,19 @@ export class ProductionMissionRunner {
                 const validationStage = this.runtime.startStage(run.runId, "VALIDATION", `Validate ${mission.title}`);
                 result.validations.forEach(item => this.runtime.recordValidation(run.runId, item.name, item.passed, item.durationMs, item.evidenceId));
                 const failed = result.validations.filter(item => !item.passed);
+                if (result.deferredValidation && failed.length === 0) {
+                    this.runtime.recordValidation(run.runId, "GitHub Actions validation monitor started", true, 0,
+                        `remediation-run:${result.deferredValidation.remediationRunId}`);
+                    run = this.runtime.run(run.runId)!;
+                    completed.push(run);
+                    this.report("VALIDATING", `External validation is active for ${result.deferredValidation.pullRequestUrl}.`);
+                    return { runs: completed, stopReason: "VALIDATION_IN_PROGRESS" };
+                }
                 this.runtime.completeStage(validationStage.stageId, { passed: failed.length === 0, validations: result.validations.length },
                     result.validations.map(item => item.evidenceId));
                 if (failed.length) {
-                    this.runtime.updateMissionStatus(request.systemId, mission.missionId, "BLOCKED", result.evidenceIds);
+                    this.runtime.blockMissionForRun(run.runId,
+                        `Mission validation failed: ${failed.map(item => item.name).join(", ")}.`, result.evidenceIds);
                     this.runtime.transition(run.runId, "BLOCKED", "Mission validation failed and requires governed remediation.", {
                         failures: failed.map(item => item.name)
                     });
@@ -117,7 +158,7 @@ export class ProductionMissionRunner {
                 const current = this.runtime.run(run.runId);
                 if (current && !["BLOCKED", "FAILED", "CANCELLED"].includes(current.status)) {
                     if (current.activeStageId) this.runtime.failStage(current.activeStageId, error instanceof Error ? error.message : String(error));
-                    this.runtime.updateMissionStatus(request.systemId, mission.missionId, "BLOCKED");
+                    this.runtime.blockMissionForRun(run.runId, error instanceof Error ? error.message : String(error));
                     this.runtime.transition(run.runId, "FAILED", "Mission execution failed.", {
                         error: error instanceof Error ? error.message : String(error)
                     });
@@ -134,8 +175,23 @@ export class ProductionMissionRunner {
         if (!run || run.status !== "AWAITING_APPROVAL") throw new Error(`Run ${runId} is not awaiting approval.`);
         const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission && item.status === "ACTIVE");
         if (!mission) throw new Error(`Active mission for run ${runId} was not found.`);
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run);
+        const certified = mission.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
+            ? this.runtime.certifyFunctionalApplication(runId, approvalId)
+            : this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", {
+                approvalId, missionId: mission.missionId
+            });
         this.runtime.updateMissionStatus(run.systemId, mission.missionId, "COMPLETE", [`approval:${approvalId}`]);
-        return this.runtime.transition(runId, "CERTIFIED", "Human mission certification granted.", { approvalId, missionId: mission.missionId });
+        return certified;
+    }
+
+    assertCertifiable(runId: string): void {
+        const run = this.runtime.run(runId);
+        if (!run || run.status !== "AWAITING_APPROVAL") throw new Error(`Run ${runId} is not awaiting approval.`);
+        const mission = this.state.missionQueue(run.systemId)
+            .find(item => item.title === run.selectedMission && item.status === "ACTIVE");
+        if (!mission) throw new Error(`Active mission for run ${runId} was not found.`);
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, run);
     }
 
     private plan(runId: string, mission: MissionQueueItem): ProductionExecutionPlan {

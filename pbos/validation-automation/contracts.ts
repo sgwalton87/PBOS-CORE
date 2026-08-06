@@ -27,5 +27,6 @@ export interface RemediationRun {
 export interface RemediationChangeSet {
     readonly summary: string;
     readonly files: readonly { path: string; content: string }[];
+    readonly replacements?: readonly { path: string; search: string; replacement: string }[];
     readonly prepareDependencyLock?: boolean;
 }

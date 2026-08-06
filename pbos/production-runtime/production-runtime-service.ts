@@ -1,10 +1,12 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ExecutionLease, MissionControlSnapshot, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun,
-    ProductionStage, ProductionStatus, RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
+import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlSnapshot, MissionQueueItem,
+    PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
+    RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
 import { GovernedMissionQueue } from "./mission-queue";
+import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 
 export interface BeginProductionRun {
     readonly runId?: string;
@@ -26,6 +28,7 @@ export interface BeginProductionRun {
 
 const ACTIVE: readonly ProductionStatus[] = ["PLANNING", "AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING", "GENERATING_PREVIEW", "AWAITING_APPROVAL", "PAUSED", "RECOVERING"];
 const LEASE_REQUIRED: readonly ProductionStatus[] = ["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING", "GENERATING_PREVIEW", "RECOVERING"];
+export const DEFAULT_PRODUCTION_REPAIR_LIMIT = 5;
 
 export class ProductionRuntimeService {
     constructor(private readonly state: GenesisStateRepository, private readonly leaseTtlMs = 30_000,
@@ -45,8 +48,10 @@ export class ProductionRuntimeService {
             startingBranch: input.branch, startingCommit: input.commit, currentBranch: input.branch, currentCommit: input.commit,
             requestedObjective: input.objective, selectedMission: input.mission, selectionRationale: input.rationale,
             dependencySnapshot: input.dependencies ?? [], status: "AUTHORIZED", startedAt: timestamp, lastHeartbeatAt: timestamp,
-            stageIds: [], retryCount: 0, repairAttempts: 0, filesAdded: [], filesModified: [], filesDeleted: [],
-            commandsExecuted: [], testsExecuted: [], validationResults: [], previewArtifactIds: [], evidenceIds: [], blockers: [],
+            stageIds: [], retryCount: 0, repairAttempts: 0, repairAttemptLimit: DEFAULT_PRODUCTION_REPAIR_LIMIT,
+            repairExtensionApprovalIds: [], recoveryEpochIds: [], filesAdded: [], filesModified: [], filesDeleted: [],
+            commandsExecuted: [], testsExecuted: [], validationResults: [], previewArtifactIds: [], evidenceIds: [],
+            acceptanceEvidence: [], blockers: [],
             autonomousContinuation: input.autonomousContinuation ?? true
         };
         this.state.saveProductionRun(run);
@@ -57,17 +62,62 @@ export class ProductionRuntimeService {
 
     transition(runId: string, status: ProductionStatus, summary: string, payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
         const current = this.requireRun(runId);
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (["AWAITING_APPROVAL", "CERTIFIED"].includes(status) && mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Functional mission ${mission.missionId} may advance only through PBOS Kernel functional authority.`);
+        }
+        return this.commitTransition(current, status, summary, payload);
+    }
+
+    acceptFunctionalApplication(runId: string, summary: string,
+        payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
+        const current = this.requireRun(runId);
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Run ${runId} is not governed by a functional application completion policy.`);
+        }
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        const completedTypes = new Set(this.state.productionStages(runId)
+            .filter(stage => stage.status === "COMPLETED").map(stage => stage.type));
+        const requiredStages: StageType[] = ["PREREQUISITE", "APPLICATION_LAUNCH", "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE"];
+        if (mission.completionPolicy.requiredDimensions.includes("PREVIEW")) requiredStages.push("PREVIEW");
+        const missing = requiredStages.filter(type => !completedTypes.has(type));
+        if (missing.length) throw new Error(`Functional mission ${mission.missionId} is missing kernel stages: ${missing.join(", ")}.`);
+        return this.commitTransition(current, "AWAITING_APPROVAL", summary, payload);
+    }
+
+    certifyFunctionalApplication(runId: string, approvalId: string): ProductionRun {
+        const current = this.requireRun(runId);
+        if (current.status !== "AWAITING_APPROVAL" || !approvalId.trim()) {
+            throw new Error(`Functional run ${runId} requires a verifiable human certification approval.`);
+        }
+        const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error(`Run ${runId} is not governed by a functional application completion policy.`);
+        }
+        new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        return this.commitTransition(current, "CERTIFIED", "Human functional certification granted.", {
+            approvalId, missionId: mission.missionId
+        });
+    }
+
+    private commitTransition(current: ProductionRun, status: ProductionStatus, summary: string,
+        payload: Readonly<Record<string, unknown>>): ProductionRun {
         assertProductionTransition(current.status, status);
+        if (["AWAITING_APPROVAL", "COMPLETED", "CERTIFIED"].includes(status)) {
+            const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
+            if (mission) new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, current);
+        }
         const timestamp = this.now().toISOString();
         const terminal = isTerminalProductionStatus(status);
         const updated: ProductionRun = { ...current, status, lastHeartbeatAt: timestamp,
-            completedAt: terminal ? timestamp : current.completedAt,
-            durationMs: terminal ? Math.max(0, this.now().getTime() - Date.parse(current.startedAt)) : current.durationMs,
-            terminalSummary: terminal ? summary : current.terminalSummary };
+            completedAt: terminal ? timestamp : undefined,
+            durationMs: terminal ? Math.max(0, this.now().getTime() - Date.parse(current.startedAt)) : undefined,
+            terminalSummary: terminal ? summary : undefined };
         this.state.saveProductionRun(updated);
         this.event(updated, `RUN_${status}`, summary, payload, status === "FAILED" ? "ERROR" : status === "BLOCKED" ? "WARN" : "INFO");
-        if (terminal) this.releaseLease(runId, status === "CANCELLED" ? "CANCELLED" : "COMPLETED");
-        else if (status === "PAUSED" || status === "AWAITING_APPROVAL") this.releaseLease(runId, status);
+        if (terminal) this.releaseLease(current.runId, status === "CANCELLED" ? "CANCELLED" : "COMPLETED");
+        else if (status === "PAUSED" || status === "AWAITING_APPROVAL") this.releaseLease(current.runId, status);
         return updated;
     }
 
@@ -83,6 +133,12 @@ export class ProductionRuntimeService {
 
     startStage(runId: string, type: StageType, title: string, inputs: Readonly<Record<string, unknown>> = {}, command?: string): ProductionStage {
         const run = this.heartbeat(runId); const timestamp = this.now().toISOString();
+        if (run.activeStageId) {
+            const active = this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId);
+            if (active && !active.completedAt) {
+                throw new Error(`Production run ${runId} already has active stage ${active.stageId} (${active.type}).`);
+            }
+        }
         const stage: ProductionStage = { stageId: randomUUID(), runId, type, title, status: "RUNNING", startedAt: timestamp,
             lastHeartbeatAt: timestamp, attempt: 1, inputs, outputs: {}, command: command ? this.redact(command) : undefined,
             logs: [], evidenceIds: [] };
@@ -118,7 +174,9 @@ export class ProductionRuntimeService {
         const updated: ProductionStage = { ...stage, status: "FAILED", completedAt: timestamp, lastHeartbeatAt: timestamp,
             durationMs: Math.max(0, this.now().getTime() - Date.parse(stage.startedAt)), error: this.redact(error) };
         this.state.saveProductionStage(updated);
-        this.event(this.requireRun(stage.runId), "STAGE_FAILED", `${stage.title} failed.`, { stageId, error: updated.error }, "ERROR", stageId);
+        const run = this.requireRun(stage.runId);
+        if (run.activeStageId === stageId) this.state.saveProductionRun({ ...run, activeStageId: undefined, lastHeartbeatAt: timestamp });
+        this.event(run, "STAGE_FAILED", `${stage.title} failed.`, { stageId, error: updated.error }, "ERROR", stageId);
         return updated;
     }
 
@@ -157,6 +215,68 @@ export class ProductionRuntimeService {
         return updated;
     }
 
+    rebindRepositoryAfterRemediation(runId: string, remediationRunId: string, branch: string, commit: string): ProductionRun {
+        if (!branch.trim() || !/^[a-f0-9]{7,40}$/i.test(commit)) {
+            throw new Error("Remediation lineage requires an exact branch and commit.");
+        }
+        const run = this.heartbeat(runId);
+        if (!run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Remediation lineage is not linked to the production run.");
+        }
+        if (!run.functionalAcceptancePlan) {
+            throw new Error("Functional remediation requires an executable acceptance plan.");
+        }
+        const browserJourneys = run.functionalAcceptancePlan.browserJourneys.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
+        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys,
+            planId: `${run.functionalAcceptancePlan.planId.split(":remediation:")[0]}:remediation:${commit}` };
+        const updated: ProductionRun = { ...run, currentBranch: branch, currentCommit: commit,
+            repositoryContextId: `repository:${run.repository}:${commit}`, functionalAcceptancePlan: plan,
+            acceptanceEvidence: [], previewArtifactIds: [], lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "REMEDIATION_LINEAGE_REBOUND",
+            "Production and functional acceptance lineage advanced to the remediated revision.", {
+                remediationRunId, branch, commit, planId: plan.planId
+            });
+        return updated;
+    }
+
+    /**
+     * Repairs nested acceptance lineage in durable plans written by older PBOS
+     * revisions. This does not authorize a new revision: it may only make the
+     * plan agree with the already-governed current repository position.
+     */
+    normalizeFunctionalAcceptanceLineage(runId: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const current = run.functionalAcceptancePlan;
+        if (!current) return run;
+        const browserJourneys = current.browserJourneys.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
+        const changed = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
+            browserJourneys.some((journey, index) =>
+                journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
+                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
+        if (!changed) return run;
+        const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
+            browserJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
+            acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
+            previewArtifactIds: current.commit === run.currentCommit ? run.previewArtifactIds : [],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED",
+            "Durable functional acceptance lineage synchronized to the governed repository revision.", {
+                branch: run.currentBranch, commit: run.currentCommit, planId: plan.planId
+            });
+        return updated;
+    }
+
     recordValidation(runId: string, name: string, passed: boolean, durationMs: number, evidenceId: string): ProductionRun {
         if (!name.trim() || !evidenceId.trim() || durationMs < 0) throw new Error("Validation evidence is incomplete.");
         const run = this.heartbeat(runId);
@@ -169,13 +289,96 @@ export class ProductionRuntimeService {
         return updated;
     }
 
-    recordRepairAttempt(runId: string, classification: string, outcome: "STARTED" | "SUCCEEDED" | "FAILED", maximumAttempts = 5): ProductionRun {
+    recordAcceptanceEvidence(runId: string, evidence: readonly ApplicationAcceptanceEvidence[]): ProductionRun {
+        if (!evidence.length) return this.requireRun(runId);
+        const run = this.heartbeat(runId);
+        const byId = new Map((run.acceptanceEvidence ?? []).map(item => [item.evidenceId, item]));
+        for (const item of evidence) byId.set(item.evidenceId, item);
+        const updated: ProductionRun = { ...run, acceptanceEvidence: [...byId.values()] };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "ACCEPTANCE_EVIDENCE_RECORDED", "Functional application acceptance evidence recorded.", {
+            evidenceIds: evidence.map(item => item.evidenceId), dimensions: [...new Set(evidence.map(item => item.dimension))]
+        });
+        return updated;
+    }
+
+    repairBudget(runId: string): Readonly<{ attempts: number; limit: number; remaining: number }> {
+        const run = this.requireRun(runId);
+        const limit = run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT;
+        return { attempts: run.repairAttempts, limit, remaining: Math.max(0, limit - run.repairAttempts) };
+    }
+
+    registerRecoveryEpoch(runId: string, recoveryEpochId: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const epoch = this.state.productionRecoveryEpoch(recoveryEpochId);
+        if (!epoch || epoch.runId !== runId || epoch.status !== "AWAITING_AUTHORIZATION") {
+            throw new Error("Recovery epoch registration does not match the blocked production run.");
+        }
+        const updated: ProductionRun = { ...run,
+            recoveryEpochIds: [...new Set([...(run.recoveryEpochIds ?? []), recoveryEpochId])],
+            evidenceIds: [...new Set([...run.evidenceIds, `recovery-epoch:${recoveryEpochId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "RECOVERY_AUTHORITY_REQUESTED",
+            `Recovery epoch ${epoch.epochNumber} requires explicit operator authorization.`, {
+                recoveryEpochId, epochNumber: epoch.epochNumber, repairAttempts: epoch.runtimeState.repairAttempts,
+                repairAttemptLimit: epoch.runtimeState.repairAttemptLimit, remainingDefects: epoch.remainingDefects
+            });
+        return updated;
+    }
+
+    activateRecoveryEpoch(runId: string, recoveryEpochId: string, approvalId: string, actorId: string,
+        additionalAttempts = 1): ProductionRun {
+        const run = this.requireActor(runId, actorId);
+        const epoch = this.state.productionRecoveryEpoch(recoveryEpochId);
+        const budget = this.repairBudget(runId);
+        if (!epoch || epoch.runId !== runId || epoch.status !== "AUTHORIZED" ||
+            epoch.authorizationApprovalId !== approvalId || run.status !== "BLOCKED" || budget.remaining > 0) {
+            throw new Error(`Run ${runId} is not eligible for an authorized recovery epoch.`);
+        }
+        if (!approvalId.trim() || additionalAttempts !== 1) {
+            throw new Error("A constitutional recovery epoch authorizes exactly one additional bounded repair attempt.");
+        }
+        const approvals = [...new Set([...(run.repairExtensionApprovalIds ?? []), approvalId])];
+        if (approvals.length === (run.repairExtensionApprovalIds ?? []).length) {
+            throw new Error(`Repair-budget approval ${approvalId} has already been consumed.`);
+        }
+        const updated: ProductionRun = { ...run, repairAttemptLimit: budget.limit + additionalAttempts,
+            repairExtensionApprovalIds: approvals, evidenceIds: [...new Set([...run.evidenceIds, `approval:${approvalId}`])],
+            activeRecoveryEpochId: recoveryEpochId, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "RECOVERY_AUTHORITY_GRANTED",
+            `Recovery epoch ${epoch.epochNumber} authorized ${additionalAttempts} additional bounded repair attempt${additionalAttempts === 1 ? "" : "s"}.`, {
+                recoveryEpochId, epochNumber: epoch.epochNumber, approvalId, previousLimit: budget.limit,
+                repairAttemptLimit: updated.repairAttemptLimit, additionalAttempts
+            });
+        return updated;
+    }
+
+    closeRecoveryEpoch(runId: string, recoveryEpochId: string, outcome: "COMPLETED" | "EXHAUSTED", reason: string): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.activeRecoveryEpochId !== recoveryEpochId || !reason.trim()) {
+            throw new Error("Recovery epoch closure does not match the active production lineage.");
+        }
+        const updated: ProductionRun = { ...run, activeRecoveryEpochId: undefined, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, `RECOVERY_EPOCH_${outcome}`,
+            `Active recovery epoch ${outcome === "COMPLETED" ? "completed" : "exhausted"}: ${reason}`, {
+                recoveryEpochId, outcome, reason, repairAttempts: run.repairAttempts,
+                repairAttemptLimit: run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT
+            }, outcome === "EXHAUSTED" ? "WARN" : "INFO");
+        return updated;
+    }
+
+    recordRepairAttempt(runId: string, classification: string, outcome: "STARTED" | "SUCCEEDED" | "FAILED", maximumAttempts?: number): ProductionRun {
         const run = this.heartbeat(runId);
         const attempts = outcome === "STARTED" ? run.repairAttempts + 1 : run.repairAttempts;
-        if (attempts > maximumAttempts) throw new Error(`Repair limit exceeded for run ${runId}.`);
+        const limit = maximumAttempts ?? run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT;
+        if (attempts > limit) throw new Error(`Repair limit exhausted for run ${runId} after ${run.repairAttempts}/${limit} attempts.`);
         const updated = { ...run, repairAttempts: attempts };
         this.state.saveProductionRun(updated);
-        this.event(updated, `REPAIR_${outcome}`, `Repair ${outcome.toLowerCase()}: ${classification}.`, { classification, attempt: attempts, maximumAttempts }, outcome === "FAILED" ? "ERROR" : "INFO");
+        this.event(updated, `REPAIR_${outcome}`, `Repair ${outcome.toLowerCase()}: ${classification}.`,
+            { classification, attempt: attempts, maximumAttempts: limit }, outcome === "FAILED" ? "ERROR" : "INFO");
         return updated;
     }
 
@@ -192,14 +395,52 @@ export class ProductionRuntimeService {
         return updated;
     }
 
+    recordFunctionalAcceptancePlan(runId: string, plan: FunctionalAcceptancePlan): ProductionRun {
+        const run = this.heartbeat(runId);
+        if (plan.systemId !== run.systemId || plan.repository !== run.repository || plan.branch !== run.currentBranch ||
+            plan.commit !== run.currentCommit || !plan.planId.trim() || !plan.productNodeId.trim() || !plan.journeyId.trim()) {
+            throw new Error("Functional acceptance plan does not match the active production lineage.");
+        }
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "FUNCTIONAL_ACCEPTANCE_PLANNED", "Executable application acceptance plan recorded.", {
+            planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId,
+            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId)
+        });
+        return updated;
+    }
+
     updateMissionStatus(systemId: string, missionId: string, status: MissionQueueItem["status"],
         evidenceIds: readonly string[] = []): MissionQueueItem {
         const items = this.state.missionQueue(systemId);
         const current = items.find(item => item.missionId === missionId);
         if (!current) throw new Error(`Mission not found: ${missionId}`);
-        const updated = { ...current, status, evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])] };
+        if (status === "COMPLETE" && current.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
+            const run = [...this.state.productionRuns()].reverse().find(item =>
+                item.systemId === systemId && item.selectedMission === current.title);
+            if (!run) throw new Error(`Functional mission ${missionId} has no production run acceptance evidence.`);
+            new FunctionalAcceptanceVerifier().assertCertificationEvidence(current, this.normalizeRun(run));
+        }
+        const updated = { ...current, status, evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])],
+            executionBlocker: status === "ACTIVE" || status === "COMPLETE" ? undefined : current.executionBlocker,
+            blockedRunId: status === "ACTIVE" || status === "COMPLETE" ? undefined : current.blockedRunId };
         this.reconcileQueue(systemId, items.map(item => item.missionId === missionId ? updated : item));
         return this.state.missionQueue(systemId).find(item => item.missionId === missionId)!;
+    }
+
+    blockMissionForRun(runId: string, reason: string, evidenceIds: readonly string[] = []): MissionQueueItem {
+        const run = this.requireRun(runId);
+        const items = this.state.missionQueue(run.systemId);
+        const current = items.find(item => item.title === run.selectedMission);
+        if (!current) throw new Error(`Mission for production run ${runId} was not found.`);
+        const updated: MissionQueueItem = { ...current, status: "BLOCKED", rationale: `Execution blocked: ${reason}`,
+            executionBlocker: reason, blockedRunId: runId,
+            evidenceIds: [...new Set([...current.evidenceIds, ...evidenceIds])] };
+        this.reconcileQueue(run.systemId, items.map(item => item.missionId === current.missionId ? updated : item));
+        this.event(run, "MISSION_EXECUTION_BLOCKED", "Mission selection is blocked until the existing run is recovered.", {
+            missionId: current.missionId, reason
+        }, "WARN");
+        return this.state.missionQueue(run.systemId).find(item => item.missionId === current.missionId)!;
     }
 
     reconcileQueue(systemId: string, items: readonly MissionQueueItem[]): readonly MissionQueueItem[] {
@@ -208,11 +449,42 @@ export class ProductionRuntimeService {
         return reconciled;
     }
 
-    activeRun(repository?: string): ProductionRun | undefined {
-        return [...this.state.productionRuns()].reverse().find(run => ACTIVE.includes(run.status) && (!repository || run.repository === repository));
+    reconcileMissionExecutionState(systemId: string): readonly MissionQueueItem[] {
+        const items = this.state.missionQueue(systemId);
+        let updated = [...items];
+        for (const mission of items.filter(item => item.status === "ACTIVE" || item.executionBlocker)) {
+            const run = [...this.state.productionRuns()].reverse().find(item =>
+                item.systemId === systemId && item.selectedMission === mission.title);
+            if (!run) {
+                if (mission.status === "ACTIVE") {
+                    updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "BLOCKED" as const,
+                        rationale: "Execution blocked: active mission has no durable production run.",
+                        executionBlocker: "Active mission has no durable production run." } : item);
+                }
+                continue;
+            }
+            if (["BLOCKED", "FAILED", "CANCELLED"].includes(run.status)) {
+                updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "BLOCKED" as const,
+                    rationale: `Execution blocked: ${run.terminalSummary ?? run.status}.`,
+                    executionBlocker: run.terminalSummary ?? run.status, blockedRunId: run.runId } : item);
+            } else if (["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING",
+                "GENERATING_PREVIEW", "AWAITING_APPROVAL", "PAUSED", "RECOVERING"].includes(run.status)) {
+                updated = updated.map(item => item.missionId === mission.missionId ? { ...item, status: "ACTIVE" as const,
+                    executionBlocker: undefined, blockedRunId: undefined } : item);
+            }
+        }
+        return this.reconcileQueue(systemId, updated);
     }
-    run(runId: string): ProductionRun | undefined { return this.state.productionRun(runId); }
-    history(): readonly ProductionRun[] { return [...this.state.productionRuns()].reverse(); }
+
+    activeRun(repository?: string): ProductionRun | undefined {
+        const run = [...this.state.productionRuns()].reverse().find(item => ACTIVE.includes(item.status) && (!repository || item.repository === repository));
+        return run ? this.normalizeRun(run) : undefined;
+    }
+    run(runId: string): ProductionRun | undefined {
+        const run = this.state.productionRun(runId);
+        return run ? this.normalizeRun(run) : undefined;
+    }
+    history(): readonly ProductionRun[] { return [...this.state.productionRuns()].reverse().map(run => this.normalizeRun(run)); }
     events(runId?: string, afterSequence = 0): readonly ProductionEvent[] {
         return this.state.productionEvents(runId).filter(event => event.sequence > afterSequence);
     }
@@ -229,7 +501,72 @@ export class ProductionRuntimeService {
         const run = this.requireActor(runId, actorId);
         if (!["PAUSED", "RECOVERING"].includes(run.status)) throw new Error(`Run ${runId} is not resumable from ${run.status}.`);
         if (!this.activeLease(runId)) this.acquireLease(run);
-        return this.transition(runId, run.activeStageId ? "RUNNING" : "VALIDATING", "Authorized run resumed from its durable checkpoint.", { actorId });
+        const activeStage = run.activeStageId
+            ? this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId) : undefined;
+        const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
+            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE", "PREVIEW"];
+        const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
+        const resumed = this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
+        if (target === "VALIDATING" && !activeStage) {
+            this.startStage(runId, "VALIDATION", `Resume validation for ${run.selectedMission}`, {
+                recoveryCheckpoint: run.resumeCheckpoint ?? "VALIDATION"
+            });
+            return this.requireRun(runId);
+        }
+        return resumed;
+    }
+
+    recoverPrematureIndependentValidation(runId: string, remediationRunId: string, headSha: string): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Premature validation recovery does not match the governed production lineage.");
+        }
+        const blocked = [...this.state.productionEvents(runId)].reverse().find(item => item.type === "RUN_BLOCKED");
+        if (blocked?.payload.reason !==
+            "Functional completion requires at least one independent application check on the exact revision.") {
+            throw new Error("The blocked production run is not eligible for automatic independent-validation recovery.");
+        }
+        return this.recoverBlockedFunctionalValidation(runId, remediationRunId, headSha,
+            "PREMATURE_INDEPENDENT_VALIDATION_TERMINAL");
+    }
+
+    recoverBlockedFunctionalValidation(runId: string, remediationRunId: string, headSha: string,
+        recovery = "FUNCTIONAL_ACCEPTANCE_RETRY"): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+        if (mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION") {
+            throw new Error("Only a functional application mission can use functional validation recovery.");
+        }
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Functional validation recovery does not match the governed production lineage.");
+        }
+        return this.recoverBlockedValidation(runId, remediationRunId, headSha, recovery);
+    }
+
+    recoverBlockedValidation(runId: string, remediationRunId: string, headSha: string,
+        recovery = "VALIDATION_RETRY"): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.status !== "BLOCKED") return run;
+        const budget = this.repairBudget(runId);
+        if (budget.remaining === 0) {
+            throw new Error(`Run ${runId} exhausted its bounded repair budget (${budget.attempts}/${budget.limit}); verified operator approval is required to continue.`);
+        }
+        if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
+            !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
+            throw new Error("Validation recovery does not match the governed production lineage.");
+        }
+        const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+        this.transition(runId, "RECOVERING",
+            "Recovering a blocked run at the last exact-revision validation checkpoint.", {
+                remediationRunId, headSha, recovery
+        });
+        if (mission) this.updateMissionStatus(run.systemId, mission.missionId, "ACTIVE");
+        this.resume(runId, run.actorId);
+        return this.requireRun(runId);
     }
 
     cancel(runId: string, actorId: string): ProductionRun {
@@ -257,8 +594,16 @@ export class ProductionRuntimeService {
             this.state.saveExecutionLease({ ...lease, status: "STALE", recoveryMetadata: { classifiedAt: this.now().toISOString() } });
             const run = this.requireRun(lease.runId);
             if (ACTIVE.includes(run.status)) {
-                const updated = { ...run, status: "RECOVERING" as const, lastHeartbeatAt: this.now().toISOString(),
-                    resumeCheckpoint: run.activeStageId ?? "RUN_START" };
+                const activeStage = run.activeStageId
+                    ? this.state.productionStages(run.runId).find(stage => stage.stageId === run.activeStageId) : undefined;
+                if (activeStage && !activeStage.completedAt) {
+                    this.failStage(activeStage.stageId,
+                        "Execution was interrupted after its cross-process lease expired; no acceptance result was recorded.");
+                }
+                const current = this.requireRun(lease.runId);
+                const updated = { ...current, status: "RECOVERING" as const, activeStageId: undefined,
+                    lastHeartbeatAt: this.now().toISOString(),
+                    resumeCheckpoint: activeStage?.type ?? run.activeStageId ?? "RUN_START" };
                 this.state.saveProductionRun(updated); this.event(updated, "RUN_RECOVERY_REQUIRED", "Stale execution lease requires deterministic recovery.", { leaseId: lease.leaseId }, "WARN");
                 recovered.push(updated);
             }
@@ -332,7 +677,14 @@ export class ProductionRuntimeService {
     private activeLease(runId: string): ExecutionLease | undefined {
         return [...this.state.executionLeases()].reverse().find(lease => lease.runId === runId && lease.status === "ACTIVE");
     }
-    private requireRun(runId: string): ProductionRun { const run = this.state.productionRun(runId); if (!run) throw new Error(`Production run not found: ${runId}`); return run; }
+    private requireRun(runId: string): ProductionRun {
+        const run = this.state.productionRun(runId);
+        if (!run) throw new Error(`Production run not found: ${runId}`);
+        return this.normalizeRun(run);
+    }
+    private normalizeRun(run: ProductionRun): ProductionRun {
+        return { ...run, acceptanceEvidence: run.acceptanceEvidence ?? [] };
+    }
     private requireActor(runId: string, actorId: string): ProductionRun {
         const run = this.requireRun(runId);
         if (run.actorId !== actorId) throw new Error(`Operator ${actorId} does not own run ${runId}.`);

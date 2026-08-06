@@ -38,7 +38,10 @@ export class JsonStateStore<T> {
         const lockPath = `${this.path}.lock`;
         let descriptor: number | undefined;
         const wait = new Int32Array(new SharedArrayBuffer(4));
-        for (let attempt = 0; attempt < 100; attempt += 1) {
+        // Cross-process production telemetry and background validation can
+        // legitimately overlap. Wait for the full stale-lock window instead
+        // of failing after two seconds and abandoning an active mission.
+        for (let attempt = 0; attempt < 1_600; attempt += 1) {
             try {
                 descriptor = openSync(lockPath, "wx", 0o600);
                 writeFileSync(descriptor, `${process.pid} ${Date.now()}\n`, "utf8");

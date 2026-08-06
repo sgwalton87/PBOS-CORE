@@ -1,0 +1,53 @@
+id: PBS-5000
+
+title: Autonomous Software Production Runtime Constitution
+
+version: 1.0.0
+
+status: Canonical
+
+classification: Engineering Constitution
+
+owner: PBOS
+
+layer: Kernel
+
+release_blocking: true
+
+validation_required: true
+
+inherits:
+
+  - PPS-000
+  - PPS-001
+  - PPS-002
+  - PPS-003
+  - PPS-004
+  - PPS-005
+  - PPS-006
+  - PPS-007
+  - PPS-008
+  - PPS-009
+  - PPS-010
+  - PPS-011
+  - PPS-012
+  - PPS-013
+  - PPS-014
+  - PPS-015
+
+purpose:
+
+  Define the constitutional architecture governing autonomous software production.
+
+primary_objective:
+
+  Transform PBOS into an autonomous software production operating system.
+
+north_star:
+
+  Functional application behavior.
+
+optimization_target:
+
+  Verified product capability.
+

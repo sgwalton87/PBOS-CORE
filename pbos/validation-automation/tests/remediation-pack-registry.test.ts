@@ -3,7 +3,7 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { createBulletproofBlueprint, createPlaybookBlueprint } from "../../reference-systems";
 import {
     EducationRemediationPack, LegacyPlanningRemediationPack, NextJsRemediationPack, NodeDependencyRemediationPack,
-    ProjectRemediationProfileRegistry, RemediationPackRegistry, SupabaseRemediationPack,
+    PlaywrightAcceptanceIsolationRemediationPack, ProjectRemediationProfileRegistry, RemediationPackRegistry, SupabaseRemediationPack,
     UniversalRemediationHandler
 } from "../index";
 
@@ -18,7 +18,8 @@ const createNewBlueprint = () => ({ ...createBulletproofBlueprint(), application
 describe("universal remediation pack registry", () => {
     function configured() {
         const packs = new RemediationPackRegistry();
-        [new NodeDependencyRemediationPack(), new NextJsRemediationPack(), new SupabaseRemediationPack(), new LegacyPlanningRemediationPack(), new EducationRemediationPack()]
+        [new NodeDependencyRemediationPack(), new NextJsRemediationPack(), new SupabaseRemediationPack(), new LegacyPlanningRemediationPack(),
+            new EducationRemediationPack(), new PlaywrightAcceptanceIsolationRemediationPack()]
             .forEach(pack => packs.register(pack));
         const projects = new ProjectRemediationProfileRegistry();
         return { packs, projects };
@@ -53,6 +54,28 @@ describe("universal remediation pack registry", () => {
             .propose(failedRun("APP-001", "example/app", "npm ci requires package-lock.json"));
         expect(changes?.prepareDependencyLock).toBe(true);
         expect(changes?.files).toEqual([]);
+    });
+
+    it("isolates historical Playwright acceptance files from the Playbook Vitest suite", async () => {
+        const { packs, projects } = configured();
+        projects.register({ systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform",
+            remediationPackIds: ["@pbos/remediation-playwright-acceptance-isolation"], createBlueprint: createPlaybookBlueprint });
+        const changes = await new UniversalRemediationHandler({} as GitHubRepositoryGateway, packs, projects)
+            .propose(failedRun("PLAYBOOK-SYSTEM-001", "sgwalton87/playbook-platform",
+                "FAIL tests/acceptance/pbos-scholar.spec.ts Playwright Test did not expect test() to be called here"));
+        expect(changes?.files).toEqual([expect.objectContaining({ path: "vitest.config.ts",
+            content: expect.stringContaining('"tests/acceptance/**"') })]);
+        expect(changes?.replacements).toEqual(expect.arrayContaining([
+            expect.objectContaining({ path: "pbos/connector/playbook-connector.ts",
+                replacement: "PLAYBOOK-SCHOLAR-REGISTRATION-001" }),
+            expect.objectContaining({ path: "pbos/connector/playbook-system-manifest.ts" }),
+            expect.objectContaining({ path: "lib/pbos/scholar-onboarding-service.ts",
+                replacement: expect.stringContaining("verifyReady") }),
+            expect.objectContaining({ path: "app/api/pbos/scholar/onboarding/route.ts",
+                replacement: expect.stringContaining("connector.health") }),
+            expect.objectContaining({ path: "pbos/connector/signed-server-transport.ts",
+                replacement: expect.stringContaining("AbortSignal.timeout") })
+        ]));
     });
 
     it("returns no deterministic remediation when a matching pack produces no scoped files", async () => {

@@ -13,3 +13,4 @@ export * from "./domain/domain-registry";
 export * from "./runtime/kernel-state";
 export * from "./runtime/kernel-runtime";
 export * from "./storage/storage-contract";
+export * from "./production";

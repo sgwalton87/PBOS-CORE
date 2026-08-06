@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdir, writeFile } from "fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
@@ -18,7 +18,7 @@ export class NodeCommandRunner implements CommandRunner {
     }
 }
 
-export interface RepositoryFileChange { readonly path: string; readonly content: string; }
+export interface RepositoryFileChange { readonly path: string; readonly content: string; readonly executable?: boolean; }
 export interface PullRequestReference { readonly url: string; readonly number: number; readonly branch: string; readonly repository: string; }
 
 /** Concrete GitHub implementation. Every process invocation uses argv arrays; no repository value enters a shell. */
@@ -39,6 +39,14 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
                 : "DEPENDENCY_MANIFEST:NOT_APPLICABLE",
             ...this.capabilityFindings(files)];
         return { repository, revision, findings, inspectedAt: new Date(), files };
+    }
+
+    async workingDirectory(repository: RepositoryReference): Promise<string> {
+        return this.checkout(repository);
+    }
+
+    async currentRevision(repository: RepositoryReference): Promise<string> {
+        return (await this.commands.run("git", ["rev-parse", "HEAD"], await this.checkout(repository))).stdout.trim();
     }
 
     async createBranch(repository: RepositoryReference, branch: string, baseRevision: string): Promise<string> {
@@ -62,8 +70,32 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
             const target = this.safePath(cwd, change.path);
             await mkdir(resolve(target, ".."), { recursive: true });
             await writeFile(target, change.content, "utf8");
+            if (change.executable) await chmod(target, 0o755);
         }
         return changes.map(change => change.path);
+    }
+
+    async applyTextReplacements(repository: RepositoryReference,
+        replacements: readonly { readonly path: string; readonly search: string; readonly replacement: string }[]): Promise<readonly string[]> {
+        const cwd = await this.checkout(repository);
+        for (const change of replacements) {
+            if (!change.search) throw new Error(`Repository text replacement requires a non-empty search value: ${change.path}`);
+            const target = this.safePath(cwd, change.path);
+            const current = await readFile(target, "utf8");
+            if (!current.includes(change.search)) {
+                if (current.includes(change.replacement)) continue;
+                throw new Error(`Repository source changed before deterministic remediation: ${change.path}`);
+            }
+            await writeFile(target, current.replaceAll(change.search, change.replacement), "utf8");
+        }
+        return [...new Set(replacements.map(item => item.path))];
+    }
+
+    async readFileAtRevision(repository: RepositoryReference, path: string, revision: string): Promise<string> {
+        const cwd = await this.checkout(repository);
+        this.safePath(cwd, path);
+        if (!/^[a-f0-9]{7,40}$/i.test(revision)) throw new Error("Repository file reads require an exact revision.");
+        return (await this.commands.run("git", ["show", `${revision}:${path}`], cwd)).stdout;
     }
 
     async commit(repository: RepositoryReference, message: string, paths: readonly string[]): Promise<string> {
@@ -98,26 +130,38 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         return { url, number, branch, repository: `${repository.owner}/${repository.name}` };
     }
 
+    async mergePullRequest(pullRequest: PullRequestReference): Promise<void> {
+        const [owner, name] = pullRequest.repository.split("/");
+        if (!owner || !name) throw new Error("Pull request merge requires a valid repository identity.");
+        const repository: RepositoryReference = { owner, name, defaultBranch: "main" };
+        this.assertBranch(pullRequest.branch);
+        const cwd = await this.checkout(repository);
+        const view = await this.commands.run("gh", ["pr", "view", String(pullRequest.number), "--repo", pullRequest.repository,
+            "--json", "isDraft", "--jq", ".isDraft"], cwd);
+        if (view.stdout.trim() === "true") {
+            await this.commands.run("gh", ["pr", "ready", String(pullRequest.number), "--repo", pullRequest.repository], cwd);
+        }
+        await this.commands.run("gh", ["pr", "merge", String(pullRequest.number), "--squash", "--delete-branch", "--repo", pullRequest.repository], cwd);
+    }
+
     async dispatch(proposal: RepositoryChangeProposal, approval: RepositoryApproval): Promise<RepositoryDispatch> {
         if (proposal.proposalId !== approval.proposalId) throw new Error("Dispatch approval does not match proposal.");
-        return { dispatchId: randomUUID(), proposalId: proposal.proposalId, revision: proposal.baseRevision, status: "COMPLETED" };
+        throw new Error("Legacy repository dispatch is disabled by PBS-5000; use the governed branch/change/commit/push/draft-PR production path.");
     }
 
     async collectEvidence(dispatch: RepositoryDispatch): Promise<readonly RepositoryValidationEvidence[]> {
         return this.collectValidationEvidence(dispatch);
     }
     async collectValidationEvidence(dispatch: RepositoryDispatch): Promise<readonly RepositoryValidationEvidence[]> {
-        return ["TYPECHECK", "TEST", "BUILD"].map(kind => ({ evidenceId: randomUUID(), dispatchId: dispatch.dispatchId,
-            kind: kind as RepositoryValidationEvidence["kind"], passed: false, collectedAt: new Date() }));
+        throw new Error(`Legacy dispatch evidence is disabled by PBS-5000 for ${dispatch.dispatchId}; collect exact-revision GitHub checks through the production runtime.`);
     }
 
     async promote(dispatch: RepositoryDispatch, scorecard: EcosystemScorecard): Promise<CertifiedPromotion> {
         return this.mergeApprovedChange(dispatch, scorecard);
     }
     async mergeApprovedChange(dispatch: RepositoryDispatch, scorecard: EcosystemScorecard, pullRequest?: PullRequestReference): Promise<CertifiedPromotion> {
-        if (dispatch.status !== "COMPLETED" || scorecard.certificationState !== "CERTIFIED") throw new Error("Merge requires completed work and certification.");
-        if (pullRequest) await this.commands.run("gh", ["pr", "merge", String(pullRequest.number), "--squash", "--repo", pullRequest.repository]);
-        return { promotionId: randomUUID(), dispatchId: dispatch.dispatchId, revision: dispatch.revision, status: "PROMOTED", promotedAt: new Date() };
+        void scorecard; void pullRequest;
+        throw new Error(`Legacy scorecard promotion is disabled by PBS-5000 for ${dispatch.dispatchId}; use kernel certification and explicit pull-request promotion.`);
     }
 
     private async checkout(repository: RepositoryReference): Promise<string> {

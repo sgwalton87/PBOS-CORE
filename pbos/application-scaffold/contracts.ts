@@ -7,7 +7,7 @@ export interface ApplicationStack {
     readonly authentication: "SUPABASE_AUTH";
     readonly deployment: "VERCEL";
 }
-export interface ScaffoldFile { readonly path: string; readonly content: string; }
+export interface ScaffoldFile { readonly path: string; readonly content: string; readonly executable?: boolean; }
 export interface ApplicationScaffold {
     readonly scaffoldId: string;
     readonly blueprintId: string;
@@ -16,6 +16,7 @@ export interface ApplicationScaffold {
     readonly securityBoundaries: readonly string[];
     readonly mode: "NEW_APPLICATION" | "EXISTING_APPLICATION_OVERLAY";
     readonly dependencyLock: Readonly<{ manager: "NPM"; path: "package-lock.json"; required: boolean }>;
+    readonly platformCapabilities: readonly ["PBOS_ENGINEERING_MEMORY"];
     readonly generatedAt: Date;
 }
 export interface ScaffoldRequest {
