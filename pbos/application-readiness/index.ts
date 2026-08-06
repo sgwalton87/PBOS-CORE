@@ -21,3 +21,4 @@ export * from "./playbook-mobile-foundation-executor";
 export * from "./playbook-mobile-functional-acceptance";
 export * from "./playbook-mobile-journeys-executor";
 export * from "./playbook-mobile-store-readiness-executor";
+export * from "./playbook-mobile-certification-executor";

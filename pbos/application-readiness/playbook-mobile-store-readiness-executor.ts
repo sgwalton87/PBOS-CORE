@@ -129,7 +129,8 @@ function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvi
     ];
 }
 
-async function storePlan(gateway: GitHubRepositoryGateway, reference: Parameters<typeof playbookMobileAcceptancePlan>[1],
+export async function playbookMobileReleaseAcceptancePlan(
+    gateway: GitHubRepositoryGateway, reference: Parameters<typeof playbookMobileAcceptancePlan>[1],
     branch: string, revision: string, approvalId: string): Promise<FunctionalAcceptancePlan> {
     const mobile = await playbookMobileAcceptancePlan(gateway, reference, branch, revision);
     return { ...mobile, planId: `playbook-mobile-store-readiness:${revision}`,
@@ -199,7 +200,7 @@ export function playbookMobileStoreReadinessExecutor(
                 durationMs: 0, evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
             acceptanceEvidence: acceptanceEvidence(revision),
-            functionalAcceptancePlan: await storePlan(dependencies.gateway, reference, branch, revision,
+            functionalAcceptancePlan: await playbookMobileReleaseAcceptancePlan(dependencies.gateway, reference, branch, revision,
                 dependencies.deploymentApprovalId)
         };
     };

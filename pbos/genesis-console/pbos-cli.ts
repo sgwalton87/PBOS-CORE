@@ -25,7 +25,8 @@ import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissi
 import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
-    playbookMobileFoundationExecutor, playbookMobileJourneysExecutor, playbookMobileStoreReadinessExecutor,
+    playbookMobileCertificationExecutor, playbookMobileFoundationExecutor, playbookMobileJourneysExecutor,
+    playbookMobileStoreReadinessExecutor,
     playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
@@ -214,7 +215,7 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     if (mission.missionId === "048-web-staging") {
         io.write("This approval includes one exact-revision Vercel preview deployment after independent CI passes.");
         io.write("Production deployment, merge, secret mutation, destructive migration, certification, and cross-repository work remain excluded.");
-    } else if (mission.missionId === "049-store-readiness") {
+    } else if (["049-store-readiness", "049-certification"].includes(mission.missionId)) {
         io.write("This approval includes exact-revision EAS internal builds and store-signed binaries after independent CI passes.");
         io.write("Store submission is restricted to TestFlight and Google Play internal testing. Public release, merge, secret mutation, destructive migration, and certification remain excluded.");
     } else {
@@ -328,7 +329,7 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
         io.write(`Mission: ${mission.title}`);
         io.write(`Validated pull request: ${remediationRun.pullRequest.url}`);
         io.write("This decision certifies the mission and merges its validated application change. Production deployment remains separate.");
-        if (mission.missionId === "049-store-readiness") {
+        if (["049-store-readiness", "049-certification"].includes(mission.missionId)) {
             io.write("Before approving, open the commit-bound iOS and Android install links in the PBOS memo and confirm both internal builds were exercised.");
             io.write("Approval attests that signing identities and store listings are correctly bound, privacy disclosures and screenshots were reviewed, and TestFlight plus Google Play internal testing passed.");
             io.write("Public App Store and Google Play production release remain excluded.");
@@ -556,7 +557,7 @@ async function runNextProductionMission(target?: string): Promise<number> {
         }
         stdout.write(`[PREREQUISITE] Protected Vercel preview configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
     }
-    if (next.missionId === "049-store-readiness") {
+    if (["049-store-readiness", "049-certification"].includes(next.missionId)) {
         const readiness = await inspectPlaybookMobileReleaseReadiness();
         if (!readiness.ready) {
             stdout.write("[PREREQUISITE] Protected EAS mobile-release configuration is incomplete.\n");
@@ -657,6 +658,14 @@ async function runNextProductionMission(target?: string): Promise<number> {
         .register("PLAYBOOK-SYSTEM-001", "049-store-readiness", () => playbookMobileStoreReadinessExecutor({
             gateway: services.gateway, remediation: services.remediation, session,
             deploymentApprovalId: missionApproval?.approvalId ?? "",
+            authorize: (action, risk, branch, explicitApprovalId) =>
+                services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "049-certification", () => playbookMobileCertificationExecutor({
+            gateway: services.gateway, remediation: services.remediation, session, state: services.state,
+            deploymentApprovalId: missionApproval?.approvalId ?? "",
+            verifyHistoricalApproval: (historical, action, resource) =>
+                services.identities.verify(historical, action, resource, new Date(historical.issuedAt)),
             authorize: (action, risk, branch, explicitApprovalId) =>
                 services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
             { producesFunctionalAcceptancePlan: true });

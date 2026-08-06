@@ -140,6 +140,26 @@ describe("partner-ready CLI durable state", () => {
         expect(io.output).toContain("MISSION NOT AUTHORIZED");
     });
 
+    it("describes the bounded EAS authority when mobile final certification is requested", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-mobile-certification-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const mission = { missionId: "049-certification", systemId: "PLAYBOOK-SYSTEM-001",
+            title: "Certify mobile release candidates", dependencies: ["049-store-readiness"],
+            status: "ELIGIBLE" as const, rationale: "Store readiness is certified.",
+            approvalRequired: true, evidenceIds: [] };
+        state.saveMissionQueue([mission], mission.systemId);
+        const io = new ApprovalIO("no");
+
+        await promptForMissionApproval(io, { state, identities, operator }, mission);
+
+        expect(io.output.join("\n")).toContain("exact-revision EAS internal builds");
+        expect(io.output.join("\n")).toContain("Public release");
+        expect(state.audit()).toHaveLength(0);
+    });
+
     it("keeps same-terminal telemetry attached until validation reaches human approval", async () => {
         const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-cli-telemetry-")), "state.json"));
         const production = new ProductionRuntimeService(state);
