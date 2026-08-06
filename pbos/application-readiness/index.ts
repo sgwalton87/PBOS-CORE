@@ -18,3 +18,5 @@ export * from "./playbook-product-functional-acceptance";
 export * from "./playbook-product-journeys-executor";
 export * from "./playbook-web-staging-executor";
 export * from "./playbook-mobile-foundation-executor";
+export * from "./playbook-mobile-functional-acceptance";
+export * from "./playbook-mobile-journeys-executor";

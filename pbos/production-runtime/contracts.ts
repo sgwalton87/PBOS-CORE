@@ -8,7 +8,7 @@ export type ProductionStatus = typeof PRODUCTION_STATUSES[number];
 export type RuntimeHealth = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
 export type StageType = "DISCOVERY" | "CONTEXT" | "SPECIFICATION" | "DEPENDENCY_GRAPH" | "MISSION" |
     "AUTHORIZATION" | "PLANNING" | "EXECUTION" | "COMMAND" | "TEST" | "BUILD" | "VALIDATION" | "REPAIR" |
-    "PREREQUISITE" | "APPLICATION_LAUNCH" | "RUNTIME_VERIFICATION" | "BROWSER_JOURNEY" | "ACCEPTANCE" |
+    "PREREQUISITE" | "APPLICATION_LAUNCH" | "RUNTIME_VERIFICATION" | "BROWSER_JOURNEY" | "NATIVE_JOURNEY" | "ACCEPTANCE" |
     "PREVIEW" | "EVIDENCE" | "CERTIFICATION" | "COMMIT" | "CONTINUATION";
 
 export const TERMINAL_PRODUCTION_STATUSES: readonly ProductionStatus[] = ["BLOCKED", "FAILED", "COMPLETED", "CERTIFIED", "CANCELLED"];
@@ -220,7 +220,7 @@ export interface ApplicationAcceptanceEvidence {
     readonly artifact: string;
     readonly passed: boolean;
     readonly source: "IMPLEMENTATION" | "APPLICATION_TEST" | "RUNTIME_PROBE" | "BROWSER_JOURNEY" |
-        "ACCESSIBILITY_AUDIT" | "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
+        "NATIVE_JOURNEY" | "ACCESSIBILITY_AUDIT" | "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
 }
 
 export interface FunctionalRuntimeCommand {
@@ -271,6 +271,18 @@ export interface BrowserJourneyPlan {
         "ROUTE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" | "SECURITY">[];
 }
 
+export interface NativeJourneyPlan {
+    readonly journeyId: string;
+    readonly behavior: string;
+    readonly platforms: readonly ("IOS" | "ANDROID")[];
+    readonly command: FunctionalRuntimeCommand;
+    readonly artifacts: readonly string[];
+    readonly acceptanceArtifact: string;
+    readonly verifiedDimensions: readonly Extract<ApplicationAcceptanceDimension,
+        "ROUTE" | "USER_INTERFACE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" |
+        "ACCEPTANCE_TEST" | "ACCESSIBILITY" | "SECURITY">[];
+}
+
 export interface FunctionalAcceptancePlan {
     readonly planId: string;
     readonly systemId: string;
@@ -290,6 +302,7 @@ export interface FunctionalAcceptancePlan {
     }>;
     readonly probes: readonly FunctionalRuntimeProbe[];
     readonly browserJourneys: readonly BrowserJourneyPlan[];
+    readonly nativeJourneys?: readonly NativeJourneyPlan[];
     /** Protected provider action prepared by an adapter and executed only after exact-revision CI passes. */
     readonly previewDeployment?: PreviewDeploymentRequest;
     /**

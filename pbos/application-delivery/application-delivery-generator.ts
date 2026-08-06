@@ -90,8 +90,8 @@ export class ApplicationDeliveryGenerator {
         const api = `import { readSession } from "./session-store";\nconst apiUrl = process.env.EXPO_PUBLIC_PBOS_APPLICATION_API_URL;\n` +
             `export async function governedApplicationRequest<T>(path: string, init: RequestInit = {}): Promise<T> { if (!apiUrl?.startsWith("https://"))` +
             ` throw new Error("A secure application API URL is required."); const session = await readSession(); if (!session) throw new Error("Authentication required.");` +
-            ` const response = await fetch(new URL(path, apiUrl), { ...init, headers: { ...init.headers, authorization: "Bearer " + session.accessToken,` +
-            ` "content-type": "application/json", "x-pbos-system-id": ${JSON.stringify(request.systemId)} } });` +
+            ` const headers = new Headers(init.headers); headers.set("authorization", "Bearer " + session.accessToken); headers.set("content-type", "application/json");` +
+            ` headers.set("x-pbos-system-id", ${JSON.stringify(request.systemId)}); const response = await fetch(new URL(path, apiUrl), { ...init, headers });` +
             ` if (!response.ok) throw new Error(${JSON.stringify(`${request.applicationName} request failed: `)} + response.status); return response.json() as Promise<T>; }\n`;
         const theme = `export const applicationTheme = { colors: { primary: ${JSON.stringify(request.designTokens?.colors.primary ?? "#111827")},` +
             ` accent: ${JSON.stringify(request.designTokens?.colors.accent ?? "#2563EB")}, surface: ${JSON.stringify(request.designTokens?.colors.surface ?? "#FFFFFF")},` +

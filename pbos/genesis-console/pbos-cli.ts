@@ -25,7 +25,7 @@ import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissi
 import { startMissionControl } from "../mission-control";
 import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
-    playbookMobileFoundationExecutor, playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    playbookMobileFoundationExecutor, playbookMobileJourneysExecutor, playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
     inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
@@ -624,7 +624,11 @@ async function runNextProductionMission(target?: string): Promise<number> {
             { producesFunctionalAcceptancePlan: true })
         .register("PLAYBOOK-SYSTEM-001", "049-mobile-foundation", () => playbookMobileFoundationExecutor({
             gateway: services.gateway, remediation: services.remediation, session,
-            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }));
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
+        .register("PLAYBOOK-SYSTEM-001", "049-mobile-journeys", () => playbookMobileJourneysExecutor({
+            gateway: services.gateway, remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true });
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,

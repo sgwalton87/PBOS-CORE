@@ -20,6 +20,8 @@ describe("CIP-048 and CIP-049 application delivery", () => {
         expect(delivery.files.find(file => file.path === "apps/mobile/src/platform/deep-links.ts")?.content).toContain("Secrets are forbidden");
         expect(delivery.files.find(file => file.path === "apps/mobile/src/platform/api.ts")?.content)
             .toContain("EXPO_PUBLIC_PBOS_APPLICATION_API_URL");
+        expect(delivery.files.find(file => file.path === "apps/mobile/src/platform/api.ts")?.content)
+            .toContain("new Headers(init.headers)");
         expect(delivery.files.find(file => file.path === "apps/mobile/src/theme.ts")?.content).not.toContain("playbookTheme");
         expect(delivery.files.find(file => file.path === "apps/mobile/src/platform/api.ts")?.content)
             .toContain("The Playbook request failed");

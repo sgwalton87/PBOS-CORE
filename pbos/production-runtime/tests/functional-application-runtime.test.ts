@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
-import { ApplicationLauncher, BrowserJourneyRuntime, CommandBrowserJourneyRuntime, FunctionalAcceptancePlan, FunctionalApplicationRuntime,
+import { ApplicationLauncher, BrowserJourneyRuntime, CommandBrowserJourneyRuntime, CommandNativeJourneyRuntime, FunctionalAcceptancePlan, FunctionalApplicationRuntime,
     resolveFunctionalPrerequisites, RuntimeProbeRunner, verifyVisualCanonContract } from "../index";
 
 function repository(): Readonly<{ path: string; revision: string }> {
@@ -144,6 +144,29 @@ describe("PBS-5000 functional application runtime", () => {
             expect(String(error)).toContain("PASSWORD=[REDACTED]");
             expect(String(error)).not.toContain("do-not-log");
         }
+    });
+
+    it("accepts native claims only when both platforms produce exact-revision evidence", async () => {
+        const repo = repository(); const acceptance = plan(repo.path, repo.revision);
+        const artifact = "artifacts/native/platform-builds.json";
+        const acceptanceArtifact = "artifacts/native/acceptance.json";
+        mkdirSync(join(repo.path, "artifacts/native"), { recursive: true });
+        writeFileSync(join(repo.path, artifact), JSON.stringify({ ios: "EXPORTED", android: "EXPORTED" }));
+        writeFileSync(join(repo.path, acceptanceArtifact), JSON.stringify({ schemaVersion: 1,
+            journeyId: "mobile-scholar", commit: repo.revision, platforms: ["IOS", "ANDROID"],
+            checks: [{ dimension: "AUTHORITY", passed: true, detail: "Secure native session boundary passed." }] }));
+        const journey = { journeyId: "mobile-scholar", behavior: "Scholar journeys execute natively.",
+            platforms: ["IOS", "ANDROID"] as const,
+            command: { command: process.execPath, args: ["-e", "process.exit(0)"] },
+            artifacts: [artifact], acceptanceArtifact, verifiedDimensions: ["AUTHORITY"] as const };
+        const observed = await new CommandNativeJourneyRuntime().run({ ...acceptance, nativeJourneys: [journey] }, journey);
+        expect(observed.passed).toBe(true);
+        expect(observed.journey.platforms).toEqual(["IOS", "ANDROID"]);
+
+        writeFileSync(join(repo.path, acceptanceArtifact), JSON.stringify({ schemaVersion: 1,
+            journeyId: "mobile-scholar", commit: repo.revision, platforms: ["IOS"], checks: [] }));
+        await expect(new CommandNativeJourneyRuntime().run({ ...acceptance, nativeJourneys: [journey] }, journey))
+            .rejects.toThrow("ANDROID");
     });
 
     it("accepts a user-approved visual canon only when every required asset is nonempty and hash-bound", async () => {

@@ -11,6 +11,9 @@ export function classifyFunctionalAcceptanceFailure(error: unknown): string {
         return "APPLICATION_LAUNCH_FAILURE";
     }
     if (message.includes("runtime probes")) return "RUNTIME_PROBE_FAILURE";
+    if (["native journey", "ios", "android", "expo export"].some(signal => message.includes(signal))) {
+        return "NATIVE_ACCEPTANCE_FAILURE";
+    }
     if (["browser", "playwright", "acceptance report", "test:acceptance"].some(signal => message.includes(signal))) {
         return "BROWSER_ACCEPTANCE_FAILURE";
     }
@@ -67,6 +70,9 @@ export class AutonomousProductionKernel {
                 } else if (event === "RUNTIME_PROBES_VERIFIED") {
                     this.production.startStage(runId, "BROWSER_JOURNEY", `Execute browser journeys for ${mission.title}`, detail);
                 } else if (event === "BROWSER_JOURNEYS_VERIFIED") {
+                    this.production.startStage(runId, plan.nativeJourneys?.length ? "NATIVE_JOURNEY" : "ACCEPTANCE",
+                        plan.nativeJourneys?.length ? `Execute native journeys for ${mission.title}` : `Accept ${mission.title}`, detail);
+                } else if (event === "NATIVE_JOURNEYS_VERIFIED") {
                     this.production.startStage(runId, "ACCEPTANCE", `Accept ${mission.title}`, detail);
                 } else if (event === "DURABLE_PREVIEW_VERIFIED") {
                     this.production.startStage(runId, "PREVIEW", `Verify durable preview for ${mission.title}`, detail);
@@ -76,12 +82,13 @@ export class AutonomousProductionKernel {
             this.production.recordPreview(result.preview);
             this.production.completeActiveStage(runId, {
                 productNodeId: plan.productNodeId, journeyId: plan.journeyId,
-                probes: result.probes.length, browserJourneys: result.journeys.length
+                probes: result.probes.length, browserJourneys: result.journeys.length,
+                nativeJourneys: result.nativeJourneys.length
             }, [...result.evidence.map(item => item.evidenceId), independentValidation.evidenceId]);
             const accepted = this.production.run(runId)!;
             new FunctionalAcceptanceVerifier().assertCertificationEvidence(mission, accepted);
             const awaitingApproval = this.production.acceptFunctionalApplication(runId,
-                "Runtime, browser journey, accessibility, security, and functional acceptance passed on the exact application revision.", {
+                "Runtime, browser, native, accessibility, security, and functional acceptance passed on the exact application revision.", {
                     productNodeId: plan.productNodeId, journeyId: plan.journeyId, previewId: result.preview.previewId
                 });
             return { run: awaitingApproval, result };

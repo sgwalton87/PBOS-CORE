@@ -80,6 +80,7 @@ export class ProductionRuntimeService {
         const completedTypes = new Set(this.state.productionStages(runId)
             .filter(stage => stage.status === "COMPLETED").map(stage => stage.type));
         const requiredStages: StageType[] = ["PREREQUISITE", "APPLICATION_LAUNCH", "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE"];
+        if (current.functionalAcceptancePlan?.nativeJourneys?.length) requiredStages.push("NATIVE_JOURNEY");
         if (mission.completionPolicy.requiredDimensions.includes("PREVIEW")) requiredStages.push("PREVIEW");
         const missing = requiredStages.filter(type => !completedTypes.has(type));
         if (missing.length) throw new Error(`Functional mission ${mission.missionId} is missing kernel stages: ${missing.join(", ")}.`);
@@ -231,9 +232,14 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
+        const nativeJourneys = run.functionalAcceptancePlan.nativeJourneys?.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
         const previewDeployment = run.functionalAcceptancePlan.previewDeployment
             ? { ...run.functionalAcceptancePlan.previewDeployment, branch, commit } : undefined;
-        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys,
+        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys, nativeJourneys,
             previewDeployment, durablePreview: undefined,
             planId: `${run.functionalAcceptancePlan.planId.split(":remediation:")[0]}:remediation:${commit}` };
         const updated: ProductionRun = { ...run, currentBranch: branch, currentCommit: commit,
@@ -261,16 +267,24 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
+        const nativeJourneys = current.nativeJourneys?.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
         const changed = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
             browserJourneys.some((journey, index) =>
                 journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
-                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
+                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT) ||
+            (nativeJourneys ?? []).some((journey, index) =>
+                journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
+                current.nativeJourneys?.[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
         if (!changed) return run;
         const previewDeployment = current.previewDeployment
             ? { ...current.previewDeployment, branch: run.currentBranch, commit: run.currentCommit } : undefined;
         const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
             previewDeployment, durablePreview: current.commit === run.currentCommit ? current.durablePreview : undefined,
-            browserJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
+            browserJourneys, nativeJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
             acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
             previewArtifactIds: current.commit === run.currentCommit ? run.previewArtifactIds : [],
@@ -411,7 +425,8 @@ export class ProductionRuntimeService {
         this.state.saveProductionRun(updated);
         this.event(updated, "FUNCTIONAL_ACCEPTANCE_PLANNED", "Executable application acceptance plan recorded.", {
             planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId,
-            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId)
+            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId),
+            nativeJourneys: plan.nativeJourneys?.map(item => item.journeyId) ?? []
         });
         return updated;
     }
@@ -532,7 +547,7 @@ export class ProductionRuntimeService {
         const activeStage = run.activeStageId
             ? this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId) : undefined;
         const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
-            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE", "PREVIEW"];
+            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "NATIVE_JOURNEY", "ACCEPTANCE", "PREVIEW"];
         const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
         const resumed = this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
         if (target === "VALIDATING" && !activeStage) {

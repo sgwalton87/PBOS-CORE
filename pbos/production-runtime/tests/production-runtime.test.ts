@@ -184,7 +184,12 @@ describe("canonical PBOS production runtime", () => {
                     publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: input.commit } },
                 viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshotArtifacts: ["desktop.png", "mobile.png"],
                 traceArtifact: "trace.zip", accessibilityArtifact: "a11y.json", acceptanceArtifact: "acceptance.json",
-                verifiedDimensions: ["DURABLE_DATA"] }] });
+                verifiedDimensions: ["DURABLE_DATA"] }],
+            nativeJourneys: [{ journeyId: "native", behavior: "Native journey works", platforms: ["IOS", "ANDROID"],
+                command: { command: "npm", args: ["run", "mobile:acceptance"],
+                    publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: input.commit } },
+                artifacts: ["native-builds.json"], acceptanceArtifact: "native-acceptance.json",
+                verifiedDimensions: ["AUTHORITY"] }] });
         fixture.runtime.recordAcceptanceEvidence(run.runId, [{ evidenceId: "old", dimension: "ROUTE", behavior: "Old route",
             repository: input.repository, commit: input.commit, artifact: "/", passed: true, source: "RUNTIME_PROBE" }]);
         const rebound = fixture.runtime.rebindRepositoryAfterRemediation(run.runId, "validation-1", "agent/remediated", "abcdef2");
@@ -192,15 +197,22 @@ describe("canonical PBOS production runtime", () => {
         expect(rebound.functionalAcceptancePlan).toMatchObject({ branch: "agent/remediated", commit: "abcdef2" });
         expect(rebound.functionalAcceptancePlan?.browserJourneys[0].command.publicEnvironment)
             .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
+        expect(rebound.functionalAcceptancePlan?.nativeJourneys?.[0].command.publicEnvironment)
+            .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
         expect(rebound.acceptanceEvidence).toEqual([]);
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("REMEDIATION_LINEAGE_REBOUND");
         fixture.state.saveProductionRun({ ...rebound, functionalAcceptancePlan: { ...rebound.functionalAcceptancePlan!,
             browserJourneys: rebound.functionalAcceptancePlan!.browserJourneys.map(journey => ({ ...journey,
                 command: { ...journey.command, publicEnvironment: { ...journey.command.publicEnvironment,
+                    PBOS_ACCEPTANCE_COMMIT: input.commit } } })),
+            nativeJourneys: rebound.functionalAcceptancePlan!.nativeJourneys?.map(journey => ({ ...journey,
+                command: { ...journey.command, publicEnvironment: { ...journey.command.publicEnvironment,
                     PBOS_ACCEPTANCE_COMMIT: input.commit } } })) } });
         const normalized = fixture.runtime.normalizeFunctionalAcceptanceLineage(run.runId);
         expect(normalized.currentCommit).toBe("abcdef2");
         expect(normalized.functionalAcceptancePlan?.browserJourneys[0].command.publicEnvironment)
+            .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
+        expect(normalized.functionalAcceptancePlan?.nativeJourneys?.[0].command.publicEnvironment)
             .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED");
     });

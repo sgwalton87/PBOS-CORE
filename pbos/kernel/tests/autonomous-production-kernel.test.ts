@@ -23,7 +23,7 @@ const evidence = (dimension: ApplicationAcceptanceEvidence["dimension"], source:
     evidenceId: `${dimension}-evidence`, dimension, behavior: `${dimension} works`, repository, commit, artifact: `${dimension}.json`, passed: true, source
 });
 
-const result: FunctionalRuntimeResult = { probes: [], journeys: [], applicationLogs: "ready",
+const result: FunctionalRuntimeResult = { probes: [], journeys: [], nativeJourneys: [], applicationLogs: "ready",
     evidence: [evidence("ROUTE", "RUNTIME_PROBE"), evidence("USER_INTERFACE", "BROWSER_JOURNEY"),
         evidence("DURABLE_DATA", "RUNTIME_PROBE"), evidence("AUTHORITY", "SECURITY_TEST"),
         evidence("PBOS_INTEGRATION", "RUNTIME_PROBE"), evidence("ACCEPTANCE_TEST", "BROWSER_JOURNEY"),
