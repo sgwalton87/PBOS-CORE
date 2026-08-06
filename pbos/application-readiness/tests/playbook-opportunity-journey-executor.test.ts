@@ -25,7 +25,8 @@ const session = {
         expiresAt: new Date(Date.now() + 60_000) }
 };
 const run = { runId: "12345678-aaaa-bbbb-cccc-123456789012", systemId: "PLAYBOOK-SYSTEM-001",
-    repository: "sgwalton87/playbook-platform", startingCommit: "91e42fd" } as ProductionRun;
+    repository: "sgwalton87/playbook-platform", startingBranch: "agent/pbos-academic-parent",
+    startingCommit: "91e42fd" } as ProductionRun;
 const mission = { missionId: "048-opportunity-journey", systemId: "PLAYBOOK-SYSTEM-001",
     title: "Complete readiness-to-opportunity journey", dependencies: ["048-academic-journey"], status: "ACTIVE" as const,
     rationale: "Academic evidence is ready.", approvalRequired: true, evidenceIds: [] };
@@ -36,8 +37,11 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         const generated = new Map<string, string>();
         const generatedRevision = "abc1234def5678";
         const gateway = {
-            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
-                revision: "91e42fd", findings: [], files: [], inspectedAt: new Date() }),
+            inspectRepository: async (reference: { defaultBranch: string }) => {
+                calls.push(`inspect:${reference.defaultBranch}`);
+                return { repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: reference.defaultBranch },
+                    revision: "91e42fd", findings: [], files: [], inspectedAt: new Date() };
+            },
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
                 calls.push(`read:${revision}:${path}`);
                 return path === "app/opportunities/page.tsx" ? legacyPage : legacyMarketplace;
@@ -49,9 +53,12 @@ describe("CIP-048 opportunity journey execution adapter", () => {
             prepareDependencyLock: async () => { calls.push("lock"); },
             commit: async () => { calls.push("commit"); return generatedRevision; },
             push: async () => { calls.push("push"); },
-            openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/55", number: 55,
-                branch: "agent/pbos-playbook-system-001-048-opportunity-12345678",
-                repository: "sgwalton87/playbook-platform" })
+            openDraftPullRequest: async (reference: { defaultBranch: string }) => {
+                calls.push(`pr-base:${reference.defaultBranch}`);
+                return { url: "https://github.com/sgwalton87/playbook-platform/pull/55", number: 55,
+                    branch: "agent/pbos-playbook-system-001-048-opportunity-12345678",
+                    repository: "sgwalton87/playbook-platform" };
+            }
         } as unknown as GitHubRepositoryGateway;
         const executor = playbookOpportunityJourneyExecutor({ gateway, session,
             authorize: action => ({ decisionId: action, grantId: "grant-opportunity", action, allowed: true,
@@ -63,9 +70,10 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         const result = await executor({ run, mission, report: () => undefined });
 
         expect(calls).toEqual(expect.arrayContaining([
+            "inspect:agent/pbos-academic-parent",
             "read:91e42fd:app/opportunities/page.tsx",
             "read:91e42fd:components/opportunity-marketplace/OpportunityMarketplace.tsx",
-            "files", "lock", "commit", "push"
+            "files", "lock", "commit", "push", "pr-base:agent/pbos-academic-parent"
         ]));
         expect(generated.get("app/opportunities/page.tsx")).not.toContain("demoCourses");
         const route = generated.get("app/api/pbos/opportunities/route.ts") ?? "";

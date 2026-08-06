@@ -1,6 +1,6 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
-import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
+import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
 import { playbookAcademicAcceptanceFiles, playbookAcademicAcceptancePlan } from "./playbook-academic-functional-acceptance";
@@ -282,7 +282,8 @@ export function playbookAcademicJourneyExecutor(dependencies: PlaybookAcademicJo
         if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
             throw new Error("The active Genesis session does not authorize the Playbook academic journey.");
         }
-        const reference: RepositoryReference = { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" };
+        const reference = governedBuildReference(
+            { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, context.run.startingBranch);
         const branch = `agent/pbos-playbook-system-001-048-academic-${context.run.runId.slice(0, 8)}`;
         for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
             ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
