@@ -20,4 +20,19 @@ describe("production mission adapter registry", () => {
         expect(() => registry.register("S", "M", () => async () => ({ outputs: {}, evidenceIds: [], validations: [] })))
             .toThrow("already registered");
     });
+
+    it("does not expose a functional mission adapter unless it declares executable acceptance", () => {
+        const functional = { ...mission("048-scholar-slice"), completionPolicy: {
+            kind: "FUNCTIONAL_APPLICATION" as const, requiredDimensions: ["ROUTE" as const], acceptanceCriteria: ["launches"]
+        } };
+        const executor = async () => ({ outputs: {}, evidenceIds: [], validations: [] });
+        const unproven = new ProductionMissionAdapterRegistry()
+            .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => executor);
+        expect(unproven.resolve(functional)).toBeUndefined();
+        expect(unproven.coverage([functional]).missing).toEqual(["048-scholar-slice"]);
+        const executable = new ProductionMissionAdapterRegistry()
+            .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => executor,
+                { producesFunctionalAcceptancePlan: true });
+        expect(executable.resolve(functional)).toBe(executor);
+    });
 });

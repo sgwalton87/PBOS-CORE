@@ -49,6 +49,7 @@ describe("CIP-046 through CIP-050 Playbook launch plan", () => {
             proof("048-academic-journey", { evidenceId: "academic" })
         ]);
         expect(plan.tasks.find(task => task.taskId === "048-product-journeys")?.state).toBe("BLOCKED");
+        expect(plan.tasks.find(task => task.taskId === "049-mobile-foundation")?.state).toBe("BLOCKED");
     });
 
     it("does not treat a boolean green flag as functional or launch evidence", () => {

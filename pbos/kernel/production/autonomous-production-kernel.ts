@@ -11,8 +11,11 @@ export function classifyFunctionalAcceptanceFailure(error: unknown): string {
         return "APPLICATION_LAUNCH_FAILURE";
     }
     if (message.includes("runtime probes")) return "RUNTIME_PROBE_FAILURE";
-    if (["browser", "playwright", "acceptance report"].some(signal => message.includes(signal))) {
+    if (["browser", "playwright", "acceptance report", "test:acceptance"].some(signal => message.includes(signal))) {
         return "BROWSER_ACCEPTANCE_FAILURE";
+    }
+    if (["free bytes", "disk space", "no space left", "enospc"].some(signal => message.includes(signal))) {
+        return "RUNTIME_RESOURCE_FAILURE";
     }
     if (message.includes("preview")) return "PREVIEW_VERIFICATION_FAILURE";
     return "FUNCTIONAL_ACCEPTANCE_FAILURE";
@@ -84,19 +87,29 @@ export class AutonomousProductionKernel {
             return { run: awaitingApproval, result };
         } catch (error) {
             const classification = classifyFunctionalAcceptanceFailure(error);
+            const reason = error instanceof Error ? error.message : String(error);
             const current = this.production.run(runId);
             if (current?.activeStageId) this.production.failStage(current.activeStageId,
-                error instanceof Error ? error.message : String(error));
+                reason);
             const latest = this.production.run(runId);
             if (latest?.status === "VALIDATING") {
+                const budget = this.production.repairBudget(runId);
+                if (budget.remaining === 0) {
+                    const terminal = `${reason}\nPBOS bounded repair budget exhausted after ${budget.attempts}/${budget.limit} attempts; verified operator approval is required to continue.`;
+                    this.production.blockMissionForRun(runId, reason);
+                    this.production.transition(runId, "BLOCKED",
+                        `Functional acceptance blocked after ${budget.attempts}/${budget.limit} repair attempts: ${reason}`, {
+                            reason, classification, repairAttempts: budget.attempts, repairAttemptLimit: budget.limit
+                        });
+                    throw new Error(terminal, { cause: error });
+                }
                 this.production.transition(runId, "REPAIRING", "Functional application acceptance failed; bounded repair is required.", {
-                    reason: error instanceof Error ? error.message : String(error), classification
+                    reason, classification
                 });
                 this.production.recordRepairAttempt(runId, classification, "STARTED");
             }
             const repairing = this.production.run(runId);
             if (repairing?.status === "REPAIRING") {
-                const reason = error instanceof Error ? error.message : String(error);
                 this.production.recordRepairAttempt(runId, classification, "FAILED");
                 this.production.blockMissionForRun(runId, reason);
                 this.production.transition(runId, "BLOCKED",

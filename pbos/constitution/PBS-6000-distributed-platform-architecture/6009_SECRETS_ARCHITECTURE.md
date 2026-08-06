@@ -80,14 +80,8 @@ Continuously audit secret health across every supported platform.
 # Definition of Done
 
 All required secrets exist, are scoped correctly, and remain constitutionally governed.
----
-id: PBS-6000-009
-title: Secrets Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# Secrets Architecture
+## Executable secrets requirements
 
 Secrets remain in platform-native protected stores or mode-0600 operator files approved for local staging. PBOS may validate only:
 

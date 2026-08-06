@@ -117,14 +117,8 @@ The Distributed Platform Graph becomes the canonical model governing distributed
 # Definition of Done
 
 PBOS continuously maintains one authoritative Distributed Platform Graph.
----
-id: PBS-6000-012
-title: Distributed Platform Graph
-status: Canonical
-parent: PBS-6000
----
 
-# Distributed Platform Graph
+## Executable graph requirements
 
 PBS-6000 defines one validation graph. It does not define a second planner, runtime, state store, or certification engine.
 

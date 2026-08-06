@@ -7,6 +7,7 @@ export * from "./playbook-scholar-slice-executor";
 export * from "./playbook-functional-acceptance";
 export * from "./playbook-staging-migration";
 export * from "./playbook-academic-journey-executor";
+export * from "./playbook-academic-functional-acceptance";
 export * from "./playbook-opportunity-journey-executor";
 export * from "./playbook-application-journey-executor";
 export * from "./playbook-support-journey-executor";

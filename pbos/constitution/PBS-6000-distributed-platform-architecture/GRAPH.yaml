@@ -8,7 +8,7 @@ graph:
 
   root: 6000_EXECUTIVE_SUMMARY
 
-nodes:
+constitutional_index:
 
   - id: PBS-6000-000
     title: Executive Summary
@@ -65,6 +65,7 @@ entrypoint:
 terminal:
 
   - PBS-6000-015
+
 schema_version: 1
 graph_id: PBS-6000-DISTRIBUTED-PLATFORM-GRAPH
 status: Canonical

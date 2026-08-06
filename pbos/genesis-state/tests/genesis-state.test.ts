@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import { existsSync, mkdtempSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -36,6 +37,22 @@ describe("durable Genesis state and operator identity", () => {
         const old = new Date(Date.now() - 31_000); utimesSync(lock, old, old);
         const store = new JsonStateStore(path, () => ({ count: 0 }));
         expect(store.update(current => ({ count: current.count + 1 }))).toEqual({ count: 1 });
+        expect(existsSync(lock)).toBe(false);
+    });
+
+    it("waits for a live cross-process state writer instead of abandoning the mission", async () => {
+        const path = join(mkdtempSync(join(tmpdir(), "pbos-state-contention-")), "state.json");
+        const lock = `${path}.lock`;
+        writeFileSync(lock, "active-writer\n", { mode: 0o600 });
+        const releaser = spawn(process.execPath, ["-e",
+            "setTimeout(() => require('fs').unlinkSync(process.argv[1]), 100)", lock], { stdio: "ignore" });
+        const released = new Promise<void>((resolve, reject) => {
+            releaser.once("error", reject);
+            releaser.once("exit", code => code === 0 ? resolve() : reject(new Error(`lock releaser exited ${code}`)));
+        });
+        const store = new JsonStateStore(path, () => ({ count: 0 }));
+        expect(store.update(current => ({ count: current.count + 1 }))).toEqual({ count: 1 });
+        await released;
         expect(existsSync(lock)).toBe(false);
     });
 });

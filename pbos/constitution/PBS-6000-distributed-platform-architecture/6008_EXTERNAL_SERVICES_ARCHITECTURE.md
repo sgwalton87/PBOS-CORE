@@ -78,14 +78,8 @@ PBOS continuously validates external service health and configuration.
 # Definition of Done
 
 Every external service remains constitutionally governed and operationally synchronized.
----
-id: PBS-6000-008
-title: External Services Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# External Services Architecture
+## Executable external-service requirements
 
 External services include transactional email, OpenAI, Anthropic, Stripe, Persona, Twilio, Resend, maps, and future declared providers. They are capability dependencies, not universal dependencies.
 

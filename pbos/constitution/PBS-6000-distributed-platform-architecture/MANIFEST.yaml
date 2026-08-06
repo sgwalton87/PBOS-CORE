@@ -53,3 +53,10 @@ optimization_target:
 
   Platform integrity.
 
+machine_graph: GRAPH.yaml
+
+executable_validator: pbos/platform-convergence
+
+execution_authority: PBOS_KERNEL
+
+completion_authority: PBOS_KERNEL_FUNCTIONAL_ACCEPTANCE

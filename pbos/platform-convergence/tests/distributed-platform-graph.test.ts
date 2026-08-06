@@ -16,6 +16,7 @@ describe("PBS-6000 distributed platform graph", () => {
         expect(order.indexOf("DATA_PLATFORM")).toBeLessThan(order.indexOf("CLOUD_IDENTITY"));
         expect(order.indexOf("CLOUD_IDENTITY")).toBeLessThan(order.indexOf("DEPLOYMENT"));
         expect(order.indexOf("DEPLOYMENT")).toBeLessThan(order.indexOf("DOMAIN_DNS"));
+        expect(order.indexOf("DOMAIN_DNS")).toBeLessThan(order.indexOf("PRODUCT"));
         expect(order.indexOf("CLIENT")).toBeLessThan(order.indexOf("PRODUCT"));
     });
 
@@ -40,6 +41,7 @@ describe("PBS-6000 distributed platform graph", () => {
         const graph = new DistributedPlatformGraph();
         expect(graph.order("PRODUCTION_RELEASE")).not.toContain("AI_PROVIDERS");
         expect(graph.order("PRODUCTION_RELEASE", ["AI_PROVIDERS"])).toContain("AI_PROVIDERS");
+        expect(graph.order("FUNCTIONAL_ACCEPTANCE", ["AI_PROVIDERS"])).toEqual(expect.arrayContaining(["SECRETS", "AI_PROVIDERS"]));
     });
 
     it("rejects a duplicate source of platform truth", () => {

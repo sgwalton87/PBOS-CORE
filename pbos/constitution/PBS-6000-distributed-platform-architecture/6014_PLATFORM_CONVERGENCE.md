@@ -128,14 +128,8 @@ PBOS shall continuously converge the distributed platform.
 # Definition of Done
 
 The distributed Playbook ecosystem operates as one constitutionally synchronized operating system.
----
-id: PBS-6000-014
-title: Platform Convergence
-status: Canonical
-parent: PBS-6000
----
 
-# Platform Convergence
+## Executable convergence requirements
 
 PBOS continuously converges declared intent with observed platform truth:
 

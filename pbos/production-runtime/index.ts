@@ -8,3 +8,4 @@ export * from "./mission-adapter-registry";
 export * from "./functional-acceptance-verifier";
 export * from "./functional-application-runtime";
 export * from "./protected-environment";
+export * from "./recovery-authority";

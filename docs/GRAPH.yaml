@@ -22,6 +22,9 @@ nodes:
   - PBS-VAL
   - PBS-CER
   - PBS-REL
+  - PPS-006
+  - PBS-5000
+  - PBS-6000
 
 edges:
 
@@ -60,5 +63,4 @@ boot_entry:
 
 boot_exit:
 
-  PBS-REL
-
+  PBS-6000

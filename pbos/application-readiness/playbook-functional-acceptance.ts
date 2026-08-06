@@ -158,16 +158,37 @@ export async function waitForPlaybookScholarStagingReadiness(
 }
 
 const playwrightConfig = `import { defineConfig, devices } from "@playwright/test";
+import { release } from "node:os";
+
+const useSystemChrome = process.platform === "darwin" && Number(release().split(".")[0]) <= 21;
 
 export default defineConfig({
-  testDir: "./acceptance",
+  testDir: "./tests/acceptance",
   outputDir: "artifacts/playwright",
   workers: 1,
   retries: 0,
+  timeout: 120_000,
+  expect: { timeout: 15_000 },
   reporter: "line",
   use: { baseURL: process.env.PLAYWRIGHT_BASE_URL, trace: "off" },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }]
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"], ...(useSystemChrome ? { channel: "chrome" } : {}) } }]
 });
+`;
+
+const browserPreparation = `import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { release } from "node:os";
+
+const systemChrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const useSystemChrome = process.platform === "darwin" && Number(release().split(".")[0]) <= 21;
+if (useSystemChrome) {
+  if (!existsSync(systemChrome)) {
+    throw new Error("Playwright bundled Chromium is unsupported on this macOS release and Google Chrome is not installed.");
+  }
+  process.stdout.write("PBOS browser preparation: using installed Google Chrome.\\n");
+} else {
+  execFileSync(process.execPath, ["node_modules/playwright/cli.js", "install", "chromium"], { stdio: "inherit" });
+}
 `;
 
 const scholarJourney = `import AxeBuilder from "@axe-core/playwright";
@@ -210,16 +231,18 @@ test("Scholar completes governed onboarding and receives a durable dashboard", a
   expect(anonymous.status()).toBe(401);
 
   await page.goto("/login");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
+  await page.getByRole("textbox", { name: "Email", exact: true }).fill(email);
+  await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Log In", exact: true }).click();
   await page.waitForURL(/\\/dashboard/);
 
   const onboarding = await page.request.post("/api/pbos/scholar/onboarding", {
-    data: { displayName: "PBOS Acceptance Scholar", goalTitle: "Complete governed onboarding" }
+    data: { displayName: "PBOS Acceptance Scholar", goalTitle: "Complete governed onboarding" },
+    timeout: 120_000
   });
-  expect(onboarding.ok()).toBe(true);
-  const transaction = await onboarding.json() as { dashboard?: { provenance?: string[] } };
+  const onboardingBody = await onboarding.text();
+  expect(onboarding.ok(), onboardingBody).toBe(true);
+  const transaction = JSON.parse(onboardingBody) as { dashboard?: { provenance?: string[] } };
   expect(transaction.dashboard?.provenance?.length).toBeGreaterThan(0);
 
   const projection = await admin.from("scholar_dashboard_projections")
@@ -265,8 +288,8 @@ export function withPlaybookAcceptancePackage(source: string): string {
         devDependencies?: Record<string, string>;
     };
     manifest.scripts = { ...(manifest.scripts ?? {}),
-        "pbos:acceptance:prepare": "playwright install chromium",
-        "test:acceptance:pbos": "playwright test acceptance/pbos-scholar.spec.ts --project=chromium" };
+        "pbos:acceptance:prepare": "node scripts/pbos/prepare-browser.mjs",
+        "test:acceptance:pbos": "playwright test tests/acceptance/pbos-scholar.spec.ts --project=chromium" };
     manifest.devDependencies = { ...(manifest.devDependencies ?? {}),
         "@axe-core/playwright": "^4.10.2", "@playwright/test": "^1.55.0" };
     return `${JSON.stringify(manifest, null, 2)}\n`;
@@ -275,8 +298,9 @@ export function withPlaybookAcceptancePackage(source: string): string {
 export function playbookScholarAcceptanceFiles(packageSource: string): readonly RepositoryFileChange[] {
     return [
         { path: "package.json", content: withPlaybookAcceptancePackage(packageSource) },
+        { path: "scripts/pbos/prepare-browser.mjs", content: browserPreparation },
         { path: "playwright.config.ts", content: playwrightConfig },
-        { path: "acceptance/pbos-scholar.spec.ts", content: scholarJourney }
+        { path: "tests/acceptance/pbos-scholar.spec.ts", content: scholarJourney }
     ];
 }
 

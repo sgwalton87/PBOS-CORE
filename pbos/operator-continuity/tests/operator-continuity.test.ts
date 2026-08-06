@@ -112,7 +112,7 @@ describe("operator continuity", () => {
         expect(production.run(productionRun.runId)?.status).toBe("BLOCKED");
     });
 
-    it("recovers the same functional run after a premature all-skipped validation terminal", async () => {
+    it("keeps the same functional run blocked until a replacement revision passes independent validation", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-functional-recovery-"));
         const state = new GenesisStateRepository(join(root, "state.json"));
         state.saveSession(session);
@@ -141,8 +141,8 @@ describe("operator continuity", () => {
         await expect(new BackgroundMonitor(state, remediation, workflows, new OperatorMemoService(join(root, "memos"), state),
             async () => undefined, new AutonomousBatchService(state), { notify: async () => undefined })
             .run(waiting.runId, session.sessionId, 0, 1)).rejects.toThrow("polling limit");
-        expect(production.run(productionRun.runId)?.status).toBe("VALIDATING");
-        expect(production.run(productionRun.runId)?.terminalSummary).toBeUndefined();
-        expect(state.productionStages(productionRun.runId).at(-1)?.title).toBe("Resume validation for Functional journey");
+        expect(production.run(productionRun.runId)?.status).toBe("BLOCKED");
+        expect(production.run(productionRun.runId)?.terminalSummary).toBe("Functional acceptance blocked");
+        expect(state.productionStages(productionRun.runId).at(-1)?.title).toBe("Validate journey");
     });
 });

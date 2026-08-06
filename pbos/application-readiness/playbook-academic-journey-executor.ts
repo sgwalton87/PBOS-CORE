@@ -3,6 +3,7 @@ import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookAcademicAcceptanceFiles, playbookAcademicAcceptancePlan } from "./playbook-academic-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -87,7 +88,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { AcademicTranscriptJourneyService, validateTranscriptInput } from "@/lib/pbos/academic-transcript-journey";
 import { buildAcademicIntelligenceReport } from "@/lib/academic-intelligence";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
 
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
       organizationId: required("PBOS_ORGANIZATION_ID"), connectorId: required("PBOS_CONNECTOR_ID"),
       keyId: required("PBOS_CONNECTOR_KEY_ID"), secretBase64: required("PBOS_CONNECTOR_SECRET_BASE64")
     }));
-    const mapper = new PlaybookIdentityMapper();
+    const connector = new PlaybookConnector(client);
     const journey = new AcademicTranscriptJourneyService({
       async saveEvidence(input) {
         const saved = await supabase.from("academic_journey_evidence").upsert({ owner_id: input.ownerId,
@@ -159,11 +160,7 @@ export async function POST(request: NextRequest) {
         if (completed.error) throw new Error(completed.error.message);
       }
     }, {
-      async registerIdentity(userId) {
-        const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-        const response = await client.send("REGISTER_IDENTITY", identity, requestId + "-identity", requestId + "-identity");
-        if (!response.success) throw new Error(response.error.message); return identity;
-      },
+      registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
       async publish(identity, evidenceId, readinessScore, correlationId) {
         const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
           domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
@@ -220,6 +217,7 @@ const migration = `create table if not exists academic_journey_evidence (
   provenance jsonb not null default '[]', created_at timestamptz not null default now(), delivered_at timestamptz
 );
 alter table academic_journey_evidence enable row level security;
+drop policy if exists "academic-evidence-own" on academic_journey_evidence;
 create policy "academic-evidence-own" on academic_journey_evidence using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
 create index if not exists academic_journey_evidence_owner_idx on academic_journey_evidence(owner_id, created_at desc);
 `;
@@ -256,7 +254,7 @@ export function wireTranscriptUploadCard(source: string): string {
         .replace(status, '<p role="status" aria-live="polite" style={statusStyle}>{status}</p>');
 }
 
-function changes(revision: string, runId: string, uploadCard: string): readonly RepositoryFileChange[] {
+function changes(revision: string, runId: string, uploadCard: string, packageSource: string): readonly RepositoryFileChange[] {
     return [
         { path: "lib/pbos/academic-transcript-journey.ts", content: academicServiceSource },
         { path: TRANSCRIPT_ROUTE, content: transcriptRouteSource },
@@ -264,6 +262,7 @@ function changes(revision: string, runId: string, uploadCard: string): readonly 
         { path: "tests/unit/pbos/academic-transcript-journey.test.ts", content: academicTestSource },
         { path: "supabase/migrations/202608050004_pbos_academic_journey.sql", content: migration },
         { path: "docs/integrations/PBOS-ACADEMIC-JOURNEY.md", content: guide },
+        ...playbookAcademicAcceptanceFiles(packageSource),
         { path: "pbos/readiness/048-academic-journey.json", content: `${JSON.stringify({ missionId: "048-academic-journey",
             systemId: SYSTEM_ID, repository: REPOSITORY, governedRevision: revision, productionRunId: runId,
             state: "IMPLEMENTED_PENDING_VALIDATION", journey: "TRANSCRIPT_TO_ACADEMIC_READINESS", surface: "WEB",
@@ -295,8 +294,11 @@ export function playbookAcademicJourneyExecutor(dependencies: PlaybookAcademicJo
         const inspection = await dependencies.gateway.inspectRepository(reference);
         if (inspection.revision !== context.run.startingCommit) throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before mutation.`);
         await dependencies.gateway.readFileAtRevision(reference, TRANSCRIPT_ROUTE, inspection.revision);
-        const uploadSource = await dependencies.gateway.readFileAtRevision(reference, TRANSCRIPT_UPLOAD, inspection.revision);
-        const files = changes(inspection.revision, context.run.runId, wireTranscriptUploadCard(uploadSource));
+        const [uploadSource, packageSource] = await Promise.all([
+            dependencies.gateway.readFileAtRevision(reference, TRANSCRIPT_UPLOAD, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
+        ]);
+        const files = changes(inspection.revision, context.run.runId, wireTranscriptUploadCard(uploadSource), packageSource);
         context.report("BUILDING", `Securing and completing the transcript-to-readiness journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -310,6 +312,7 @@ export function playbookAcademicJourneyExecutor(dependencies: PlaybookAcademicJo
             `PBOS Genesis mission \`048-academic-journey\` replaces browser-selected ownership and service-role mutation with an authenticated, RLS-scoped transcript-to-readiness journey at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookAcademicAcceptancePlan(dependencies.gateway, reference, branch, revision);
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
             files: { added: files.filter(file => ![TRANSCRIPT_ROUTE, TRANSCRIPT_UPLOAD].includes(file.path)).map(file => file.path),
@@ -318,6 +321,6 @@ export function playbookAcademicJourneyExecutor(dependencies: PlaybookAcademicJo
             validations: [{ name: "Academic journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: acceptanceEvidence(revision) };
+            acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan };
     };
 }

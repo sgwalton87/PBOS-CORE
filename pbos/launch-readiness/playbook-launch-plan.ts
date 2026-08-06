@@ -43,7 +43,7 @@ export const PLAYBOOK_LAUNCH_TASKS: readonly LaunchTaskDefinition[] = [
         dependencies: ["048-product-journeys", "047-operations"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("A commit-bound desktop web URL opens the interactive application", "Stakeholder acceptance passes", "Production configuration contains no staging credentials") },
 
     { taskId: "049-mobile-foundation", cip: "CIP-049", title: "Generate shared iOS and Android application foundation",
-        dependencies: ["048-foundation"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Shared contracts and design tokens are reused", "Native secure storage and deep-link boundaries exist", "Platform-specific code remains isolated") },
+        dependencies: ["048-product-journeys"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Shared contracts and design tokens are reused", "Native secure storage and deep-link boundaries exist", "Platform-specific code remains isolated") },
     { taskId: "049-mobile-journeys", cip: "CIP-049", title: "Complete primary mobile Scholar journeys",
         dependencies: ["049-mobile-foundation", "048-product-journeys"], gate: "HUMAN_VALIDATION", acceptanceCriteria: criteria("Authentication, onboarding, dashboard, messaging, documents, and notifications pass on iOS and Android", "Offline and recovery behavior is defined") },
     { taskId: "049-store-readiness", cip: "CIP-049", title: "Prepare Apple and Google store releases",

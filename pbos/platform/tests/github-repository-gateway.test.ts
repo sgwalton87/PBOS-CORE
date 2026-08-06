@@ -85,6 +85,16 @@ describe("GitHub repository gateway", () => {
             .readFileAtRevision(reference, "app/start/page.tsx", "main")).rejects.toThrow("exact revision");
     });
 
+    it("fences the legacy false-completion dispatch path", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const gateway = new GitHubRepositoryGateway(root, new FakeCommands());
+        await expect(gateway.dispatch({ proposalId: "proposal", repository: reference, baseRevision: "abc1234",
+            summary: "legacy", changedPaths: ["src/index.ts"], status: "PROPOSED" }, {
+            proposalId: "proposal", approvedBy: "operator", approvalId: "approval", approvedAt: new Date()
+        })).rejects.toThrow("disabled by PBS-5000");
+    });
+
     it("promotes a validated draft pull request only through explicit argv-safe operations", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
         mkdirSync(join(root, "acme--app"));

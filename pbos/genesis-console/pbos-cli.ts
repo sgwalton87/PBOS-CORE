@@ -20,17 +20,19 @@ import { stdin, stdout } from "process";
 import { createDefaultRemediationHandler, GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
 import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
-import { ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
+import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookFoundationExecutor, playbookScholarSliceExecutor,
+import { playbookAcademicJourneyExecutor, playbookFoundationExecutor, playbookScholarSliceExecutor,
+    inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, waitForPlaybookScholarStagingReadiness,
     PlaybookStagingMigrationService, repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
-import { MissionQueueItem } from "../production-runtime";
+import { MissionQueueItem, ProductionRun } from "../production-runtime";
+import { ConstitutionalAuthorityLoader } from "../boot";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -226,6 +228,49 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     return approval;
 }
 
+export async function promptForRecoveryAuthority(io: TerminalIO, services: MissionApprovalServices,
+    production: ProductionRuntimeService, run: ProductionRun): Promise<VerifiableApproval | undefined> {
+    const budget = production.repairBudget(run.runId);
+    if (run.status !== "BLOCKED" || budget.remaining > 0) return undefined;
+    const recovery = new ProductionRecoveryAuthority(services.state, production);
+    const epoch = recovery.request(run.runId);
+    io.write("");
+    io.write("PBOS CONSTITUTIONAL RECOVERY AUTHORITY");
+    io.write(`Recovery epoch: ${epoch.epochNumber} (${epoch.recoveryEpochId})`);
+    io.write(`Existing mission: ${epoch.missionTitle}`);
+    io.write(`Budget exhaustion: ${epoch.reasonBudgetExhausted.replace(/\s+/g, " ").slice(0, 1_000)}`);
+    io.write(`Attempted repairs preserved: ${epoch.attemptedRepairs.length}`);
+    io.write(`Repository state: ${epoch.repositoryState.branch}@${epoch.repositoryState.commit}`);
+    io.write(`Runtime state: ${epoch.runtimeState.status}; ${epoch.runtimeState.repairAttempts}/${epoch.runtimeState.repairAttemptLimit} attempts consumed`);
+    io.write("Remaining defects:");
+    epoch.remainingDefects.forEach(defect => io.write(`- ${defect.replace(/\s+/g, " ").slice(0, 1_000)}`));
+    io.write("PBOS will preserve the existing run, mission, evidence, repository lineage, and every prior repair attempt.");
+    io.write("This recovery epoch authorizes exactly one additional bounded repair attempt; repairAttempts will not be reset.");
+    io.write("Certification, merge, production deployment, secrets, and destructive migration remain excluded.");
+    const response = (await io.prompt(`Authorize recovery epoch ${epoch.epochNumber} for one bounded repair attempt? [y/N] `)).trim().toLowerCase();
+    if (response !== "y" && response !== "yes") {
+        io.write("RECOVERY EPOCH NOT AUTHORIZED");
+        io.write("The run remains blocked with its complete history intact.");
+        return undefined;
+    }
+    const action = "AUTHORIZE_PRODUCTION_RECOVERY_EPOCH";
+    const approval = services.identities.approve(services.operator, action, epoch.recoveryEpochId, 15);
+    if (!services.identities.verify(approval, action, epoch.recoveryEpochId)) {
+        throw new Error("Recovery Authority approval verification failed.");
+    }
+    services.state.appendAudit({ eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL",
+        actorId: services.operator.operatorId, resource: epoch.recoveryEpochId, occurredAt: approval.issuedAt,
+        evidence: { approval, purpose: action, runId: run.runId, missionId: epoch.missionId, additionalAttempts: 1 } });
+    recovery.authorize(epoch.recoveryEpochId, approval.approvalId, services.operator.operatorId,
+        (approvalId, actorId) => approvalId === approval.approvalId && actorId === services.operator.operatorId &&
+            services.identities.verify(approval, action, epoch.recoveryEpochId));
+    io.write("CONSTITUTIONAL RECOVERY EPOCH AUTHORIZED");
+    io.write(`Approval: ${approval.approvalId}`);
+    io.write(`Recovery epoch: ${epoch.recoveryEpochId}`);
+    io.write(`New repair budget: ${budget.attempts}/${budget.limit + 1}`);
+    return approval;
+}
+
 export async function streamProductionTelemetry(state: GenesisStateRepository, runId: string,
     write: (message: string) => void = message => stdout.write(`${message}\n`),
     wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
@@ -307,7 +352,7 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
 async function resumeExistingProductionValidation(services: ReturnType<typeof runtime>, systemId: string,
     target?: string): Promise<number | undefined> {
     const productionRun = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
-        ["VALIDATING", "BLOCKED", "PAUSED"].includes(item.status) &&
+        ["VALIDATING", "BLOCKED", "PAUSED", "RECOVERING"].includes(item.status) &&
         item.evidenceIds.some(evidenceId => evidenceId.startsWith("remediation-run:")));
     if (!productionRun) return undefined;
     const remediationId = productionRun.evidenceIds.find(item => item.startsWith("remediation-run:"))!
@@ -318,6 +363,17 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
         return 1;
     }
+    const currentBudget = services.production.repairBudget(productionRun.runId);
+    if (productionRun.status === "BLOCKED" && currentBudget.remaining === 0) {
+        const io = new NodeTerminalIO();
+        let recoveryApproval: VerifiableApproval | undefined;
+        try {
+            recoveryApproval = await promptForRecoveryAuthority(io, services, services.production, productionRun);
+        } finally {
+            io.close();
+        }
+        if (!recoveryApproval) return 1;
+    }
     const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
         item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
     if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
@@ -327,14 +383,24 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
         return 1;
     }
+    if (remediationRun.state !== "READY_FOR_CERTIFICATION") {
+        const launcher = new BackgroundProcessLauncher(join(__dirname, "..", "..", "bin", "pbos.js"), services.state,
+            join(stateRoot, "logs"));
+        const job = launcher.launch(systemId, session.sessionId, remediationRun.runId);
+        stdout.write(`PBOS validation is ${remediationRun.state}; exact-head checks are still running.\n`);
+        stdout.write(`Validation monitor: PID ${job.pid}\nMonitor log: ${job.logPath}\n`);
+        stdout.write("PBOS will resume the blocked functional run only after the replacement revision passes independent checks.\n");
+        return 0;
+    }
     const productionMission = services.state.missionQueue(systemId).find(item => item.title === productionRun.selectedMission);
     let governedRun = services.production.run(productionRun.runId)!;
-    if (remediationRun.remediationRevision && governedRun.currentCommit !== remediationRun.remediationRevision) {
+    const validatedRevision = remediationRun.headSha;
+    if (governedRun.currentCommit !== validatedRevision) {
         governedRun = productionMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
             ? services.production.rebindRepositoryAfterRemediation(productionRun.runId, remediationRun.runId,
-                remediationRun.pullRequest.branch, remediationRun.remediationRevision)
+                remediationRun.pullRequest.branch, validatedRevision)
             : services.production.updateRepositoryPosition(productionRun.runId, remediationRun.pullRequest.branch,
-                remediationRun.remediationRevision);
+                validatedRevision);
     }
     if (productionRun.selectedMission === "Complete Scholar onboarding-to-dashboard slice") {
         const [owner, name] = productionRun.repository.split("/");
@@ -364,7 +430,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }
     }
     const resumableRun = services.production.run(productionRun.runId)!;
-    if (resumableRun.status === "PAUSED") {
+    if (["PAUSED", "RECOVERING"].includes(resumableRun.status)) {
         services.production.resume(productionRun.runId, resumableRun.actorId);
     } else if (productionMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
         services.production.recoverBlockedFunctionalValidation(productionRun.runId, remediationRun.runId, governedRun.currentCommit);
@@ -444,6 +510,19 @@ async function runNextProductionMission(target?: string): Promise<number> {
             stdout.write("[PREREQUISITE] The Scholar schema is absent or partially initialized. PBOS will generate the governed idempotent migrations, request protected staging approval, and verify every table before functional acceptance.\n");
         }
     }
+    if (next.missionId === "048-academic-journey") {
+        const workingDirectory = await services.gateway.workingDirectory(repository);
+        const readiness = await inspectPlaybookAcademicAcceptanceReadiness(workingDirectory);
+        if (!readiness.ready) {
+            stdout.write("[PREREQUISITE] Protected academic-journey acceptance configuration is incomplete.\n");
+            stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
+            stdout.write(`Missing: ${readiness.missing.join(", ")}\n`);
+            stdout.write("No repository changes were started and the durable mission approval remains auditable.\n");
+            stdout.write("NEXT HUMAN STEP: add only the named values to the accepted mode-0600 Playbook acceptance file, then rerun the same PBOS command.\n");
+            return 2;
+        }
+        stdout.write(`[PREREQUISITE] Protected academic acceptance configuration ready (${readiness.available.length}/${readiness.required.length}); values remain hidden.\n`);
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -485,7 +564,12 @@ async function runNextProductionMission(target?: string): Promise<number> {
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
         .register("PLAYBOOK-SYSTEM-001", "048-scholar-slice", () => playbookScholarSliceExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
-            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }));
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true })
+        .register("PLAYBOOK-SYSTEM-001", "048-academic-journey", () => playbookAcademicJourneyExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+            { producesFunctionalAcceptancePlan: true });
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,
@@ -770,6 +854,11 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const production = new ProductionRuntimeService(new GenesisStateRepository(genesisPath));
         const health = production.health();
         stdout.write(`${JSON.stringify(health, null, 2)}\n`); return health.health === "UNHEALTHY" ? 1 : 0;
+    }
+    if (args[0] === "constitution") {
+        const report = await new ConstitutionalAuthorityLoader(join(__dirname, "..", "..")).inspect();
+        stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+        return report.state === "READY" ? 0 : 2;
     }
     if (args[0] === "history") {
         profile();

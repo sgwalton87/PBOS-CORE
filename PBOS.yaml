@@ -43,7 +43,11 @@ repository:
 
   docs: docs
 
-  source: src
+  source:
+
+    - pbos
+
+    - packages
 
 ###############################################################################
 # Constitutional Authority
@@ -97,6 +101,9 @@ boot:
     - PBS-VAL
     - PBS-CER
     - PBS-REL
+    - PPS-006
+    - PBS-5000
+    - PBS-6000
 
 ###############################################################################
 # Constitutional Volumes
@@ -114,7 +121,7 @@ volumes:
 
   PBS-CHR: docs/charter
 
-  PBS-ORG: docs/organization
+  PBS-ORG: docs/organization-genome
 
   PBS-SPC: docs/specifications
 
@@ -135,6 +142,12 @@ volumes:
   PBS-CER: docs/certification
 
   PBS-REL: docs/release
+
+  PPS-006: docs/PPS-006-PBOS-Constitutional-Execution-Modes.md
+
+  PBS-5000: pbos/constitution/PBS-5000-autonomous-software-production-runtime
+
+  PBS-6000: pbos/constitution/PBS-6000-distributed-platform-architecture
 
 ###############################################################################
 # Knowledge Graph
@@ -249,4 +262,3 @@ declaration: >
   execution, continuous validation, and trustworthy certification while
   preserving founder intent, organizational knowledge, and engineering
   integrity.
-

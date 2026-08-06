@@ -79,4 +79,21 @@ describe("PBS-5000 autonomous production kernel", () => {
         expect(subject.state.missionQueue(plan.systemId)[0]).toMatchObject({ status: "BLOCKED", blockedRunId: "run",
             executionBlocker: "browser journey failed" });
     });
+
+    it("preserves the real failure and requests operator authority when the repair budget is exhausted", async () => {
+        const subject = fixture({ execute: async () => {
+            throw new Error("Functional runtime requires 1073741824 free bytes but only 1057464320 are available.");
+        } });
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            subject.production.recordRepairAttempt("run", "RUNTIME_RESOURCE_FAILURE", "STARTED");
+            subject.production.recordRepairAttempt("run", "RUNTIME_RESOURCE_FAILURE", "FAILED");
+        }
+        await expect(subject.kernel.verifyApplication("run", evidence("INDEPENDENT_VALIDATION", "CI_VALIDATION")))
+            .rejects.toThrow(/free bytes[\s\S]*bounded repair budget exhausted/i);
+        expect(subject.production.run("run")).toMatchObject({ status: "BLOCKED", repairAttempts: 5 });
+        expect(subject.production.run("run")?.terminalSummary).toContain("free bytes");
+        const blocked = [...subject.production.events("run")].reverse().find(item => item.type === "RUN_BLOCKED");
+        expect(blocked?.payload).toMatchObject({ classification: "RUNTIME_RESOURCE_FAILURE", repairAttempts: 5,
+            repairAttemptLimit: 5 });
+    });
 });

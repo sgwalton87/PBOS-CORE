@@ -131,14 +131,8 @@ Repository, cloud, infrastructure, runtime, deployment, and production shall ope
 # Definition of Done
 
 Future distributed infrastructure shall inherit this constitutional architecture.
----
-id: PBS-6000-015
-title: Definition of Done
-status: Canonical
-parent: PBS-6000
----
 
-# Definition of Done
+## Executable definition of done
 
 A functional application mission is done only when:
 

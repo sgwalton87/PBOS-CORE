@@ -61,6 +61,10 @@ export interface ProductionRun {
     readonly stageIds: readonly string[];
     readonly retryCount: number;
     readonly repairAttempts: number;
+    readonly repairAttemptLimit?: number;
+    readonly repairExtensionApprovalIds?: readonly string[];
+    readonly recoveryEpochIds?: readonly string[];
+    readonly activeRecoveryEpochId?: string;
     readonly filesAdded: readonly string[];
     readonly filesModified: readonly string[];
     readonly filesDeleted: readonly string[];
@@ -78,6 +82,54 @@ export interface ProductionRun {
     readonly autonomousContinuation: boolean;
     readonly executionPlan?: ProductionExecutionPlan;
     readonly functionalAcceptancePlan?: FunctionalAcceptancePlan;
+}
+
+export type ProductionRecoveryEpochStatus = "AWAITING_AUTHORIZATION" | "AUTHORIZED" | "ACTIVE" | "EXHAUSTED" | "COMPLETED";
+
+export interface RecoveryRepairRecord {
+    readonly attempt: number;
+    readonly classification: string;
+    readonly startedAt: string;
+    readonly startedEventId: string;
+    readonly outcome: "SUCCEEDED" | "FAILED" | "UNKNOWN";
+    readonly outcomeAt?: string;
+    readonly outcomeEventId?: string;
+}
+
+export interface ProductionRecoveryEpoch {
+    readonly recoveryEpochId: string;
+    readonly epochNumber: number;
+    readonly runId: string;
+    readonly systemId: string;
+    readonly missionId: string;
+    readonly missionTitle: string;
+    readonly status: ProductionRecoveryEpochStatus;
+    readonly reasonBudgetExhausted: string;
+    readonly attemptedRepairs: readonly RecoveryRepairRecord[];
+    readonly repositoryState: Readonly<{
+        repository: string;
+        branch: string;
+        commit: string;
+        remediationRunIds: readonly string[];
+    }>;
+    readonly runtimeState: Readonly<{
+        status: ProductionStatus;
+        activeStageId?: string;
+        lastHeartbeatAt: string;
+        repairAttempts: number;
+        repairAttemptLimit: number;
+        stageStatuses: readonly Readonly<{ stageId: string; type: StageType; status: ProductionStatus; error?: string }>[];
+    }>;
+    readonly remainingDefects: readonly string[];
+    readonly lineageEvidenceIds: readonly string[];
+    readonly previousRecoveryEpochId?: string;
+    readonly requestedAt: string;
+    readonly requestedBy: string;
+    readonly authorizationApprovalId?: string;
+    readonly authorizedAt?: string;
+    readonly additionalAttempts?: number;
+    readonly completedAt?: string;
+    readonly completionReason?: string;
 }
 
 export interface ProductionExecutionPlan {

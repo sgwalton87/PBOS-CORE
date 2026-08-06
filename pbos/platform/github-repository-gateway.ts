@@ -146,24 +146,22 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
 
     async dispatch(proposal: RepositoryChangeProposal, approval: RepositoryApproval): Promise<RepositoryDispatch> {
         if (proposal.proposalId !== approval.proposalId) throw new Error("Dispatch approval does not match proposal.");
-        return { dispatchId: randomUUID(), proposalId: proposal.proposalId, revision: proposal.baseRevision, status: "COMPLETED" };
+        throw new Error("Legacy repository dispatch is disabled by PBS-5000; use the governed branch/change/commit/push/draft-PR production path.");
     }
 
     async collectEvidence(dispatch: RepositoryDispatch): Promise<readonly RepositoryValidationEvidence[]> {
         return this.collectValidationEvidence(dispatch);
     }
     async collectValidationEvidence(dispatch: RepositoryDispatch): Promise<readonly RepositoryValidationEvidence[]> {
-        return ["TYPECHECK", "TEST", "BUILD"].map(kind => ({ evidenceId: randomUUID(), dispatchId: dispatch.dispatchId,
-            kind: kind as RepositoryValidationEvidence["kind"], passed: false, collectedAt: new Date() }));
+        throw new Error(`Legacy dispatch evidence is disabled by PBS-5000 for ${dispatch.dispatchId}; collect exact-revision GitHub checks through the production runtime.`);
     }
 
     async promote(dispatch: RepositoryDispatch, scorecard: EcosystemScorecard): Promise<CertifiedPromotion> {
         return this.mergeApprovedChange(dispatch, scorecard);
     }
     async mergeApprovedChange(dispatch: RepositoryDispatch, scorecard: EcosystemScorecard, pullRequest?: PullRequestReference): Promise<CertifiedPromotion> {
-        if (dispatch.status !== "COMPLETED" || scorecard.certificationState !== "CERTIFIED") throw new Error("Merge requires completed work and certification.");
-        if (pullRequest) await this.commands.run("gh", ["pr", "merge", String(pullRequest.number), "--squash", "--repo", pullRequest.repository]);
-        return { promotionId: randomUUID(), dispatchId: dispatch.dispatchId, revision: dispatch.revision, status: "PROMOTED", promotedAt: new Date() };
+        void scorecard; void pullRequest;
+        throw new Error(`Legacy scorecard promotion is disabled by PBS-5000 for ${dispatch.dispatchId}; use kernel certification and explicit pull-request promotion.`);
     }
 
     private async checkout(repository: RepositoryReference): Promise<string> {

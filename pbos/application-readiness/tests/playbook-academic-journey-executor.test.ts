@@ -46,13 +46,17 @@ describe("CIP-048 academic journey execution adapter", () => {
             inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
                 revision: "836e6ae", findings: [], files: [], inspectedAt: new Date() }),
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
-                calls.push(`read:${revision}:${path}`); return path.includes("TranscriptUploadCard") ? uploadCard : "legacy route";
+                calls.push(`read:${revision}:${path}`);
+                if (path.includes("TranscriptUploadCard")) return uploadCard;
+                if (path === "package.json") return JSON.stringify({ scripts: { dev: "next dev" }, devDependencies: {} });
+                return "legacy route";
             },
             createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); calls.push("files"); return files.map(file => file.path);
             },
             prepareDependencyLock: async () => { calls.push("lock"); },
+            workingDirectory: async () => "/tmp/playbook-platform",
             commit: async () => { calls.push("commit"); return "academic123"; },
             push: async () => { calls.push("push"); },
             openDraftPullRequest: async () => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/54", number: 54,
@@ -74,9 +78,13 @@ describe("CIP-048 academic journey execution adapter", () => {
         expect(upload).toContain('role="status"');
         expect(upload).toContain("12 MB or smaller");
         expect(generated.get("supabase/migrations/202608050004_pbos_academic_journey.sql")).toContain("enable row level security");
+        expect(generated.get("tests/acceptance/pbos-academic.spec.ts")).toContain("TRANSCRIPT-TO-ACADEMIC-READINESS");
+        expect(generated.get("package.json")).toContain("test:acceptance:pbos:academic");
         expect(generated.get("pbos/readiness/048-academic-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         expect(result.files?.modified).toContain("app/api/parse-transcript/route.ts");
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/54");
+        expect(result.functionalAcceptancePlan).toMatchObject({ commit: "academic123",
+            journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS" });
     });
 
     it("fails closed when the governed transcript UI no longer matches the inspected source", () => {

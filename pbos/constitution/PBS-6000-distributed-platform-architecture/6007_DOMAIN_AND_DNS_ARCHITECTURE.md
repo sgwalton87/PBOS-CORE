@@ -72,14 +72,8 @@ PBOS continuously validates DNS integrity.
 # Definition of Done
 
 Domain infrastructure remains constitutionally synchronized.
----
-id: PBS-6000-007
-title: Domain and DNS Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# Domain and DNS Architecture
+## Executable domain and DNS requirements
 
 The declared DNS provider owns public records, domain routing, TLS, redirects, and email authentication records. PBOS shall validate resolution, certificate validity, canonical redirects, and SPF/DKIM/DMARC alignment against the production deployment.
 

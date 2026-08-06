@@ -3,7 +3,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
-import { GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRuntimeService, assertProductionTransition } from "../index";
+import { GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRecoveryAuthority,
+    ProductionRuntimeService, assertProductionTransition } from "../index";
 
 const runtime = (clock = new Date("2026-08-05T00:00:00.000Z")) => {
     let now = clock;
@@ -51,6 +52,32 @@ describe("canonical PBOS production runtime", () => {
         expect(fixture.runtime.run(run.runId)?.status).toBe("RECOVERING");
     });
 
+    it("resumes an interrupted browser checkpoint without consuming a repair attempt", () => {
+        const fixture = runtime();
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        const interrupted = fixture.runtime.startStage(run.runId, "BROWSER_JOURNEY", "Run Scholar browser journey");
+        fixture.advance(30_001);
+
+        const recovered = fixture.runtime.recoverStaleRuns().at(-1)!;
+        expect(recovered).toMatchObject({ runId: run.runId, status: "RECOVERING",
+            activeStageId: undefined, resumeCheckpoint: "BROWSER_JOURNEY", repairAttempts: 0 });
+        expect(fixture.state.productionStages(run.runId).find(stage => stage.stageId === interrupted.stageId))
+            .toMatchObject({ status: "FAILED",
+                error: "Execution was interrupted after its cross-process lease expired; no acceptance result was recorded." });
+
+        const resumed = fixture.runtime.resume(run.runId, input.actorId);
+        const active = fixture.state.productionStages(run.runId).find(stage => stage.stageId === resumed.activeStageId);
+        expect(resumed).toMatchObject({ runId: run.runId, status: "VALIDATING", repairAttempts: 0 });
+        expect(active).toMatchObject({ type: "VALIDATION", status: "RUNNING",
+            inputs: { recoveryCheckpoint: "BROWSER_JOURNEY" } });
+        expect(() => fixture.runtime.startStage(run.runId, "BROWSER_JOURNEY", "Duplicate browser journey"))
+            .toThrow(/already has active stage/);
+    });
+
     it("resumes a paused validation checkpoint as validation rather than re-running engineering", () => {
         const fixture = runtime();
         const run = fixture.runtime.begin(input);
@@ -61,6 +88,65 @@ describe("canonical PBOS production runtime", () => {
         fixture.runtime.startStage(run.runId, "VALIDATION", "Await protected staging decision");
         fixture.runtime.pause(run.runId, input.actorId);
         expect(fixture.runtime.resume(run.runId, input.actorId).status).toBe("VALIDATING");
+    });
+
+    it("creates an authorized recovery epoch without resetting attempts, replacing the mission, or discarding evidence", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "scholar-journey", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing governed mission",
+            approvalRequired: true, evidenceIds: ["mission-evidence"] }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        fixture.runtime.recordValidation(run.runId, "Monitor linked", true, 0, "remediation-run:validation-1");
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "STARTED");
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "FAILED");
+        }
+        fixture.runtime.transition(run.runId, "BLOCKED", "Repair budget exhausted");
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 5, limit: 5, remaining: 0 });
+        expect(() => fixture.runtime.recoverBlockedValidation(run.runId, "validation-1", input.commit))
+            .toThrow("verified operator approval");
+
+        const authority = new ProductionRecoveryAuthority(fixture.state, fixture.runtime);
+        const epoch = authority.request(run.runId);
+        expect(epoch).toMatchObject({ epochNumber: 1, runId: run.runId, missionId: "scholar-journey",
+            status: "AWAITING_AUTHORIZATION", repositoryState: { commit: input.commit },
+            runtimeState: { repairAttempts: 5, repairAttemptLimit: 5 } });
+        expect(epoch.attemptedRepairs).toHaveLength(5);
+        expect(epoch.remainingDefects).toContain("Repair budget exhausted");
+        expect(epoch.lineageEvidenceIds).toContain("remediation-run:validation-1");
+        expect(fixture.state.missionQueue(input.systemId)).toHaveLength(1);
+        expect(() => authority.authorize(epoch.recoveryEpochId, "repair-approval-1", input.actorId, () => false))
+            .toThrow("explicit verifiable operator authorization");
+
+        const active = authority.authorize(epoch.recoveryEpochId, "repair-approval-1", input.actorId,
+            (approvalId, actorId, runId) => approvalId === "repair-approval-1" && actorId === input.actorId && runId === run.runId);
+        const extended = fixture.runtime.run(run.runId)!;
+        expect(active.status).toBe("ACTIVE");
+        expect(extended.repairAttempts).toBe(5);
+        expect(extended.repairExtensionApprovalIds).toEqual(["repair-approval-1"]);
+        expect(extended.recoveryEpochIds).toEqual([epoch.recoveryEpochId]);
+        expect(extended.activeRecoveryEpochId).toBe(epoch.recoveryEpochId);
+        expect(extended.evidenceIds).toEqual(expect.arrayContaining([
+            "remediation-run:validation-1", `recovery-epoch:${epoch.recoveryEpochId}`, "approval:repair-approval-1"
+        ]));
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 5, limit: 6, remaining: 1 });
+        expect(() => authority.authorize(epoch.recoveryEpochId, "repair-approval-1", input.actorId, () => true))
+            .toThrow(/explicit verifiable operator authorization/);
+        expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("RECOVERY_AUTHORITY_GRANTED");
+
+        const recovered = fixture.runtime.recoverBlockedValidation(run.runId, "validation-1", input.commit);
+        const activeStage = fixture.state.productionStages(run.runId)
+            .filter(stage => stage.status === "RUNNING");
+        expect(recovered).toMatchObject({ runId: run.runId, selectedMission: input.mission,
+            status: "VALIDATING", repairAttempts: 5, repairAttemptLimit: 6,
+            activeRecoveryEpochId: epoch.recoveryEpochId });
+        expect(activeStage).toHaveLength(1);
+        expect(activeStage[0]).toMatchObject({ stageId: recovered.activeStageId, type: "VALIDATION",
+            inputs: { recoveryCheckpoint: "VALIDATION" } });
     });
 
     it("rejects invalid status transitions and mission dependency cycles", () => {

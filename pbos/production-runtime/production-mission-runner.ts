@@ -104,6 +104,9 @@ export class ProductionMissionRunner {
 
             try {
                 const result = await executor({ run: this.runtime.run(run.runId)!, mission, report: this.report });
+                if (mission.completionPolicy?.kind === "FUNCTIONAL_APPLICATION" && !result.functionalAcceptancePlan) {
+                    throw new Error(`Functional mission ${mission.missionId} execution adapter did not produce an executable acceptance plan.`);
+                }
                 const revision = typeof result.outputs.revision === "string" ? result.outputs.revision : undefined;
                 const resultBranch = typeof result.outputs.branch === "string" ? result.outputs.branch : request.branch;
                 if (revision && /^[a-f0-9]{7,40}$/i.test(revision)) this.runtime.updateRepositoryPosition(run.runId, resultBranch, revision);

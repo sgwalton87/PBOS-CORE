@@ -28,6 +28,7 @@ export interface BeginProductionRun {
 
 const ACTIVE: readonly ProductionStatus[] = ["PLANNING", "AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING", "GENERATING_PREVIEW", "AWAITING_APPROVAL", "PAUSED", "RECOVERING"];
 const LEASE_REQUIRED: readonly ProductionStatus[] = ["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING", "GENERATING_PREVIEW", "RECOVERING"];
+export const DEFAULT_PRODUCTION_REPAIR_LIMIT = 5;
 
 export class ProductionRuntimeService {
     constructor(private readonly state: GenesisStateRepository, private readonly leaseTtlMs = 30_000,
@@ -47,7 +48,8 @@ export class ProductionRuntimeService {
             startingBranch: input.branch, startingCommit: input.commit, currentBranch: input.branch, currentCommit: input.commit,
             requestedObjective: input.objective, selectedMission: input.mission, selectionRationale: input.rationale,
             dependencySnapshot: input.dependencies ?? [], status: "AUTHORIZED", startedAt: timestamp, lastHeartbeatAt: timestamp,
-            stageIds: [], retryCount: 0, repairAttempts: 0, filesAdded: [], filesModified: [], filesDeleted: [],
+            stageIds: [], retryCount: 0, repairAttempts: 0, repairAttemptLimit: DEFAULT_PRODUCTION_REPAIR_LIMIT,
+            repairExtensionApprovalIds: [], recoveryEpochIds: [], filesAdded: [], filesModified: [], filesDeleted: [],
             commandsExecuted: [], testsExecuted: [], validationResults: [], previewArtifactIds: [], evidenceIds: [],
             acceptanceEvidence: [], blockers: [],
             autonomousContinuation: input.autonomousContinuation ?? true
@@ -131,6 +133,12 @@ export class ProductionRuntimeService {
 
     startStage(runId: string, type: StageType, title: string, inputs: Readonly<Record<string, unknown>> = {}, command?: string): ProductionStage {
         const run = this.heartbeat(runId); const timestamp = this.now().toISOString();
+        if (run.activeStageId) {
+            const active = this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId);
+            if (active && !active.completedAt) {
+                throw new Error(`Production run ${runId} already has active stage ${active.stageId} (${active.type}).`);
+            }
+        }
         const stage: ProductionStage = { stageId: randomUUID(), runId, type, title, status: "RUNNING", startedAt: timestamp,
             lastHeartbeatAt: timestamp, attempt: 1, inputs, outputs: {}, command: command ? this.redact(command) : undefined,
             logs: [], evidenceIds: [] };
@@ -294,13 +302,83 @@ export class ProductionRuntimeService {
         return updated;
     }
 
-    recordRepairAttempt(runId: string, classification: string, outcome: "STARTED" | "SUCCEEDED" | "FAILED", maximumAttempts = 5): ProductionRun {
+    repairBudget(runId: string): Readonly<{ attempts: number; limit: number; remaining: number }> {
+        const run = this.requireRun(runId);
+        const limit = run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT;
+        return { attempts: run.repairAttempts, limit, remaining: Math.max(0, limit - run.repairAttempts) };
+    }
+
+    registerRecoveryEpoch(runId: string, recoveryEpochId: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const epoch = this.state.productionRecoveryEpoch(recoveryEpochId);
+        if (!epoch || epoch.runId !== runId || epoch.status !== "AWAITING_AUTHORIZATION") {
+            throw new Error("Recovery epoch registration does not match the blocked production run.");
+        }
+        const updated: ProductionRun = { ...run,
+            recoveryEpochIds: [...new Set([...(run.recoveryEpochIds ?? []), recoveryEpochId])],
+            evidenceIds: [...new Set([...run.evidenceIds, `recovery-epoch:${recoveryEpochId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "RECOVERY_AUTHORITY_REQUESTED",
+            `Recovery epoch ${epoch.epochNumber} requires explicit operator authorization.`, {
+                recoveryEpochId, epochNumber: epoch.epochNumber, repairAttempts: epoch.runtimeState.repairAttempts,
+                repairAttemptLimit: epoch.runtimeState.repairAttemptLimit, remainingDefects: epoch.remainingDefects
+            });
+        return updated;
+    }
+
+    activateRecoveryEpoch(runId: string, recoveryEpochId: string, approvalId: string, actorId: string,
+        additionalAttempts = 1): ProductionRun {
+        const run = this.requireActor(runId, actorId);
+        const epoch = this.state.productionRecoveryEpoch(recoveryEpochId);
+        const budget = this.repairBudget(runId);
+        if (!epoch || epoch.runId !== runId || epoch.status !== "AUTHORIZED" ||
+            epoch.authorizationApprovalId !== approvalId || run.status !== "BLOCKED" || budget.remaining > 0) {
+            throw new Error(`Run ${runId} is not eligible for an authorized recovery epoch.`);
+        }
+        if (!approvalId.trim() || additionalAttempts !== 1) {
+            throw new Error("A constitutional recovery epoch authorizes exactly one additional bounded repair attempt.");
+        }
+        const approvals = [...new Set([...(run.repairExtensionApprovalIds ?? []), approvalId])];
+        if (approvals.length === (run.repairExtensionApprovalIds ?? []).length) {
+            throw new Error(`Repair-budget approval ${approvalId} has already been consumed.`);
+        }
+        const updated: ProductionRun = { ...run, repairAttemptLimit: budget.limit + additionalAttempts,
+            repairExtensionApprovalIds: approvals, evidenceIds: [...new Set([...run.evidenceIds, `approval:${approvalId}`])],
+            activeRecoveryEpochId: recoveryEpochId, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "RECOVERY_AUTHORITY_GRANTED",
+            `Recovery epoch ${epoch.epochNumber} authorized ${additionalAttempts} additional bounded repair attempt${additionalAttempts === 1 ? "" : "s"}.`, {
+                recoveryEpochId, epochNumber: epoch.epochNumber, approvalId, previousLimit: budget.limit,
+                repairAttemptLimit: updated.repairAttemptLimit, additionalAttempts
+            });
+        return updated;
+    }
+
+    closeRecoveryEpoch(runId: string, recoveryEpochId: string, outcome: "COMPLETED" | "EXHAUSTED", reason: string): ProductionRun {
+        const run = this.requireRun(runId);
+        if (run.activeRecoveryEpochId !== recoveryEpochId || !reason.trim()) {
+            throw new Error("Recovery epoch closure does not match the active production lineage.");
+        }
+        const updated: ProductionRun = { ...run, activeRecoveryEpochId: undefined, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, `RECOVERY_EPOCH_${outcome}`,
+            `Active recovery epoch ${outcome === "COMPLETED" ? "completed" : "exhausted"}: ${reason}`, {
+                recoveryEpochId, outcome, reason, repairAttempts: run.repairAttempts,
+                repairAttemptLimit: run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT
+            }, outcome === "EXHAUSTED" ? "WARN" : "INFO");
+        return updated;
+    }
+
+    recordRepairAttempt(runId: string, classification: string, outcome: "STARTED" | "SUCCEEDED" | "FAILED", maximumAttempts?: number): ProductionRun {
         const run = this.heartbeat(runId);
         const attempts = outcome === "STARTED" ? run.repairAttempts + 1 : run.repairAttempts;
-        if (attempts > maximumAttempts) throw new Error(`Repair limit exceeded for run ${runId}.`);
+        const limit = maximumAttempts ?? run.repairAttemptLimit ?? DEFAULT_PRODUCTION_REPAIR_LIMIT;
+        if (attempts > limit) throw new Error(`Repair limit exhausted for run ${runId} after ${run.repairAttempts}/${limit} attempts.`);
         const updated = { ...run, repairAttempts: attempts };
         this.state.saveProductionRun(updated);
-        this.event(updated, `REPAIR_${outcome}`, `Repair ${outcome.toLowerCase()}: ${classification}.`, { classification, attempt: attempts, maximumAttempts }, outcome === "FAILED" ? "ERROR" : "INFO");
+        this.event(updated, `REPAIR_${outcome}`, `Repair ${outcome.toLowerCase()}: ${classification}.`,
+            { classification, attempt: attempts, maximumAttempts: limit }, outcome === "FAILED" ? "ERROR" : "INFO");
         return updated;
     }
 
@@ -428,7 +506,14 @@ export class ProductionRuntimeService {
         const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
             "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE", "PREVIEW"];
         const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
-        return this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
+        const resumed = this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
+        if (target === "VALIDATING" && !activeStage) {
+            this.startStage(runId, "VALIDATION", `Resume validation for ${run.selectedMission}`, {
+                recoveryCheckpoint: run.resumeCheckpoint ?? "VALIDATION"
+            });
+            return this.requireRun(runId);
+        }
+        return resumed;
     }
 
     recoverPrematureIndependentValidation(runId: string, remediationRunId: string, headSha: string): ProductionRun {
@@ -466,6 +551,10 @@ export class ProductionRuntimeService {
         recovery = "VALIDATION_RETRY"): ProductionRun {
         const run = this.requireRun(runId);
         if (run.status !== "BLOCKED") return run;
+        const budget = this.repairBudget(runId);
+        if (budget.remaining === 0) {
+            throw new Error(`Run ${runId} exhausted its bounded repair budget (${budget.attempts}/${budget.limit}); verified operator approval is required to continue.`);
+        }
         if (!/^[a-f0-9]{7,40}$/i.test(headSha) || run.currentCommit !== headSha ||
             !run.evidenceIds.includes(`remediation-run:${remediationRunId}`)) {
             throw new Error("Validation recovery does not match the governed production lineage.");
@@ -474,12 +563,9 @@ export class ProductionRuntimeService {
         this.transition(runId, "RECOVERING",
             "Recovering a blocked run at the last exact-revision validation checkpoint.", {
                 remediationRunId, headSha, recovery
-            });
+        });
         if (mission) this.updateMissionStatus(run.systemId, mission.missionId, "ACTIVE");
         this.resume(runId, run.actorId);
-        this.startStage(runId, "VALIDATION", `Resume validation for ${run.selectedMission}`, {
-            remediationRunId, recovery
-        });
         return this.requireRun(runId);
     }
 
@@ -508,8 +594,16 @@ export class ProductionRuntimeService {
             this.state.saveExecutionLease({ ...lease, status: "STALE", recoveryMetadata: { classifiedAt: this.now().toISOString() } });
             const run = this.requireRun(lease.runId);
             if (ACTIVE.includes(run.status)) {
-                const updated = { ...run, status: "RECOVERING" as const, lastHeartbeatAt: this.now().toISOString(),
-                    resumeCheckpoint: run.activeStageId ?? "RUN_START" };
+                const activeStage = run.activeStageId
+                    ? this.state.productionStages(run.runId).find(stage => stage.stageId === run.activeStageId) : undefined;
+                if (activeStage && !activeStage.completedAt) {
+                    this.failStage(activeStage.stageId,
+                        "Execution was interrupted after its cross-process lease expired; no acceptance result was recorded.");
+                }
+                const current = this.requireRun(lease.runId);
+                const updated = { ...current, status: "RECOVERING" as const, activeStageId: undefined,
+                    lastHeartbeatAt: this.now().toISOString(),
+                    resumeCheckpoint: activeStage?.type ?? run.activeStageId ?? "RUN_START" };
                 this.state.saveProductionRun(updated); this.event(updated, "RUN_RECOVERY_REQUIRED", "Stale execution lease requires deterministic recovery.", { leaseId: lease.leaseId }, "WARN");
                 recovered.push(updated);
             }

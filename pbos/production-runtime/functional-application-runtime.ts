@@ -199,12 +199,31 @@ export class CommandBrowserJourneyRuntime implements BrowserJourneyRuntime {
         const environment = runtimeEnvironment ?? await this.protectedEnvironment.resolve(
             [plan.launch, ...plan.browserJourneys.map(item => item.command)], plan.protectedEnvironmentFiles);
         const startedAt = Date.now();
-        await promisify(execFile)(journey.command.command, [...journey.command.args], {
-            cwd: plan.workingDirectory,
-            env: environment,
-            timeout: journey.command.timeoutMs ?? 120_000,
-            maxBuffer: 10 * 1024 * 1024
-        });
+        try {
+            await promisify(execFile)(journey.command.command, [...journey.command.args], {
+                cwd: plan.workingDirectory,
+                env: environment,
+                timeout: journey.command.timeoutMs ?? 120_000,
+                maxBuffer: 10 * 1024 * 1024
+            });
+        } catch (error) {
+            const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number };
+            const protectedNames = new Set([
+                ...(plan.launch.requiredEnvironmentVariables ?? []),
+                ...(journey.command.requiredEnvironmentVariables ?? [])
+            ]);
+            const redact = (value: string): string => {
+                let safe = value;
+                for (const name of protectedNames) {
+                    const secret = environment[name];
+                    if (secret) safe = safe.replaceAll(secret, "[REDACTED]");
+                }
+                return safe.replace(/(token|secret|password|authorization)=?\s*[^\s]+/gi, "$1=[REDACTED]");
+            };
+            const output = redact(`${failure.stdout ?? ""}\n${failure.stderr ?? ""}`).trim().slice(-20_000);
+            throw new Error(`Browser journey command failed for ${journey.journeyId}` +
+                `${failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
+        }
         const artifacts = [...journey.screenshotArtifacts, journey.traceArtifact, journey.accessibilityArtifact,
             journey.acceptanceArtifact];
         const resolvedArtifacts = new Map<string, string>();

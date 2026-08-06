@@ -82,14 +82,8 @@ PBOS shall continuously inventory every participating platform.
 # Definition of Done
 
 The Platform Inventory completely describes the distributed Playbook ecosystem.
----
-id: PBS-6000-001
-title: Platform Inventory
-status: Canonical
-parent: PBS-6000
----
 
-# Platform Inventory
+## Executable platform inventory
 
 Every application blueprint shall declare which distributed nodes it uses. Undeclared infrastructure cannot be treated as healthy, and a declared dependency cannot be omitted from release evidence.
 

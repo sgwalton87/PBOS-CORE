@@ -30,6 +30,16 @@ class SkippedCheckCommands implements CommandRunner {
     }
 }
 
+class MovingHeadCommands implements CommandRunner {
+    headSha = "abcdef1";
+    pending = false;
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: this.headSha }), stderr: "" };
+        return { stdout: JSON.stringify({ check_runs: [{ name: "CI", status: this.pending ? "in_progress" : "completed",
+            conclusion: this.pending ? null : "success", details_url: "https://github.com/acme/app/actions/runs/13" }] }), stderr: "" };
+    }
+}
+
 describe("resumable validation remediation", () => {
     it("persists failed evidence, applies remediation, and resumes to certification readiness", async () => {
         const statePath = join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json");
@@ -81,6 +91,18 @@ describe("resumable validation remediation", () => {
         expect(blocked.state).toBe("BLOCKED");
         expect(blocked.blockers).toContain("Remediation application failed: repository produced no diff");
         expect(state.remediationRun(started.runId)?.state).toBe("BLOCKED");
+    });
+
+    it("recollects a previously ready pull request and waits when its head advances", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new MovingHeadCommands();
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), new RepairHandler());
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        expect((await engine.resume(started.runId)).state).toBe("READY_FOR_CERTIFICATION");
+        commands.headSha = "abcdef2"; commands.pending = true;
+        const moved = await engine.resume(started.runId);
+        expect(moved).toMatchObject({ headSha: "abcdef2", state: "WAITING_FOR_CHECKS" });
     });
 
     it("selects the newest pull request even when an older run was appended later", () => {

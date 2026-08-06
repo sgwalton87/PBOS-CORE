@@ -95,14 +95,8 @@ Continuously validate deployment readiness.
 # Definition of Done
 
 Deployments remain deterministic, reproducible, and constitutionally governed.
----
-id: PBS-6000-011
-title: Deployment Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# Deployment Architecture
+## Executable deployment requirements
 
 The governed deployment sequence is:
 

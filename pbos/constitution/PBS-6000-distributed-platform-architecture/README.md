@@ -43,3 +43,12 @@ This constitution governs:
 - Platform Health
 - Platform Convergence
 
+Machine-readable graph:
+
+`GRAPH.yaml`
+
+Executable validation model:
+
+`pbos/platform-convergence`
+
+PBS-6000 supplies dependency and health truth to the existing PBOS Kernel. It does not create another planner, runtime-state store, remediation engine, or certification authority.

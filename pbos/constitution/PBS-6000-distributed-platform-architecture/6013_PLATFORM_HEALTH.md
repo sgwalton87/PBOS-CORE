@@ -101,14 +101,8 @@ PBOS shall continuously calculate, preserve, and expose Platform Health.
 # Definition of Done
 
 Every participating platform exposes constitutionally valid operational health.
----
-id: PBS-6000-013
-title: Platform Health
-status: Canonical
-parent: PBS-6000
----
 
-# Platform Health
+## Executable platform-health requirements
 
 Node health is one of `HEALTHY`, `DEGRADED`, `FAILED`, `BLOCKED`, or `UNKNOWN`.
 

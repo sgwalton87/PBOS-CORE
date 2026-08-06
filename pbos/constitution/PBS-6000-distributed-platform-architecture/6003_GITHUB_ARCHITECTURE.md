@@ -73,14 +73,8 @@ PBOS continuously validates repository integrity.
 # Definition of Done
 
 GitHub remains synchronized with constitutional implementation.
----
-id: PBS-6000-003
-title: GitHub Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# GitHub Architecture
+## Executable GitHub requirements
 
 GitHub owns repository objects, exact commits, branches, pull requests, Actions checks, and releases. PBOS shall:
 

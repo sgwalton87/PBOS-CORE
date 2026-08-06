@@ -90,14 +90,8 @@ PBOS shall continuously validate canonical ownership.
 # Definition of Done
 
 Every distributed responsibility has one constitutional owner.
----
-id: PBS-6000-002
-title: Canonical Ownership Matrix
-status: Canonical
-parent: PBS-6000
----
 
-# Canonical Ownership Matrix
+## Executable ownership matrix
 
 | Truth | Owner | PBOS responsibility |
 | --- | --- | --- |

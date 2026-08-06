@@ -31,7 +31,6 @@ export class ResumableRemediationEngine {
         if (persisted.state === "BLOCKED") return persisted;
         const falselyReady = persisted.state === "READY_FOR_CERTIFICATION" &&
             !persisted.evidence.some(item => item.state === "PASSED");
-        if (persisted.state === "READY_FOR_CERTIFICATION" && !falselyReady) return persisted;
         const current = falselyReady ? this.save({ ...persisted, state: "WAITING_FOR_CHECKS",
             blockers: ["Independent validation has not reported a passing check for the exact revision."] }) : persisted;
         const collected = await this.checks.collect(current.pullRequest);
@@ -49,7 +48,8 @@ export class ResumableRemediationEngine {
         if (failures.length === 0) return this.save({ ...current, headSha: collected.headSha,
             state: "READY_FOR_CERTIFICATION", evidence: collected.evidence, blockers: [] });
         const fingerprint = this.checks.fingerprint(collected.evidence);
-        if (current.attempt >= current.maximumAttempts || (current.attempt > 0 && current.failureFingerprint === fingerprint)) {
+        if (current.attempt >= current.maximumAttempts || (current.attempt > 0 && current.headSha === collected.headSha &&
+            current.failureFingerprint === fingerprint)) {
             return this.save({ ...current, headSha: collected.headSha, state: "BLOCKED", evidence: collected.evidence,
                 failureFingerprint: fingerprint, blockers: ["Identical validation failure repeated without a new revision; human review required."] });
         }

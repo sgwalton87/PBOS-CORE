@@ -9,7 +9,7 @@ import { ResumableRemediationEngine } from "../validation-automation";
 import { BackgroundMonitorJob } from "./contracts";
 import { OperatorMemoService } from "./operator-memo-service";
 import { AutonomousBatchService } from "./autonomous-batch-service";
-import { ApplicationAcceptanceEvidence, ProductionRuntimeService } from "../production-runtime";
+import { ApplicationAcceptanceEvidence, ProductionRecoveryAuthority, ProductionRuntimeService } from "../production-runtime";
 import { RemediationRun } from "../validation-automation";
 import { AutonomousProductionKernel } from "../kernel";
 
@@ -96,11 +96,23 @@ export class BackgroundMonitor {
         if (!linkedRun) return;
         let run = linkedRun;
         if (run.status === "BLOCKED") {
+            if (!["READY_FOR_CERTIFICATION", "REMEDIATION_PUSHED"].includes(validation)) return;
             const selectedMission = run.selectedMission;
             const blockedMission = this.state.missionQueue(run.systemId).find(item => item.title === selectedMission);
+            const replacementRevision = validation === "READY_FOR_CERTIFICATION"
+                ? remediation.headSha : remediation.remediationRevision;
+            if (!replacementRevision || !/^[a-f0-9]{7,40}$/i.test(replacementRevision)) {
+                throw new Error("Blocked-run recovery requires the exact replacement pull-request revision.");
+            }
+            if (run.currentCommit !== replacementRevision) {
+                run = run.functionalAcceptancePlan
+                    ? production.rebindRepositoryAfterRemediation(run.runId, remediationRunId,
+                        remediation.pullRequest.branch, replacementRevision)
+                    : production.updateRepositoryPosition(run.runId, remediation.pullRequest.branch, replacementRevision);
+            }
             run = blockedMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
-                ? production.recoverBlockedFunctionalValidation(run.runId, remediationRunId, remediation.headSha)
-                : production.recoverBlockedValidation(run.runId, remediationRunId, remediation.headSha);
+                ? production.recoverBlockedFunctionalValidation(run.runId, remediationRunId, replacementRevision)
+                : production.recoverBlockedValidation(run.runId, remediationRunId, replacementRevision);
         }
         if (run.status !== "VALIDATING") return;
         production.heartbeat(run.runId);
@@ -109,7 +121,7 @@ export class BackgroundMonitor {
             if (!revision || !/^[a-f0-9]{7,40}$/i.test(revision)) {
                 throw new Error("Remediation completed without an exact replacement revision.");
             }
-            run = run.functionalAcceptancePlan
+            if (run.currentCommit !== revision) run = run.functionalAcceptancePlan
                 ? production.rebindRepositoryAfterRemediation(run.runId, remediationRunId,
                     remediation.pullRequest.branch, revision)
                 : production.updateRepositoryPosition(run.runId, remediation.pullRequest.branch, revision);
@@ -137,6 +149,8 @@ export class BackgroundMonitor {
                 if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
                     await new AutonomousProductionKernel(this.state, production)
                         .verifyApplication(run.runId, validationEvidence);
+                    new ProductionRecoveryAuthority(this.state, production).completeActive(run.runId,
+                        "Independent exact-revision validation and functional application acceptance passed.");
                     return;
                 }
                 production.recordAcceptanceEvidence(run.runId, [validationEvidence]);
@@ -156,6 +170,9 @@ export class BackgroundMonitor {
                     });
                 }
                 production.blockMissionForRun(run.runId, reason, [`remediation-run:${remediationRunId}`]);
+                if (production.repairBudget(run.runId).remaining === 0) {
+                    new ProductionRecoveryAuthority(this.state, production).request(run.runId);
+                }
                 throw error;
             }
         } else if (validation === "BLOCKED") {

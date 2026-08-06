@@ -9,7 +9,16 @@ import { ApplicationLauncher, BrowserJourneyRuntime, CommandBrowserJourneyRuntim
 function repository(): Readonly<{ path: string; revision: string }> {
     const path = mkdtempSync(join(tmpdir(), "pbos-functional-app-"));
     execFileSync("git", ["init", "-q"], { cwd: path });
-    execFileSync("git", ["-c", "user.name=PBOS", "-c", "user.email=pbos@example.invalid", "commit", "--allow-empty", "-m", "fixture", "-q"], { cwd: path });
+    writeFileSync(join(path, "package.json"), JSON.stringify({
+        name: "pbos-functional-application-fixture", version: "1.0.0", scripts: { dev: "node server.js" }
+    }));
+    writeFileSync(join(path, "package-lock.json"), JSON.stringify({
+        name: "pbos-functional-application-fixture", version: "1.0.0", lockfileVersion: 3,
+        requires: true, packages: { "": { name: "pbos-functional-application-fixture", version: "1.0.0" } }
+    }));
+    writeFileSync(join(path, "server.js"), "process.exit(0);\n");
+    execFileSync("git", ["add", "package.json", "package-lock.json", "server.js"], { cwd: path });
+    execFileSync("git", ["-c", "user.name=PBOS", "-c", "user.email=pbos@example.invalid", "commit", "-m", "fixture", "-q"], { cwd: path });
     return { path, revision: execFileSync("git", ["rev-parse", "HEAD"], { cwd: path, encoding: "utf8" }).trim() };
 }
 
@@ -86,5 +95,23 @@ describe("PBS-5000 functional application runtime", () => {
         await expect(new CommandBrowserJourneyRuntime().run(acceptance, {
             ...journey, command: { command: process.execPath, args: ["-e", "process.exit(0)"] }
         })).rejects.toThrow("acceptance report is invalid");
+    });
+
+    it("reports actionable browser command failures without exposing protected values", async () => {
+        const repo = repository(); const acceptance = plan(repo.path, repo.revision);
+        const journey = { ...acceptance.browserJourneys[0],
+            command: { command: process.execPath,
+                args: ["-e", "console.error('PASSWORD=do-not-log'); process.exit(2)"],
+                requiredEnvironmentVariables: ["PASSWORD"] } };
+        await expect(new CommandBrowserJourneyRuntime().run(acceptance, journey, { PASSWORD: "do-not-log" }))
+            .rejects.toThrowError(expect.objectContaining({
+                message: expect.stringContaining("Browser journey command failed")
+            }));
+        try {
+            await new CommandBrowserJourneyRuntime().run(acceptance, journey, { PASSWORD: "do-not-log" });
+        } catch (error) {
+            expect(String(error)).toContain("PASSWORD=[REDACTED]");
+            expect(String(error)).not.toContain("do-not-log");
+        }
     });
 });

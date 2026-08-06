@@ -120,8 +120,14 @@ describe("CIP-048 Scholar slice execution adapter", () => {
         expect(generated.get("supabase/migrations/202608050003_pbos_scholar_dashboard.sql")).toContain("enable row level security");
         expect(generated.get("docs/integrations/PBOS-SCHOLAR-ONBOARDING.md")).toContain("without allowing the application to self-authorize");
         expect(generated.get("package.json")).toContain("test:acceptance:pbos");
+        expect(generated.get("package.json")).toContain("pbos:acceptance:prepare");
+        expect(generated.get("scripts/pbos/prepare-browser.mjs")).toContain("using installed Google Chrome");
         expect(generated.get("playwright.config.ts")).toContain("Desktop Chrome");
-        expect(generated.get("acceptance/pbos-scholar.spec.ts")).toContain("scholar_dashboard_projections");
+        expect(generated.get("playwright.config.ts")).toContain('channel: "chrome"');
+        expect(generated.get("playwright.config.ts")).toContain("timeout: 120_000");
+        expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain("scholar_dashboard_projections");
+        expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain("onboardingBody");
+        expect(generated.get("tests/acceptance/pbos-scholar.spec.ts")).toContain('getByRole("textbox", { name: "Email", exact: true })');
         expect(generated.get("pbos/connector/playbook-connector.ts")).toContain("PLAYBOOK-SCHOLAR-REGISTRATION-001");
         expect(generated.get("pbos/connector/playbook-system-manifest.ts")).toContain("PLAYBOOK-SCHOLAR-REGISTRATION-001");
         expect(result.functionalAcceptancePlan).toMatchObject({ commit: "abcdef123", branch: "agent/pbos-playbook-system-001-048-scholar-87654321",

@@ -71,14 +71,8 @@ PBOS continuously validates deployment integrity.
 # Definition of Done
 
 Production deployment remains constitutionally aligned with repository implementation.
----
-id: PBS-6000-006
-title: Vercel Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# Vercel Architecture
+## Executable Vercel requirements
 
 Vercel owns Playbook preview and production deployments. PBOS shall validate:
 

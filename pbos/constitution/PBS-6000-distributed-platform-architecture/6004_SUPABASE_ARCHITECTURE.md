@@ -75,14 +75,8 @@ PBOS continuously validates Supabase against repository state.
 # Definition of Done
 
 Supabase remains constitutionally synchronized with Playbook.
----
-id: PBS-6000-004
-title: Supabase Architecture
-status: Canonical
-parent: PBS-6000
----
 
-# Supabase Architecture
+## Executable Supabase requirements
 
 Supabase owns application authentication, PostgreSQL schema, migrations, RLS, Storage, Realtime, and Edge Functions where declared. PBOS shall validate:
 
