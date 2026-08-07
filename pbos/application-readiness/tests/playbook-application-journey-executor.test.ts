@@ -3,7 +3,10 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { ApplicationAcceptanceDimension, ProductionRun } from "../../production-runtime";
 import {
     assertKnownApplicationWorkspaceSources,
-    playbookApplicationJourneyExecutor
+    isApplicationWorkspaceMigrationFoundationDefect,
+    playbookApplicationJourneyExecutor,
+    preparePlaybookApplicationMigrationRecovery,
+    wireApplicationWorkspaceMigrationFoundation
 } from "../playbook-application-journey-executor";
 
 const legacyRoute = `import { createClient } from "@supabase/supabase-js";
@@ -83,8 +86,11 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(dashboard).not.toContain('if (selectedName) setName(selectedName);\n    if (selectedId)');
         expect(dashboard).not.toContain("useCallback");
         expect(dashboard).toContain("fetchWorkspaces().then(body =>");
-        expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("application_workspace_tasks enable row level security");
-        expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("public=false");
+        const migration = generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql") ?? "";
+        expect(migration).toContain("create table if not exists public.application_workspaces");
+        expect(migration).toContain('create policy "application-workspaces-own"');
+        expect(migration).toContain("application_workspace_tasks enable row level security");
+        expect(migration).toContain("public=false");
         expect(generated.get("pbos/readiness/048-application-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         const acceptance = generated.get("tests/acceptance/pbos-application.spec.ts") ?? "";
         expect(acceptance).toContain("OPPORTUNITY-TO-APPLICATION");
@@ -105,6 +111,48 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
     it("refuses to overwrite an unrecognized application implementation", () => {
         expect(() => assertKnownApplicationWorkspaceSources("secured route", legacyDashboard)).toThrow("re-inspect");
         expect(() => assertKnownApplicationWorkspaceSources(legacyRoute, "functional dashboard")).toThrow("re-inspect");
+    });
+
+    it("repairs a clean-staging migration on the existing mission and pull request", async () => {
+        const legacyMigration = `alter table public.application_workspaces add column if not exists opportunity_id text;\n`;
+        const writes: string[] = [];
+        const blockedRun = { ...run, status: "BLOCKED" as const,
+            selectedMission: "Complete opportunity-to-application journey",
+            currentBranch: "agent/pbos-playbook-system-001-048-application-11223344",
+            currentCommit: "application123", terminalSummary: "Protected Scholar staging preparation failed.", blockers: [] };
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/62", number: 62,
+            branch: blockedRun.currentBranch, repository: "sgwalton87/playbook-platform" };
+        const result = await preparePlaybookApplicationMigrationRecovery({
+            gateway: {
+                inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+                    revision: "application123", findings: [], files: [], inspectedAt: new Date() }),
+                readFileAtRevision: async () => legacyMigration,
+                applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                    writes.push(files[0].content); return files.map(file => file.path);
+                },
+                commit: async () => "application456",
+                push: async () => undefined
+            } as unknown as GitHubRepositoryGateway,
+            session, pullRequest,
+            authorize: action => ({ decisionId: action, grantId: "grant-application", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-application-repair", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: (runId, remediationId, branch, revision, classification) => {
+                writes.push([runId, remediationId, branch, revision, classification].join(":")); return blockedRun;
+            } },
+            recoveryDefects: ["Supabase staging migration failed with HTTP 400; no response was persisted."]
+        }, blockedRun);
+
+        expect(result).toMatchObject({ branch: blockedRun.currentBranch, revision: "application456",
+            remediation: { runId: "validation-application-repair" } });
+        expect(writes[0]).toContain("create table if not exists public.application_workspaces");
+        expect(writes[0]).toContain('create policy "application-workspaces-own"');
+        expect(writes[1]).toContain("APPLICATION_WORKSPACE_MIGRATION_FOUNDATION");
+        expect(isApplicationWorkspaceMigrationFoundationDefect(blockedRun,
+            ["Supabase staging migration failed with HTTP 400"])).toBe(true);
+        expect(wireApplicationWorkspaceMigrationFoundation(writes[0])).toBe(writes[0]);
     });
 
     it("fails before repository inspection when application authority is denied", async () => {

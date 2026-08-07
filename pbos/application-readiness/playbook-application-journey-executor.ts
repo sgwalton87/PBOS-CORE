@@ -1,8 +1,8 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -19,6 +19,12 @@ export interface PlaybookApplicationJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookApplicationJourneyRecoveryDependencies extends PlaybookApplicationJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
 }
 
 const journeyServiceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -408,7 +414,28 @@ describe("opportunity-to-application journey", () => {
 });
 `;
 
-const migrationSource = `alter table public.application_workspaces add column if not exists opportunity_id text;
+const applicationWorkspaceFoundation = `create table if not exists public.application_workspaces (
+  id uuid primary key default gen_random_uuid(),
+  scholar_id uuid not null references auth.users(id),
+  opportunity_name text not null,
+  opportunity_type text not null,
+  deadline date,
+  requirements jsonb not null default '[]'::jsonb,
+  resume_version jsonb,
+  essays jsonb not null default '[]'::jsonb,
+  recommendation_request_ids jsonb not null default '[]'::jsonb,
+  evidence jsonb not null default '[]'::jsonb,
+  status text not null default 'building' check (status in ('building','ready','submitted','archived')),
+  created_at timestamptz not null default now()
+);
+alter table public.application_workspaces enable row level security;
+drop policy if exists "application-workspaces-own" on public.application_workspaces;
+create policy "application-workspaces-own" on public.application_workspaces for all to authenticated
+  using (auth.uid() = scholar_id) with check (auth.uid() = scholar_id);
+`;
+
+const migrationSource = `${applicationWorkspaceFoundation}
+alter table public.application_workspaces add column if not exists opportunity_id text;
 alter table public.application_workspaces add column if not exists idempotency_key text;
 alter table public.application_workspaces add column if not exists delivery_state text not null default 'PENDING' check (delivery_state in ('PENDING','DELIVERED'));
 alter table public.application_workspaces add column if not exists provenance jsonb not null default '[]'::jsonb;
@@ -451,6 +478,68 @@ create policy "application-document-storage-own" on storage.objects for all to a
   using (bucket_id='application-documents' and (storage.foldername(name))[1]=auth.uid()::text)
   with check (bucket_id='application-documents' and (storage.foldername(name))[1]=auth.uid()::text);
 `;
+
+/**
+ * Makes the application migration reproducible on a clean PBOS staging
+ * project while remaining additive on repositories that already applied the
+ * legacy application-toolkit migration.
+ */
+export function wireApplicationWorkspaceMigrationFoundation(source: string): string {
+    if (source.includes("create table if not exists public.application_workspaces (")) return source;
+    const legacyBoundary = "alter table public.application_workspaces add column if not exists opportunity_id text;";
+    if (!source.startsWith(legacyBoundary)) {
+        throw new Error("Playbook application migration changed; re-inspect before repairing its staging foundation.");
+    }
+    return `${applicationWorkspaceFoundation}\n${source}`;
+}
+
+export function isApplicationWorkspaceMigrationFoundationDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete opportunity-to-application journey" &&
+        evidence.includes("Supabase staging migration failed with HTTP 400");
+}
+
+/**
+ * Repairs only the generated application migration on the existing mission,
+ * branch, and pull request. No replacement mission or PR is created.
+ */
+export async function preparePlaybookApplicationMigrationRecovery(
+    dependencies: PlaybookApplicationJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isApplicationWorkspaceMigrationFoundationDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for application migration recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize application migration recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Application migration recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, MIGRATION, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [
+        { path: MIGRATION, content: wireApplicationWorkspaceMigrationFoundation(source) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: make application staging migration reproducible", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "APPLICATION_WORKSPACE_MIGRATION_FOUNDATION");
+    return { branch, revision, remediation };
+}
 
 const guideSource = `# Opportunity-to-Application Journey
 
