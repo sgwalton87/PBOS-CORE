@@ -106,7 +106,18 @@ describe("PBS-5000 functional application runtime", () => {
         writeFileSync(join(repo.path, "package.json"), JSON.stringify({ scripts: { dev: "next dev" }, dependencies: { next: "1.0.0" } }));
         writeFileSync(join(repo.path, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }));
         const prerequisites = await resolveFunctionalPrerequisites(plan(repo.path, repo.revision));
-        expect(prerequisites[0]).toMatchObject({ command: "npm", args: ["ci"] });
+        expect(prerequisites[0]).toMatchObject({ command: "npm", args: ["ci", "--no-audit", "--no-fund"],
+            timeoutMs: 900_000 });
+    });
+
+    it("normalizes durable npm acceptance plans to deterministic non-auditing installs", async () => {
+        const repo = repository();
+        const acceptance = { ...plan(repo.path, repo.revision),
+            prerequisites: [{ command: "npm", args: ["ci"], timeoutMs: 300_000 }] };
+        const prerequisites = await resolveFunctionalPrerequisites(acceptance);
+        expect(prerequisites).toEqual([
+            { command: "npm", args: ["ci", "--no-audit", "--no-fund"], timeoutMs: 900_000 }
+        ]);
     });
 
     it("accepts browser claims only when a commit-bound acceptance report proves every declared dimension", async () => {
