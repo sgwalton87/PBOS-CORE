@@ -4,7 +4,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
 import { applicationDeliverySummary, durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
-    playbookDoctorReadiness, promptForEcosystemCertificationApprovals, promptForMissionApproval,
+    isResumableProductionValidationStatus, playbookDoctorReadiness, promptForEcosystemCertificationApprovals, promptForMissionApproval,
     streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
@@ -21,6 +21,13 @@ class ApprovalIO {
 }
 
 describe("partner-ready CLI durable state", () => {
+    it("routes validated production runs back to the protected release checkpoint", () => {
+        expect(isResumableProductionValidationStatus("AWAITING_APPROVAL")).toBe(true);
+        expect(isResumableProductionValidationStatus("VALIDATING")).toBe(true);
+        expect(isResumableProductionValidationStatus("CERTIFIED")).toBe(false);
+        expect(isResumableProductionValidationStatus("COMPLETED")).toBe(false);
+    });
+
     it("blocks the Playbook doctor when the active academic acceptance environment is incomplete", () => {
         expect(playbookDoctorReadiness(true, false, false)).toBe("BLOCKED");
         expect(playbookDoctorReadiness(true, false, true)).toBe("READY");

@@ -73,6 +73,10 @@ export function effectiveRemediationState(run: RemediationRun): RemediationRun["
         ? "WAITING_FOR_CHECKS" : run.state;
 }
 
+export function isResumableProductionValidationStatus(status: ProductionRun["status"]): boolean {
+    return ["VALIDATING", "BLOCKED", "PAUSED", "RECOVERING", "AWAITING_APPROVAL"].includes(status);
+}
+
 export type PlaybookDoctorReadinessState = "READY" | "READY_FOR_GOVERNED_MIGRATION" | "BLOCKED";
 
 export function playbookDoctorReadiness(stagingReady: boolean, migrationBootstrapReady: boolean,
@@ -489,7 +493,7 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
 async function resumeExistingProductionValidation(services: ReturnType<typeof runtime>, systemId: string,
     target?: string): Promise<number | undefined> {
     const productionRun = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
-        ["VALIDATING", "BLOCKED", "PAUSED", "RECOVERING"].includes(item.status) &&
+        isResumableProductionValidationStatus(item.status) &&
         item.evidenceIds.some(evidenceId => evidenceId.startsWith("remediation-run:")));
     if (!productionRun) return undefined;
     const remediationId = productionRun.evidenceIds.filter(item => item.startsWith("remediation-run:")).at(-1)!
@@ -515,6 +519,15 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
     if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
     const refreshedRun = services.production.run(productionRun.runId)!;
+    if (refreshedRun.status === "AWAITING_APPROVAL") {
+        const mission = services.state.missionQueue(systemId).find(item => item.title === refreshedRun.selectedMission);
+        if (remediationRun.state !== "READY_FOR_CERTIFICATION" ||
+            !remediationRun.evidence.some(item => item.state === "PASSED") || !mission) {
+            throw new Error("Production approval requires matching passed pull-request evidence and mission lineage.");
+        }
+        const promoted = await promptForValidatedMissionPromotion(services, session, mission, refreshedRun.runId, remediationRun);
+        return promoted ? runNextProductionMission(target) : 0;
+    }
     const activeEpoch = refreshedRun.activeRecoveryEpochId
         ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
     if (activeEpoch && isPlaybookAcademicRecoveryDefect(refreshedRun, activeEpoch.remainingDefects)) {
