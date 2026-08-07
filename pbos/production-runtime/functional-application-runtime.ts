@@ -82,6 +82,69 @@ async function exists(path: string): Promise<boolean> {
     try { await stat(path); return true; } catch { return false; }
 }
 
+interface BoundedCommandFailure extends Error {
+    readonly stdout: string;
+    readonly stderr: string;
+    readonly code?: number;
+    readonly signal?: NodeJS.Signals;
+    readonly timedOut: boolean;
+}
+
+function signalProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
+    if (child.exitCode !== null) return;
+    if (process.platform !== "win32" && child.pid) {
+        try {
+            process.kill(-child.pid, signal);
+            return;
+        } catch {
+            // The process may have exited between the state check and signal.
+        }
+    }
+    try { child.kill(signal); } catch { /* Process already exited. */ }
+}
+
+async function runBoundedCommand(command: FunctionalRuntimeCommand, workingDirectory: string,
+    environment: NodeJS.ProcessEnv, defaultTimeoutMs: number): Promise<Readonly<{ stdout: string; stderr: string }>> {
+    const timeoutMs = command.timeoutMs ?? defaultTimeoutMs;
+    const outputLimit = 10 * 1024 * 1024;
+    return await new Promise<Readonly<{ stdout: string; stderr: string }>>((resolveCommand, rejectCommand) => {
+        let stdout = "";
+        let stderr = "";
+        let timedOut = false;
+        let settled = false;
+        let forceTimer: NodeJS.Timeout | undefined;
+        const child = spawn(command.command, [...command.args], {
+            cwd: workingDirectory, env: environment, stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32"
+        });
+        child.stdout?.on("data", chunk => { stdout = `${stdout}${String(chunk)}`.slice(-outputLimit); });
+        child.stderr?.on("data", chunk => { stderr = `${stderr}${String(chunk)}`.slice(-outputLimit); });
+        const timeout = setTimeout(() => {
+            timedOut = true;
+            signalProcessTree(child, "SIGTERM");
+            forceTimer = setTimeout(() => signalProcessTree(child, "SIGKILL"), 1_000);
+        }, timeoutMs);
+        const finish = (code: number | null, signal: NodeJS.Signals | null, error?: Error): void => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            if (forceTimer) clearTimeout(forceTimer);
+            if (!error && !timedOut && code === 0) {
+                resolveCommand({ stdout, stderr });
+                return;
+            }
+            const failure = Object.assign(error ?? new Error(timedOut
+                ? `Command timed out after ${timeoutMs}ms.`
+                : `Command exited with ${code ?? signal ?? "UNKNOWN"}.`), {
+                stdout, stderr, code: code ?? undefined, signal: signal ?? undefined, timedOut
+            }) as BoundedCommandFailure;
+            rejectCommand(failure);
+        };
+        child.once("error", error => finish(child.exitCode, child.signalCode, error));
+        child.once("close", (code, signal) => finish(code, signal));
+    });
+}
+
 export function redactFunctionalRuntimeOutput(value: string, environment: NodeJS.ProcessEnv,
     protectedNames: readonly string[]): string {
     let safe = value;
@@ -147,6 +210,7 @@ function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
 }
 
 const DEPENDENCY_BOOTSTRAP_TIMEOUT_MS = 900_000;
+const DEPENDENCY_PREPARATION_HEADROOM_BYTES = 1024 * 1024 * 1024;
 
 function normalizeDependencyBootstrap(command: FunctionalRuntimeCommand): FunctionalRuntimeCommand {
     if (!isDependencyBootstrap(command)) return command;
@@ -206,7 +270,7 @@ async function assertLocalLaunchExecutable(plan: FunctionalAcceptancePlan): Prom
 async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<void> {
     if (child.exitCode !== null) return;
     await new Promise<void>(resolve => {
-        const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, timeoutMs);
+        const timer = setTimeout(() => { signalProcessTree(child, "SIGKILL"); resolve(); }, timeoutMs);
         child.once("exit", () => { clearTimeout(timer); resolve(); });
     });
 }
@@ -223,7 +287,8 @@ export class NodeApplicationLauncher implements ApplicationLauncher {
         const child = spawn(command.command, [...command.args], {
             cwd: plan.workingDirectory,
             env: environment,
-            stdio: ["ignore", "pipe", "pipe"]
+            stdio: ["ignore", "pipe", "pipe"],
+            detached: process.platform !== "win32"
         });
         child.stdout?.on("data", chunk => { output = `${output}${String(chunk)}`.slice(-50_000); });
         child.stderr?.on("data", chunk => { output = `${output}${String(chunk)}`.slice(-50_000); });
@@ -234,14 +299,14 @@ export class NodeApplicationLauncher implements ApplicationLauncher {
         try {
             await Promise.race([this.waitUntilHealthy(plan), startupFailure]);
         } catch (error) {
-            child.kill("SIGTERM");
+            signalProcessTree(child, "SIGTERM");
             await waitForExit(child, 2_000);
             throw error;
         }
         return {
             logs: () => output,
             stop: async () => {
-                child.kill("SIGTERM");
+                signalProcessTree(child, "SIGTERM");
                 await waitForExit(child, 2_000);
             }
         };
@@ -290,14 +355,9 @@ export class CommandBrowserJourneyRuntime implements BrowserJourneyRuntime {
             [plan.launch, ...plan.browserJourneys.map(item => item.command)], plan.protectedEnvironmentFiles);
         const startedAt = Date.now();
         try {
-            await promisify(execFile)(journey.command.command, [...journey.command.args], {
-                cwd: plan.workingDirectory,
-                env: environment,
-                timeout: journey.command.timeoutMs ?? 120_000,
-                maxBuffer: 10 * 1024 * 1024
-            });
+            await runBoundedCommand(journey.command, plan.workingDirectory, environment, 120_000);
         } catch (error) {
-            const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number };
+            const failure = error as BoundedCommandFailure;
             const protectedNames = new Set([
                 ...(plan.launch.requiredEnvironmentVariables ?? []),
                 ...(journey.command.requiredEnvironmentVariables ?? [])
@@ -312,7 +372,8 @@ export class CommandBrowserJourneyRuntime implements BrowserJourneyRuntime {
             };
             const output = redact(`${failure.stdout ?? ""}\n${failure.stderr ?? ""}`).trim().slice(-20_000);
             throw new Error(`Browser journey command failed for ${journey.journeyId}` +
-                `${failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
+                `${failure.timedOut ? ` (timed out after ${journey.command.timeoutMs ?? 120_000}ms)` :
+                    failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
         }
         const artifacts = [...journey.screenshotArtifacts, journey.traceArtifact, journey.accessibilityArtifact,
             journey.acceptanceArtifact];
@@ -353,12 +414,9 @@ export class CommandNativeJourneyRuntime implements NativeJourneyRuntime {
             [plan.launch, ...commands], plan.protectedEnvironmentFiles);
         const startedAt = Date.now();
         try {
-            await promisify(execFile)(journey.command.command, [...journey.command.args], {
-                cwd: plan.workingDirectory, env: environment,
-                timeout: journey.command.timeoutMs ?? 300_000, maxBuffer: 10 * 1024 * 1024
-            });
+            await runBoundedCommand(journey.command, plan.workingDirectory, environment, 300_000);
         } catch (error) {
-            const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number };
+            const failure = error as BoundedCommandFailure;
             let output = `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`.trim().slice(-20_000);
             for (const name of journey.command.requiredEnvironmentVariables ?? []) {
                 const secret = environment[name];
@@ -366,7 +424,8 @@ export class CommandNativeJourneyRuntime implements NativeJourneyRuntime {
             }
             output = output.replace(/(token|secret|password|authorization)=?\s*[^\s]+/gi, "$1=[REDACTED]");
             throw new Error(`Native journey command failed for ${journey.journeyId}` +
-                `${failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
+                `${failure.timedOut ? ` (timed out after ${journey.command.timeoutMs ?? 300_000}ms)` :
+                    failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
         }
         const artifacts = [...new Set([...journey.artifacts, journey.acceptanceArtifact])];
         for (const artifact of artifacts) {
@@ -424,31 +483,36 @@ export class FunctionalApplicationRuntime {
             manifests: canonicalJourneys.map(journey => journey.visualCanon!.manifestPath)
         });
         const prerequisites = await resolveFunctionalPrerequisites(plan);
+        const preparationFloor = minimumFreeBytes +
+            (prerequisites.some(isDependencyBootstrap) ? DEPENDENCY_PREPARATION_HEADROOM_BYTES : 0);
+        if (availableBytes < preparationFloor) {
+            throw new Error(`Functional dependency preparation requires ${preparationFloor} free bytes ` +
+                `to preserve the ${minimumFreeBytes}-byte runtime reserve, but only ${availableBytes} are available.`);
+        }
         const runtimeEnvironment = await this.protectedEnvironment.resolve(
             [...prerequisites, plan.launch, ...plan.browserJourneys.map(journey => journey.command),
                 ...(plan.nativeJourneys ?? []).map(journey => journey.command)],
             plan.protectedEnvironmentFiles);
         for (const prerequisite of prerequisites) {
-            const prerequisiteStartedAt = Date.now();
             const timeoutMs = prerequisite.timeoutMs ?? 300_000;
             try {
-                await promisify(execFile)(prerequisite.command, [...prerequisite.args], {
-                    cwd: plan.workingDirectory, env: runtimeEnvironment,
-                    timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024
-                });
+                await runBoundedCommand(prerequisite, plan.workingDirectory, runtimeEnvironment, 300_000);
             } catch (error) {
-                const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number;
-                    killed?: boolean; signal?: NodeJS.Signals };
+                const failure = error as BoundedCommandFailure;
                 const protectedNames = prerequisite.requiredEnvironmentVariables ?? [];
                 const output = redactFunctionalRuntimeOutput(
                     `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`.trim().slice(-8_000),
                     runtimeEnvironment, protectedNames);
-                const elapsedMs = Date.now() - prerequisiteStartedAt;
-                const timedOut = failure.killed === true || failure.signal === "SIGTERM" || elapsedMs >= timeoutMs - 1_000;
                 throw new Error(`Functional prerequisite failed: ${prerequisite.command} ${prerequisite.args.join(" ")}` +
-                    `${timedOut ? ` (timed out after ${timeoutMs}ms)` : failure.code === undefined ? "" : ` (exit ${failure.code})`}` +
+                    `${failure.timedOut ? ` (timed out after ${timeoutMs}ms)` :
+                        failure.code === undefined ? "" : ` (exit ${failure.code})`}` +
                     `${output ? `\n${output}` : ""}`);
             }
+        }
+        const postPreparationBytes = await this.measureAvailableDiskBytes(plan.workingDirectory);
+        if (postPreparationBytes < minimumFreeBytes) {
+            throw new Error(`Functional runtime exhausted its disk safety reserve during dependency preparation: ` +
+                `${minimumFreeBytes} bytes are required but only ${postPreparationBytes} remain.`);
         }
         await assertLocalLaunchExecutable(plan);
         report("PREREQUISITES_VERIFIED", { total: prerequisites.length,

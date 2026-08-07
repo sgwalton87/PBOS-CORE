@@ -500,6 +500,27 @@ export function isApplicationWorkspaceMigrationFoundationDefect(run: ProductionR
         evidence.includes("Supabase staging migration failed with HTTP 400");
 }
 
+const legacyApplicationWorkspaceHeading = `<h2 id={"workspace-" + workspace.id}>{workspace.opportunity_name}</h2>`;
+const accessibleApplicationWorkspaceHeading = `<h2 id={"workspace-" + workspace.id} style={{ color: "#0F172A" }}>{workspace.opportunity_name}</h2>`;
+
+/** Repairs only the workspace heading contrast defect proven by axe. */
+export function wireApplicationWorkspaceHeadingContrast(source: string): string {
+    if (source.includes(accessibleApplicationWorkspaceHeading)) return source;
+    if (!source.includes(legacyApplicationWorkspaceHeading)) {
+        throw new Error("Playbook application workspace changed; re-inspect before repairing heading contrast.");
+    }
+    return source.replace(legacyApplicationWorkspaceHeading, accessibleApplicationWorkspaceHeading);
+}
+
+export function isApplicationWorkspaceHeadingContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete opportunity-to-application journey" &&
+        evidence.includes("Browser journey command failed for OPPORTUNITY-TO-APPLICATION") &&
+        evidence.includes('"id": "color-contrast"') && evidence.includes("PBOS Acceptance Scholarship") &&
+        evidence.includes("#ffffff") && evidence.includes("#f8f7f4");
+}
+
 /**
  * Repairs only the generated application migration on the existing mission,
  * branch, and pull request. No replacement mission or PR is created.
@@ -538,6 +559,47 @@ export async function preparePlaybookApplicationMigrationRecovery(
     const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
     dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
         "APPLICATION_WORKSPACE_MIGRATION_FOUNDATION");
+    return { branch, revision, remediation };
+}
+
+/**
+ * Advances the existing application PR with the exact WCAG contrast repair
+ * proven by browser acceptance. Mission and pull-request lineage are retained.
+ */
+export async function preparePlaybookApplicationAccessibilityRecovery(
+    dependencies: PlaybookApplicationJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isApplicationWorkspaceHeadingContrastDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for application accessibility recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize application accessibility recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Application accessibility recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, WORKSPACE_DASHBOARD, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [
+        { path: WORKSPACE_DASHBOARD, content: wireApplicationWorkspaceHeadingContrast(source) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: meet application workspace contrast acceptance", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "APPLICATION_WORKSPACE_HEADING_CONTRAST");
     return { branch, revision, remediation };
 }
 

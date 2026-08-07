@@ -3,9 +3,12 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { ApplicationAcceptanceDimension, ProductionRun } from "../../production-runtime";
 import {
     assertKnownApplicationWorkspaceSources,
+    isApplicationWorkspaceHeadingContrastDefect,
     isApplicationWorkspaceMigrationFoundationDefect,
     playbookApplicationJourneyExecutor,
+    preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery,
+    wireApplicationWorkspaceHeadingContrast,
     wireApplicationWorkspaceMigrationFoundation
 } from "../playbook-application-journey-executor";
 
@@ -153,6 +156,49 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(isApplicationWorkspaceMigrationFoundationDefect(blockedRun,
             ["Supabase staging migration failed with HTTP 400"])).toBe(true);
         expect(wireApplicationWorkspaceMigrationFoundation(writes[0])).toBe(writes[0]);
+    });
+
+    it("repairs the browser-proven workspace heading contrast on the existing pull request", async () => {
+        const legacyWorkspace = `return <h2 id={"workspace-" + workspace.id}>{workspace.opportunity_name}</h2>;`;
+        const writes: string[] = [];
+        const defect = `Browser journey command failed for OPPORTUNITY-TO-APPLICATION\n` +
+            `{"id": "color-contrast", "html": "PBOS Acceptance Scholarship", ` +
+            `"fgColor": "#ffffff", "bgColor": "#f8f7f4"}`;
+        const blockedRun = { ...run, status: "BLOCKED" as const,
+            selectedMission: "Complete opportunity-to-application journey",
+            currentBranch: "agent/pbos-playbook-system-001-048-application-11223344",
+            currentCommit: "application456", terminalSummary: "Functional application acceptance failed.", blockers: [] };
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/62", number: 62,
+            branch: blockedRun.currentBranch, repository: "sgwalton87/playbook-platform" };
+        const result = await preparePlaybookApplicationAccessibilityRecovery({
+            gateway: {
+                inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+                    revision: "application456", findings: [], files: [], inspectedAt: new Date() }),
+                readFileAtRevision: async () => legacyWorkspace,
+                applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                    writes.push(files[0].content); return files.map(file => file.path);
+                },
+                commit: async () => "application789",
+                push: async () => undefined
+            } as unknown as GitHubRepositoryGateway,
+            session, pullRequest,
+            authorize: action => ({ decisionId: action, grantId: "grant-application", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-application-accessibility", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: (runId, remediationId, branch, revision, classification) => {
+                writes.push([runId, remediationId, branch, revision, classification].join(":")); return blockedRun;
+            } },
+            recoveryDefects: [defect]
+        }, blockedRun);
+
+        expect(result).toMatchObject({ revision: "application789",
+            remediation: { runId: "validation-application-accessibility" } });
+        expect(writes[0]).toContain('style={{ color: "#0F172A" }}');
+        expect(writes[1]).toContain("APPLICATION_WORKSPACE_HEADING_CONTRAST");
+        expect(isApplicationWorkspaceHeadingContrastDefect(blockedRun, [defect])).toBe(true);
+        expect(wireApplicationWorkspaceHeadingContrast(writes[0])).toBe(writes[0]);
     });
 
     it("fails before repository inspection when application authority is denied", async () => {
