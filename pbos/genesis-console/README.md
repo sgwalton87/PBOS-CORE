@@ -52,10 +52,19 @@ PBOS also prints capabilities already completed on the governed default branch. 
 
 Once confirmed, PBOS creates one governed branch and draft pull request for the selected package set, monitors GitHub Actions automatically, applies registered deterministic remediations, and stops once at `READY_FOR_CERTIFICATION` or `BLOCKED`.
 
+Dependent application missions may continue from an exact, still-open `agent/*` branch when the preceding mission is awaiting external validation. PBOS fetches that governed branch, verifies its exact starting commit, and uses it as the next draft pull request base. Arbitrary feature branches are rejected. The dependent mission remains unmergeable until its parent is certified, and it can be retargeted to the default branch after the parent merges without rebuilding or losing lineage.
+
 If GitHub Actions cancels or fails a workflow before any validation step executes, PBOS records
 `WAITING_FOR_INFRASTRUCTURE` instead of treating the event as an application defect. The exact
 revision remains fixed, a separate three-attempt infrastructure retry budget applies, operator
 telemetry and memos explain the wait, and the application remediation budget is not consumed.
+
+After exact-revision CI passes for a connected application journey, PBOS checks that journey's
+additive staging schema and requests any required protected migration decision in the same terminal.
+It then requests a separate, exact-revision functional-acceptance decision for the synthetic staging
+transaction. The signed approval ID is written without display to the mode-0600 PBOS acceptance
+source. Opportunity, application, support, messaging, and notification journeys share this mechanism;
+production, merge, certification, destructive migration, secrets, and unrelated journeys remain excluded.
 
 The operator does not need to repeatedly select evidence collection. PBOS writes every transition to durable state and the session memo, resumes unfinished monitors on the next launch, and sends a macOS notification when the batch is ready or blocked.
 

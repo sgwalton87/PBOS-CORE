@@ -133,3 +133,56 @@ export default defineConfig({
         ] };
     }
 }
+
+/**
+ * Repairs the first opportunity-journey revision generated before the
+ * execution adapter became React 19 lint-safe. The pack is deliberately
+ * fingerprinted to the exact diagnostic and source path so it cannot rewrite
+ * unrelated effects. Future revisions are emitted correctly by the adapter.
+ */
+export class OpportunityJourneyReactLintRemediationPack implements RemediationPack {
+    readonly packId = "@pbos/remediation-opportunity-react-lint";
+    readonly version = "1.1.0";
+    readonly category = "QUALITY" as const;
+
+    supports(context: RemediationPackContext): boolean {
+        return context.failureText.includes("components/opportunity-marketplace/opportunitymarketplace.tsx") &&
+            context.failureText.includes("calling setstate synchronously within an effect") &&
+            context.failureText.includes("react-hooks/set-state-in-effect");
+    }
+
+    async remediate(): Promise<RemediationPackResult> {
+        return {
+            summary: `Apply ${this.packId}@${this.version}`,
+            files: [],
+            replacements: [
+                {
+                    path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                    search: `  const load = useCallback(async () => {
+    try {
+      const body = await responseJson(await fetch("/api/pbos/opportunities", { cache: "no-store" }));
+      setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); }
+    finally { setBusy(null); }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);`,
+                    replacement: `  useEffect(() => {
+    let active = true;
+    void fetch("/api/pbos/opportunities", { cache: "no-store" }).then(responseJson).then(body => {
+      if (!active) return;
+      setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
+    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); })
+      .finally(() => { if (active) setBusy(null); });
+    return () => { active = false; };
+  }, []);`
+                },
+                {
+                    path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                    search: "import { useCallback, useEffect, useMemo, useState } from \"react\";",
+                    replacement: "import { useEffect, useMemo, useState } from \"react\";"
+                }
+            ]
+        };
+    }
+}

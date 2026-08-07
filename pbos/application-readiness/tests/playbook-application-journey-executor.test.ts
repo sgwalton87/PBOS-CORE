@@ -35,8 +35,10 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
                 revision: "91e42fd", findings: [], files: [], inspectedAt: new Date() }),
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
                 calls.push(`read:${revision}:${path}`);
+                if (path === "package.json") return '{"scripts":{},"devDependencies":{}}';
                 return path.includes("ApplicationWorkspaceDashboard") ? legacyDashboard : legacyRoute;
             },
+            workingDirectory: async () => "/tmp/playbook-application",
             createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); calls.push("files"); return files.map(file => file.path);
@@ -67,6 +69,9 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(route).not.toContain("body.scholarId");
         expect(route).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
         expect(route).toContain("PUBLISH_LIFECYCLE_EVENT");
+        expect(route).toContain("new PlaybookConnector(client)");
+        expect(route).toContain('connector.registerIdentity(userId, "SCHOLAR")');
+        expect(route).not.toContain('client.send("REGISTER_IDENTITY"');
         const documents = generated.get("app/api/application-workspaces/documents/route.ts") ?? "";
         expect(documents).toContain("MAX_DOCUMENT_BYTES");
         expect(documents).toContain('.eq("scholar_id", user.id)');
@@ -74,9 +79,19 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(dashboard).toContain('role="status"');
         expect(dashboard).toContain('role="alert"');
         expect(dashboard).toContain("Mark application submitted");
+        expect(dashboard).toContain("window.setTimeout");
+        expect(dashboard).not.toContain('if (selectedName) setName(selectedName);\n    if (selectedId)');
+        expect(dashboard).not.toContain("useCallback");
+        expect(dashboard).toContain("fetchWorkspaces().then(body =>");
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("application_workspace_tasks enable row level security");
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("public=false");
         expect(generated.get("pbos/readiness/048-application-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
+        const acceptance = generated.get("tests/acceptance/pbos-application.spec.ts") ?? "";
+        expect(acceptance).toContain("OPPORTUNITY-TO-APPLICATION");
+        expect(acceptance).toContain("expect(creation.status()).toBe(201)");
+        expect(acceptance).toContain("records.workspaces?.some");
+        expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "OPPORTUNITY-TO-APPLICATION",
+            workingDirectory: "/tmp/playbook-application", commit: "application123" });
         expect(result.files?.modified).toContain("app/api/application-workspaces/route.ts");
         expect(result.deferredValidation?.pullRequestUrl).toContain("/pull/55");
 

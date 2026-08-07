@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { GenesisWorkflowService } from "../../genesis-console";
 import { RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
-import { AutonomousBatchService, BackgroundMonitor, OperatorMemoService } from "../index";
+import { AutonomousBatchService, BackgroundMonitor, GitMergedRevisionPositioner, OperatorMemoService } from "../index";
 import { ProductionRuntimeService } from "../../production-runtime";
+import { CommandRunner } from "../../platform";
 
 const session = {
     sessionId: "session-1", activatedAt: new Date(),
@@ -23,6 +24,23 @@ const run: RemediationRun = { runId: "run-1", systemId: "SYSTEM-001",
     blockers: [], updatedAt: new Date().toISOString() };
 
 describe("operator continuity", () => {
+    it("positions a merged recovery on the exact default-branch revision before acceptance", async () => {
+        const calls: { args: readonly string[]; cwd?: string }[] = [];
+        const commands: CommandRunner = { async run(_command, args, cwd) {
+            calls.push({ args, cwd });
+            return { stdout: args[0] === "rev-parse" ? "abcdef2\n" : "", stderr: "" };
+        } };
+
+        await new GitMergedRevisionPositioner(commands).position("/tmp/example", "main", "abcdef2");
+
+        expect(calls).toEqual([
+            { args: ["fetch", "origin", "main"], cwd: "/tmp/example" },
+            { args: ["merge-base", "--is-ancestor", "abcdef2", "origin/main"], cwd: "/tmp/example" },
+            { args: ["switch", "--detach", "abcdef2"], cwd: "/tmp/example" },
+            { args: ["rev-parse", "HEAD"], cwd: "/tmp/example" }
+        ]);
+    });
+
     it("writes a durable exit memo with status, pull request, and next action", () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-memo-"));
         const state = new GenesisStateRepository(join(root, "state.json"));
@@ -90,6 +108,58 @@ describe("operator continuity", () => {
             .run(run.runId, session.sessionId, 0, 1);
         expect(production.run(productionRun.runId)?.status).toBe("AWAITING_APPROVAL");
         expect(state.executionLeases().find(item => item.runId === productionRun.runId)?.status).toBe("RELEASED");
+    });
+
+    it("deploys an approved exact-revision preview after CI and before functional verification", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-preview-monitor-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        state.saveSession(session);
+        state.appendAudit({ eventId: "preview-approval", type: "VERIFIABLE_APPROVAL", actorId: "operator",
+            resource: "web-staging", occurredAt: new Date().toISOString(),
+            evidence: { purpose: "START_PRODUCTION_MISSION" } });
+        const production = new ProductionRuntimeService(state);
+        production.reconcileQueue("SYSTEM-001", [{ missionId: "web-staging", systemId: "SYSTEM-001", title: "Web staging",
+            dependencies: [], status: "ACTIVE", rationale: "Ready", approvalRequired: true, evidenceIds: [],
+            completionPolicy: { kind: "FUNCTIONAL_APPLICATION", requiredDimensions: ["PREVIEW", "INDEPENDENT_VALIDATION"],
+                acceptanceCriteria: ["Exact preview is healthy"] } }]);
+        const active = production.begin({ systemId: "SYSTEM-001", actorId: "operator", authorizationArtifactId: "approval",
+            repository: "example/app", branch: "agent/build", commit: "abcdef1", objective: "Web staging",
+            mission: "Web staging", rationale: "Ready" });
+        production.transition(active.runId, "QUEUED", "Queued"); production.transition(active.runId, "STARTING", "Starting");
+        production.transition(active.runId, "RUNNING", "Running");
+        const execution = production.startStage(active.runId, "EXECUTION", "Prepare staging");
+        production.completeStage(execution.stageId, {}, []); production.transition(active.runId, "VALIDATING", "Validating");
+        production.startStage(active.runId, "VALIDATION", "Validate staging");
+        production.recordValidation(active.runId, "Validation monitor started", true, 0, "remediation-run:preview-validation");
+        production.recordFunctionalAcceptancePlan(active.runId, { planId: "preview:abcdef1", systemId: "SYSTEM-001",
+            productNodeId: "WEB", journeyId: "WEB-STAGING", repository: "example/app", branch: "agent/build", commit: "abcdef1",
+            workingDirectory: root, launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4000",
+                healthPath: "/login", startupTimeoutMs: 1 },
+            probes: [{ probeId: "login", dimension: "ROUTE", behavior: "Login", path: "/login", expectedStatus: 200 }],
+            browserJourneys: [{ journeyId: "web", persona: "USER", behavior: "Web opens", route: "/login", engine: "PLAYWRIGHT",
+                command: { command: "npm", args: ["test"], publicEnvironment: { PLAYWRIGHT_BASE_URL: "http://127.0.0.1:4000" } },
+                viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshotArtifacts: ["desktop.png", "mobile.png"],
+                traceArtifact: "trace.zip", accessibilityArtifact: "a11y.json", acceptanceArtifact: "acceptance.json",
+                verifiedDimensions: ["AUTHORITY"] }],
+            previewDeployment: { provider: "VERCEL", repository: "example/app", branch: "agent/build", commit: "abcdef1",
+                environment: "preview", approvalId: "preview-approval", tokenEnvironmentVariable: "VERCEL_TOKEN",
+                projectEnvironmentVariable: "VERCEL_PROJECT_ID", requiredProjectEnvironmentVariables: ["PBOS_ENVIRONMENT"],
+                previewOnlyEnvironmentVariables: ["PBOS_ENVIRONMENT"], browserTarget: "DEPLOYED_PREVIEW" } });
+        const green: RemediationRun = { ...run, runId: "preview-validation", headSha: "abcdef1" };
+        let verifiedUrl: string | undefined;
+        const applicationVerifier = { verifyApplication: async (runId: string) => {
+            verifiedUrl = new ProductionRuntimeService(state).run(runId)?.functionalAcceptancePlan?.durablePreview?.webUrl;
+            return {} as never;
+        } };
+        await new BackgroundMonitor(state, { resume: async () => green } as unknown as ResumableRemediationEngine,
+            { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService,
+            new OperatorMemoService(join(root, "memos"), state), async () => undefined, new AutonomousBatchService(state),
+            { notify: async () => undefined }, { deploy: async () => ({ webUrl: "https://preview.example",
+                mobileUrl: "https://preview.example", healthPath: "/login", label: "SEEDED" }) }, applicationVerifier)
+            .run(green.runId, session.sessionId, 0, 1);
+        expect(verifiedUrl).toBe("https://preview.example");
+        expect(production.run(active.runId)?.functionalAcceptancePlan?.browserJourneys[0]
+            .command.publicEnvironment?.PLAYWRIGHT_BASE_URL).toBe("https://preview.example");
     });
 
     it("blocks a green PR when the application behavior evidence is missing", async () => {

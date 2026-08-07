@@ -12,7 +12,7 @@ export const PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT = [
 ] as const;
 
 export const PLAYBOOK_STAGING_MIGRATION_ENVIRONMENT = [
-    "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_ACCESS_TOKEN"
+    "NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN"
 ] as const;
 
 export function playbookScholarProtectedEnvironmentFiles(workingDirectory: string,
@@ -235,6 +235,7 @@ test("Scholar completes governed onboarding and receives a durable dashboard", a
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Log In", exact: true }).click();
   await page.waitForURL(/\\/dashboard/);
+  await expect(page.locator('[data-visual-canon="PGSL-007"]')).toBeVisible();
 
   const onboarding = await page.request.post("/api/pbos/scholar/onboarding", {
     data: { displayName: "PBOS Acceptance Scholar", goalTitle: "Complete governed onboarding" },
@@ -276,6 +277,7 @@ test("Scholar completes governed onboarding and receives a durable dashboard", a
       { dimension: "DURABLE_DATA", passed: true, detail: "Owner-scoped dashboard projection was read from Supabase after mutation." },
       { dimension: "AUTHORITY", passed: true, detail: "Anonymous onboarding was denied before the authenticated transaction." },
       { dimension: "PBOS_INTEGRATION", passed: true, detail: "Signed PBOS transaction returned provenance-bearing dashboard evidence." },
+      { dimension: "VISUAL_CANON", passed: true, detail: "The rendered Scholar dashboard declared approved visual canon PGSL-007." },
       { dimension: "SECURITY", passed: true, detail: "Synthetic credentials remained environment-bound and anonymous mutation failed closed." }
     ]
   }, null, 2));
@@ -347,6 +349,16 @@ export async function playbookScholarAcceptancePlan(gateway: GitHubRepositoryGat
             traceArtifact: "artifacts/pbos-acceptance/scholar-trace.zip",
             accessibilityArtifact: "artifacts/pbos-acceptance/scholar-accessibility.json",
             acceptanceArtifact: "artifacts/pbos-acceptance/scholar-acceptance.json",
+            visualCanon: {
+                screenId: "PGSL-007",
+                manifestPath: "docs/design/canon/scholar-dashboard/manifest.json",
+                requiredRoute: "/dashboard",
+                requiredAssets: [
+                    "docs/design/canon/scholar-dashboard/playbook-experience-board-2026-07-24.png",
+                    "docs/design/canon/scholar-dashboard/starting-five-board-2026-07-23.png",
+                    "public/brand/scholar-dashboard/scholar-future-hero-v1.png"
+                ]
+            },
             verifiedDimensions: ["DURABLE_DATA", "PBOS_INTEGRATION"]
         }]
     };

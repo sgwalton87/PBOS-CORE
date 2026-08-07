@@ -1,8 +1,9 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
-import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
+import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -109,7 +110,7 @@ export class ApplicationWorkspaceJourneyService {
 const workspaceRouteSource = `import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { ApplicationWorkspaceJourneyService, APPLICATION_TYPES, type ApplicationTaskInput, type ApplicationType } from "@/lib/pbos/application-workspace-journey";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
 
@@ -120,7 +121,7 @@ function runtime() { return new PlaybookPbosRuntimeClient(new SignedPlaybookPbos
 })); }
 
 function applicationService(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
-  const client = runtime(); const mapper = new PlaybookIdentityMapper();
+  const client = runtime(); const connector = new PlaybookConnector(client);
   return new ApplicationWorkspaceJourneyService({
     async createPending(input) {
       const record = await supabase.from("application_workspaces").upsert({ scholar_id: input.ownerId,
@@ -167,11 +168,7 @@ function applicationService(supabase: Awaited<ReturnType<typeof requireUser>>["s
       if (saved.error) throw new Error(saved.error.message);
     }
   }, {
-    async registerIdentity(userId) {
-      const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-      const response = await client.send("REGISTER_IDENTITY", identity, "application-identity-" + userId, "application-identity-" + userId);
-      if (!response.success) throw new Error(response.error.message); return identity;
-    },
+    registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
     async publish(identity, input) {
       const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
         domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
@@ -276,7 +273,7 @@ export async function DELETE(request: NextRequest) {
 
 const dashboardSource = `"use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { PlaybookCard, PlaybookGrid, PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage, PlaybookPill } from "@/components/ui";
 
 type Task = { id: string; title: string; due_at: string | null; status: "TODO" | "COMPLETE" };
@@ -284,6 +281,14 @@ type Document = { id: string; file_name: string; media_type: string; size_bytes:
 type Workspace = { id: string; opportunity_id: string; opportunity_name: string; opportunity_type: string; deadline: string | null;
   status: "building" | "ready" | "submitted"; delivery_state: "PENDING" | "DELIVERED";
   application_workspace_tasks: Task[]; application_workspace_documents: Document[] };
+type WorkspaceResponse = { workspaces?: Workspace[]; error?: string };
+
+async function fetchWorkspaces(): Promise<WorkspaceResponse> {
+  const response = await fetch("/api/application-workspaces", { cache: "no-store" });
+  const body = await response.json() as WorkspaceResponse;
+  if (!response.ok) throw new Error(body.error || "Unable to load application workspaces.");
+  return body;
+}
 
 export default function ApplicationWorkspaceDashboard() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]); const [busy, setBusy] = useState(false);
@@ -291,35 +296,40 @@ export default function ApplicationWorkspaceDashboard() {
   const [opportunityId, setOpportunityId] = useState(""); const [name, setName] = useState("");
   const [type, setType] = useState("scholarship"); const [deadline, setDeadline] = useState("");
 
-  const load = useCallback(async () => { const response = await fetch("/api/application-workspaces", { cache: "no-store" });
-    const body = await response.json() as { workspaces?: Workspace[]; error?: string }; if (!response.ok) throw new Error(body.error || "Unable to load application workspaces.");
-    setWorkspaces(body.workspaces ?? []); setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below."); }, []);
   useEffect(() => { const query = new URLSearchParams(window.location.search); const selectedId = query.get("opportunityId"); const selectedName = query.get("opportunityName");
-    const selectedType = query.get("opportunityType"); if (selectedName) setName(selectedName);
-    if (selectedId) setOpportunityId(selectedId);
-    if (selectedType && ["college", "scholarship", "internship", "job", "recruiting", "nil", "mentor", "career", "summer_program", "competition", "grant", "volunteer", "research"].includes(selectedType)) setType(selectedType);
-    load().catch(value => setError(value instanceof Error ? value.message : "Unable to load application workspaces.")); }, [load]);
+    const selectedType = query.get("opportunityType"); const initialize = window.setTimeout(() => {
+      if (selectedName) setName(selectedName); if (selectedId) setOpportunityId(selectedId);
+      if (selectedType && ["college", "scholarship", "internship", "job", "recruiting", "nil", "mentor", "career", "summer_program", "competition", "grant", "volunteer", "research"].includes(selectedType)) setType(selectedType);
+    }, 0);
+    let active = true;
+    void fetchWorkspaces().then(body => { if (!active) return; setWorkspaces(body.workspaces ?? []);
+      setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below.");
+    }).catch(value => { if (active) setError(value instanceof Error ? value.message : "Unable to load application workspaces."); });
+    return () => { active = false; window.clearTimeout(initialize); }; }, []);
+
+  async function refresh() { const body = await fetchWorkspaces(); setWorkspaces(body.workspaces ?? []);
+    setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below."); }
 
   async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(null); try {
     const response = await fetch("/api/application-workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       opportunityId: opportunityId || "manual-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), opportunityName: name,
       opportunityType: type, deadline: deadline || null, requestId: crypto.randomUUID() }) });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to create application workspace.");
-    setName(""); setDeadline(""); await load(); setMessage("Application workspace created and connected to PBOS.");
+    setName(""); setDeadline(""); await refresh(); setMessage("Application workspace created and connected to PBOS.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to create application workspace."); } finally { setBusy(false); } }
 
   async function transition(workspaceId: string, action: string, taskId?: string) { setBusy(true); setError(null); try {
     const response = await fetch("/api/application-workspaces", { method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ workspaceId, taskId, action, requestId: crypto.randomUUID() }) });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to update application workspace.");
-    await load(); setMessage(action === "APPLICATION_SUBMITTED" ? "Application marked submitted." : "Application task updated.");
+    await refresh(); setMessage(action === "APPLICATION_SUBMITTED" ? "Application marked submitted." : "Application task updated.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to update application workspace."); } finally { setBusy(false); } }
 
   async function upload(workspaceId: string, file?: File) { if (!file) return; setBusy(true); setError(null); try {
     const data = new FormData(); data.set("workspaceId", workspaceId); data.set("file", file);
     const response = await fetch("/api/application-workspaces/documents", { method: "POST", body: data });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to upload document.");
-    await load(); setMessage("Private application document uploaded.");
+    await refresh(); setMessage("Private application document uploaded.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to upload document."); } finally { setBusy(false); } }
 
   return <PlaybookPage>
@@ -503,7 +513,8 @@ export function playbookApplicationJourneyExecutor(dependencies: PlaybookApplica
         if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
             throw new Error("The active Genesis session does not authorize the Playbook application journey.");
         }
-        const reference: RepositoryReference = { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" };
+        const reference = governedBuildReference(
+            { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, context.run.startingBranch);
         const branch = `agent/pbos-playbook-system-001-048-application-${context.run.runId.slice(0, 8)}`;
         for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
             ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
@@ -516,12 +527,14 @@ export function playbookApplicationJourneyExecutor(dependencies: PlaybookApplica
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before mutation.`);
         }
-        const [route, dashboard] = await Promise.all([
+        const [route, dashboard, packageSource] = await Promise.all([
             dependencies.gateway.readFileAtRevision(reference, WORKSPACE_ROUTE, inspection.revision),
-            dependencies.gateway.readFileAtRevision(reference, WORKSPACE_DASHBOARD, inspection.revision)
+            dependencies.gateway.readFileAtRevision(reference, WORKSPACE_DASHBOARD, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
         ]);
         assertKnownApplicationWorkspaceSources(route, dashboard);
-        const files = changes(inspection.revision, context.run.runId);
+        const files = [...changes(inspection.revision, context.run.runId),
+            ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-application-journey")];
         context.report("BUILDING", `Replacing the demonstration workspace with an owner-scoped opportunity-to-application journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -535,6 +548,8 @@ export function playbookApplicationJourneyExecutor(dependencies: PlaybookApplica
             `PBOS Genesis mission \`048-application-journey\` replaces the demonstration-only workspace with authenticated owner-scoped creation, tasks, deadlines, private documents, readiness, submission state, and signed PBOS lifecycle evidence at governed revision \`${inspection.revision}\`.\n\nImplementation is pending independent validation and human certification.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookConnectedJourneyAcceptancePlan(
+            dependencies.gateway, reference, branch, revision, "048-application-journey");
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
@@ -545,7 +560,8 @@ export function playbookApplicationJourneyExecutor(dependencies: PlaybookApplica
                 output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Application journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
-            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url }
+            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
+            functionalAcceptancePlan
         };
     };
 }

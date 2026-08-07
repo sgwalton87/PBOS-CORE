@@ -1,8 +1,9 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
-import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -19,6 +20,12 @@ export interface PlaybookOpportunityJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookOpportunityJourneyRecoveryDependencies extends PlaybookOpportunityJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
 }
 
 const serviceSource = `import { createHash } from "crypto";
@@ -132,9 +139,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { OpportunityJourneyService } from "@/lib/pbos/opportunity-journey-service";
 import type { DurableOpportunityMatch, OpportunityDecision, OpportunitySignals } from "@/lib/pbos/opportunity-journey-service";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
+import type { PlaybookIdentityMapping } from "@/pbos/connector/contracts";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -147,16 +155,10 @@ function runtime() {
     organizationId: required("PBOS_ORGANIZATION_ID"), connectorId: required("PBOS_CONNECTOR_ID"),
     keyId: required("PBOS_CONNECTOR_KEY_ID"), secretBase64: required("PBOS_CONNECTOR_SECRET_BASE64")
   }));
-  const mapper = new PlaybookIdentityMapper();
+  const connector = new PlaybookConnector(client);
   return {
-    async registerIdentity(userId: string) {
-      const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-      const response = await client.send("REGISTER_IDENTITY", identity, "opportunity-identity-" + userId,
-        "opportunity-identity-" + userId);
-      if (!response.success) throw new Error(response.error.message);
-      return identity;
-    },
-    async publish(identity: ReturnType<PlaybookIdentityMapper["mapSupabaseIdentity"]>, payload: Readonly<Record<string, unknown>>, correlationId: string) {
+    registerIdentity: (userId: string) => connector.registerIdentity(userId, "SCHOLAR"),
+    async publish(identity: PlaybookIdentityMapping, payload: Readonly<Record<string, unknown>>, correlationId: string) {
       const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
         domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
         correlationId, purpose: "Publish an approved owner-scoped opportunity journey event.", payload }, correlationId, correlationId);
@@ -287,7 +289,7 @@ export default function OpportunitiesPage() {
 
 const marketplaceSource = `"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type OpportunityStatus = "RECOMMENDED" | "SAVED" | "DISMISSED";
 type Match = { id: string; opportunityId: string; title: string; type: string; description: string; score: number;
@@ -305,16 +307,15 @@ export default function OpportunityMarketplace() {
   const [busy, setBusy] = useState<string | null>("load");
   const [message, setMessage] = useState("Loading your opportunity matches.");
 
-  const load = useCallback(async () => {
-    setBusy("load"); setMessage("Loading your opportunity matches.");
-    try {
-      const body = await responseJson(await fetch("/api/pbos/opportunities", { cache: "no-store" }));
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/pbos/opportunities", { cache: "no-store" }).then(responseJson).then(body => {
+      if (!active) return;
       setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); }
-    finally { setBusy(null); }
+    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); })
+      .finally(() => { if (active) setBusy(null); });
+    return () => { active = false; };
   }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   async function discover() {
     setBusy("discover"); setMessage("PBOS is matching verified Scholar signals to opportunities.");
@@ -512,6 +513,102 @@ export function assertOpportunityBaseline(page: string, marketplace: string): vo
     }
 }
 
+const legacyOpportunityIdentityRegistration = `  const mapper = new PlaybookIdentityMapper();
+  return {
+    async registerIdentity(userId: string) {
+      const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
+      const response = await client.send("REGISTER_IDENTITY", identity, "opportunity-identity-" + userId,
+        "opportunity-identity-" + userId);
+      if (!response.success) throw new Error(response.error.message);
+      return identity;
+    },
+    async publish(identity: ReturnType<PlaybookIdentityMapper["mapSupabaseIdentity"]>, payload: Readonly<Record<string, unknown>>, correlationId: string) {`;
+
+const governedOpportunityIdentityRegistration = `  const connector = new PlaybookConnector(client);
+  return {
+    registerIdentity: (userId: string) => connector.registerIdentity(userId, "SCHOLAR"),
+    async publish(identity: PlaybookIdentityMapping, payload: Readonly<Record<string, unknown>>, correlationId: string) {`;
+
+/** Repairs only the legacy route that bypassed the connector's certified duplicate-identity handling. */
+export function wireOpportunityIdentityIdempotency(source: string): string {
+    if (source.includes("connector.registerIdentity(userId, \"SCHOLAR\")")) return source;
+    if (!source.includes('import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";') ||
+        !source.includes(legacyOpportunityIdentityRegistration)) {
+        throw new Error("Playbook opportunity route changed; re-inspect before repairing identity idempotency.");
+    }
+    return source
+        .replace('import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";',
+            'import { PlaybookConnector } from "@/pbos/connector/playbook-connector";\nimport type { PlaybookIdentityMapping } from "@/pbos/connector/contracts";')
+        .replace(legacyOpportunityIdentityRegistration, governedOpportunityIdentityRegistration);
+}
+
+export function wireOpportunityAcceptanceApiEvidence(source: string): string {
+    if (source.includes("Opportunity discovery failed: ")) return source;
+    const legacy = `  const discovery = await page.request.post("/api/pbos/opportunities");
+  expect(discovery.status()).toBe(200);
+  const discovered = await discovery.json() as { matches?: Array<{ id: string; reasons?: string[] }> };`;
+    const governed = `  const discovery = await page.request.post("/api/pbos/opportunities");
+  const discovered = await discovery.json() as { error?: string; matches?: Array<{ id: string; reasons?: string[] }> };
+  expect(discovery.status(), "Opportunity discovery failed: " + (discovered.error ?? "unknown API error")).toBe(200);`;
+    if (!source.includes(legacy)) throw new Error("Playbook opportunity acceptance changed; re-inspect before improving API evidence.");
+    return source.replace(legacy, governed);
+}
+
+export function isOpportunityIdentityIdempotencyDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
+    const exactLegacyResponse = evidence.includes("Identity mapping already registered: PLAYBOOK-IDENTITY-");
+    const hiddenLegacyResponse = evidence.includes("Browser journey command failed for READINESS-TO-OPPORTUNITY") &&
+        evidence.includes("pbos-opportunity.spec.ts") && evidence.includes("Expected: 200") && evidence.includes("Received: 500");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete readiness-to-opportunity journey" &&
+        (exactLegacyResponse || hiddenLegacyResponse);
+}
+
+/**
+ * Advances the existing opportunity PR with one exact, deterministic repair.
+ * It does not create another mission, branch, or pull request.
+ */
+export async function preparePlaybookOpportunityIdentityRecovery(
+    dependencies: PlaybookOpportunityJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch ||
+        !isOpportunityIdentityIdempotencyDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for opportunity identity recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize opportunity recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Opportunity recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const [route, acceptance] = await Promise.all([
+        dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_ROUTE, inspection.revision),
+        dependencies.gateway.readFileAtRevision(reference, "tests/acceptance/pbos-opportunity.spec.ts", inspection.revision)
+    ]);
+    const files: readonly RepositoryFileChange[] = [
+        { path: OPPORTUNITY_ROUTE, content: wireOpportunityIdentityIdempotency(route) },
+        { path: "tests/acceptance/pbos-opportunity.spec.ts", content: wireOpportunityAcceptanceApiEvidence(acceptance) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: make opportunity identity registration resumable", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "OPPORTUNITY_IDENTITY_IDEMPOTENCY");
+    return { branch, revision, remediation };
+}
+
 function changes(revision: string, runId: string): readonly RepositoryFileChange[] {
     return [
         { path: OPPORTUNITIES_PAGE, content: pageSource },
@@ -564,7 +661,8 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
         if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
             throw new Error("The active Genesis session does not authorize the Playbook opportunity journey.");
         }
-        const reference: RepositoryReference = { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" };
+        const reference = governedBuildReference(
+            { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, context.run.startingBranch);
         const branch = `agent/pbos-playbook-system-001-048-opportunity-${context.run.runId.slice(0, 8)}`;
         for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
             ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
@@ -577,12 +675,14 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before mutation.`);
         }
-        const [page, marketplace] = await Promise.all([
+        const [page, marketplace, packageSource] = await Promise.all([
             dependencies.gateway.readFileAtRevision(reference, OPPORTUNITIES_PAGE, inspection.revision),
-            dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_MARKETPLACE, inspection.revision)
+            dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_MARKETPLACE, inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
         ]);
         assertOpportunityBaseline(page, marketplace);
-        const files = changes(inspection.revision, context.run.runId);
+        const files = [...changes(inspection.revision, context.run.runId),
+            ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-opportunity-journey")];
         context.report("BUILDING", `Replacing demo opportunity behavior with the governed owner-scoped journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -596,6 +696,8 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
             `PBOS Genesis mission \`048-opportunity-journey\` replaces demo data and browser-only decisions with authenticated explainable matching, owner-scoped RLS persistence, accessible UI states, and signed PBOS events at governed revision \`${inspection.revision}\`.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookConnectedJourneyAcceptancePlan(
+            dependencies.gateway, reference, branch, revision, "048-opportunity-journey");
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
@@ -606,7 +708,8 @@ export function playbookOpportunityJourneyExecutor(dependencies: PlaybookOpportu
                 output: `${branch} ${pullRequest.url}` }],
             validations: [{ name: "Opportunity journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
-            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url }
+            deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
+            functionalAcceptancePlan
         };
     };
 }

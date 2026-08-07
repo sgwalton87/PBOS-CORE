@@ -1,7 +1,7 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlSnapshot, MissionQueueItem,
+import { ApplicationAcceptanceEvidence, ApplicationDeliveryProof, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
     PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
     RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
@@ -80,6 +80,7 @@ export class ProductionRuntimeService {
         const completedTypes = new Set(this.state.productionStages(runId)
             .filter(stage => stage.status === "COMPLETED").map(stage => stage.type));
         const requiredStages: StageType[] = ["PREREQUISITE", "APPLICATION_LAUNCH", "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE"];
+        if (current.functionalAcceptancePlan?.nativeJourneys?.length) requiredStages.push("NATIVE_JOURNEY");
         if (mission.completionPolicy.requiredDimensions.includes("PREVIEW")) requiredStages.push("PREVIEW");
         const missing = requiredStages.filter(type => !completedTypes.has(type));
         if (missing.length) throw new Error(`Functional mission ${mission.missionId} is missing kernel stages: ${missing.join(", ")}.`);
@@ -231,7 +232,15 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
-        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys,
+        const nativeJourneys = run.functionalAcceptancePlan.nativeJourneys?.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: commit } } }));
+        const previewDeployment = run.functionalAcceptancePlan.previewDeployment
+            ? { ...run.functionalAcceptancePlan.previewDeployment, branch, commit } : undefined;
+        const plan: FunctionalAcceptancePlan = { ...run.functionalAcceptancePlan, branch, commit, browserJourneys, nativeJourneys,
+            previewDeployment, durablePreview: undefined,
             planId: `${run.functionalAcceptancePlan.planId.split(":remediation:")[0]}:remediation:${commit}` };
         const updated: ProductionRun = { ...run, currentBranch: branch, currentCommit: commit,
             repositoryContextId: `repository:${run.repository}:${commit}`, functionalAcceptancePlan: plan,
@@ -242,6 +251,65 @@ export class ProductionRuntimeService {
                 remediationRunId, branch, commit, planId: plan.planId
             });
         return updated;
+    }
+
+    /**
+     * Attaches a deterministic repository repair while the original bounded
+     * repair budget still has capacity. The existing mission, pull request,
+     * and evidence lineage remain authoritative.
+     */
+    registerBoundedRemediation(runId: string, remediationRunId: string, branch: string, commit: string,
+        classification: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const remediation = this.state.remediationRun(remediationRunId);
+        const budget = this.repairBudget(runId);
+        if (run.status !== "BLOCKED" || budget.remaining < 1 || run.activeRecoveryEpochId ||
+            !remediation || remediation.systemId !== run.systemId ||
+            remediation.pullRequest.repository !== run.repository || remediation.pullRequest.branch !== branch ||
+            branch !== run.currentBranch || run.evidenceIds.includes(`remediation-run:${remediationRunId}`) ||
+            !/^[a-f0-9]{7,40}$/i.test(commit) || commit === run.currentCommit || !classification.trim()) {
+            throw new Error("Bounded remediation does not match the blocked production lineage.");
+        }
+        const linked: ProductionRun = { ...run,
+            evidenceIds: [...new Set([...run.evidenceIds, `remediation-run:${remediationRunId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(linked);
+        this.event(linked, "BOUNDED_REMEDIATION_REGISTERED",
+            "A deterministic repository repair was attached to the existing production mission and pull request.", {
+                remediationRunId, branch, commit, classification,
+                repairAttempts: budget.attempts, repairAttemptLimit: budget.limit
+            });
+        return this.rebindRepositoryAfterRemediation(runId, remediationRunId, branch, commit);
+    }
+
+    /**
+     * Attaches a newly prepared repository repair to an authorized recovery epoch.
+     * The existing production run and mission remain authoritative; only their
+     * repository position and functional plan advance to the governed repair.
+     */
+    registerRecoveryRemediation(runId: string, remediationRunId: string, branch: string, commit: string,
+        classification: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const remediation = this.state.remediationRun(remediationRunId);
+        const epoch = run.activeRecoveryEpochId
+            ? this.state.productionRecoveryEpoch(run.activeRecoveryEpochId) : undefined;
+        const budget = this.repairBudget(runId);
+        if (run.status !== "BLOCKED" || !epoch || epoch.status !== "ACTIVE" || epoch.runId !== runId ||
+            budget.remaining < 1 || !remediation || remediation.systemId !== run.systemId ||
+            remediation.pullRequest.repository !== run.repository || remediation.pullRequest.branch !== branch ||
+            run.evidenceIds.includes(`remediation-run:${remediationRunId}`) ||
+            !/^[a-f0-9]{7,40}$/i.test(commit) || !classification.trim()) {
+            throw new Error("Recovery remediation does not match an active authorized production epoch.");
+        }
+        const linked: ProductionRun = { ...run,
+            evidenceIds: [...new Set([...run.evidenceIds, `remediation-run:${remediationRunId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(linked);
+        this.event(linked, "RECOVERY_REMEDIATION_REGISTERED",
+            "A governed repository repair was attached to the existing production mission.", {
+                recoveryEpochId: epoch.recoveryEpochId, remediationRunId, branch, commit, classification
+            });
+        return this.rebindRepositoryAfterRemediation(runId, remediationRunId, branch, commit);
     }
 
     /**
@@ -258,13 +326,24 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
+        const nativeJourneys = current.nativeJourneys?.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
+                    ? journey.command.publicEnvironment
+                    : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
         const changed = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
             browserJourneys.some((journey, index) =>
                 journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
-                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
+                current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT) ||
+            (nativeJourneys ?? []).some((journey, index) =>
+                journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
+                current.nativeJourneys?.[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
         if (!changed) return run;
+        const previewDeployment = current.previewDeployment
+            ? { ...current.previewDeployment, branch: run.currentBranch, commit: run.currentCommit } : undefined;
         const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
-            browserJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
+            previewDeployment, durablePreview: current.commit === run.currentCommit ? current.durablePreview : undefined,
+            browserJourneys, nativeJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
             acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
             previewArtifactIds: current.commit === run.currentCommit ? run.previewArtifactIds : [],
@@ -405,7 +484,30 @@ export class ProductionRuntimeService {
         this.state.saveProductionRun(updated);
         this.event(updated, "FUNCTIONAL_ACCEPTANCE_PLANNED", "Executable application acceptance plan recorded.", {
             planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId,
-            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId)
+            probes: plan.probes.map(item => item.probeId), browserJourneys: plan.browserJourneys.map(item => item.journeyId),
+            nativeJourneys: plan.nativeJourneys?.map(item => item.journeyId) ?? []
+        });
+        return updated;
+    }
+
+    attachDurablePreview(runId: string, preview: NonNullable<FunctionalAcceptancePlan["durablePreview"]>): ProductionRun {
+        const run = this.heartbeat(runId);
+        const current = run.functionalAcceptancePlan;
+        if (!current?.previewDeployment || current.previewDeployment.commit !== run.currentCommit ||
+            current.previewDeployment.branch !== run.currentBranch || !preview.webUrl || !preview.mobileUrl) {
+            throw new Error("Durable preview does not match an authorized exact-revision deployment request.");
+        }
+        const browserJourneys = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
+            ? current.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: preview.webUrl,
+                    PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }))
+            : current.browserJourneys;
+        const plan: FunctionalAcceptancePlan = { ...current, durablePreview: preview, browserJourneys };
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan, lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "PREVIEW_DEPLOYMENT_READY", "Exact-revision durable preview deployment is ready.", {
+            provider: current.previewDeployment.provider, webUrl: preview.webUrl, mobileUrl: preview.mobileUrl,
+            commit: run.currentCommit, label: preview.label
         });
         return updated;
     }
@@ -504,7 +606,7 @@ export class ProductionRuntimeService {
         const activeStage = run.activeStageId
             ? this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId) : undefined;
         const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
-            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "ACCEPTANCE", "PREVIEW"];
+            "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "NATIVE_JOURNEY", "ACCEPTANCE", "PREVIEW"];
         const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
         const resumed = this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
         if (target === "VALIDATING" && !activeStage) {
@@ -654,9 +756,46 @@ export class ProductionRuntimeService {
             activeStage: activeRun?.activeStageId ? this.state.productionStages(activeRun.runId).find(stage => stage.stageId === activeRun.activeStageId) : undefined,
             activeLease: activeRun ? this.activeLease(activeRun.runId) : undefined,
             lastRun: history.find(run => run.runId !== activeRun?.runId), history: history.slice(0, 20),
-            latestPreview: this.state.previewManifests(activeRun?.runId).at(-1) ?? this.state.previewManifests().at(-1), nextMission: queue.next(items),
+            latestPreview: this.state.previewManifests(activeRun?.runId).at(-1) ?? this.state.previewManifests().at(-1),
+            applicationPreviews: this.applicationPreviews(), applicationDeliveries: this.applicationDeliveryProofs(),
+            nextMission: queue.next(items),
             recentEvents: this.state.productionEvents(activeRun?.runId).slice(-100), health: this.health(), metrics: this.metrics(),
             generatedAt: this.now().toISOString(), sourceVersion: "PBOS-PRODUCTION-RUNTIME-1" };
+    }
+
+    applicationPreviews(): readonly MissionControlApplicationPreview[] {
+        const runs = new Map(this.state.productionRuns().map(run => [run.runId, run]));
+        const systems = new Map(this.state.systems().map(system => [system.systemId, system]));
+        const latest = new Map<string, MissionControlApplicationPreview>();
+        this.state.previewManifests().forEach(preview => {
+            const run = runs.get(preview.runId);
+            if (!run || preview.status !== "READY" || !["LIVE", "SEEDED"].includes(preview.label) ||
+                preview.repository !== run.repository || preview.commit !== run.currentCommit ||
+                (!preview.webUrl && !preview.mobileUrl)) return;
+            const system = systems.get(run.systemId);
+            latest.set(run.systemId, { systemId: run.systemId, systemName: system?.name ?? run.systemId,
+                repository: run.repository, runId: run.runId, commit: run.currentCommit, status: "READY",
+                label: preview.label as "LIVE" | "SEEDED", webUrl: preview.webUrl, mobileUrl: preview.mobileUrl,
+                generatedAt: preview.generatedAt });
+        });
+        return [...latest.values()].sort((left, right) => left.systemName.localeCompare(right.systemName));
+    }
+
+    applicationDeliveryProofs(): readonly ApplicationDeliveryProof[] {
+        const runs = new Map(this.state.productionRuns().map(run => [run.runId, run]));
+        return this.applicationPreviews().flatMap(preview => {
+            const run = runs.get(preview.runId);
+            const durable = run?.functionalAcceptancePlan?.durablePreview;
+            const dimensions = new Set(run?.acceptanceEvidence.filter(item => item.passed &&
+                item.repository === preview.repository && item.commit === preview.commit).map(item => item.dimension));
+            const required = ["ROUTE", "USER_INTERFACE", "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"] as const;
+            if (!run || !["AWAITING_APPROVAL", "CERTIFIED"].includes(run.status) || !preview.webUrl || !preview.mobileUrl ||
+                !durable || durable.webUrl !== preview.webUrl || durable.mobileUrl !== preview.mobileUrl ||
+                required.some(dimension => !dimensions.has(dimension))) return [];
+            return [{ ...preview, deliveryState: run.status === "CERTIFIED" ? "CERTIFIED" as const : "VALIDATED" as const,
+                evidenceIds: run.acceptanceEvidence.filter(item => item.passed && item.commit === preview.commit)
+                    .map(item => item.evidenceId) }];
+        });
     }
 
     private acquireLease(run: ProductionRun): ExecutionLease {

@@ -1,20 +1,57 @@
 import { createHash, randomUUID } from "crypto";
 import { CommandRunner, PullRequestReference } from "../platform";
-import { PullRequestCheckEvidence } from "./contracts";
+import { PullRequestCheckEvidence, PullRequestLifecycleState } from "./contracts";
 
 interface GhCheck { name: string; status?: string; conclusion?: string | null; details_url?: string; }
 interface GhRun { attempt?: number; jobs?: readonly { steps?: readonly unknown[] }[]; }
+interface GhPullRequestView {
+    headRefOid: string;
+    state: PullRequestLifecycleState;
+    baseRefName: string;
+    mergeCommit?: { oid?: string } | null;
+}
+
+export interface PullRequestCheckCollection {
+    readonly headSha: string;
+    readonly evidence: readonly PullRequestCheckEvidence[];
+    readonly pullRequestState: PullRequestLifecycleState;
+    readonly mergeCommitSha?: string;
+    readonly baseRefName: string;
+}
 
 export class GitHubCheckCollector {
     constructor(private readonly commands: CommandRunner) {}
 
-    async collect(pullRequest: PullRequestReference): Promise<{ headSha: string; evidence: readonly PullRequestCheckEvidence[] }> {
-        const view = await this.commands.run("gh", ["pr", "view", String(pullRequest.number), "--repo", pullRequest.repository, "--json", "headRefOid"]);
-        const headSha = String((JSON.parse(view.stdout) as { headRefOid: string }).headRefOid);
+    async collect(pullRequest: PullRequestReference): Promise<PullRequestCheckCollection> {
+        const view = await this.commands.run("gh", ["pr", "view", String(pullRequest.number), "--repo", pullRequest.repository,
+            "--json", "headRefOid,state,baseRefName,mergeCommit"]);
+        const metadata = JSON.parse(view.stdout) as GhPullRequestView;
+        const pullRequestState = metadata.state;
+        const mergeCommitSha = metadata.mergeCommit?.oid;
+        if (!metadata.baseRefName?.trim()) {
+            throw new Error(`Pull request ${pullRequest.url} did not expose its base branch.`);
+        }
+        if (pullRequestState === "MERGED" && !mergeCommitSha) {
+            throw new Error(`Merged pull request ${pullRequest.url} did not expose its merge commit.`);
+        }
+        const headSha = String(pullRequestState === "MERGED" ? mergeCommitSha : metadata.headRefOid);
         const checks = await this.commands.run("gh", ["api", `repos/${pullRequest.repository}/commits/${headSha}/check-runs`]);
         const parsed = (JSON.parse(checks.stdout) as { check_runs?: GhCheck[] }).check_runs ?? [];
         const evidence = await Promise.all(parsed.map(check => this.evidence(check)));
-        return { headSha, evidence };
+        return { headSha, evidence, pullRequestState, mergeCommitSha, baseRefName: metadata.baseRefName };
+    }
+
+    async requestMergedValidation(pullRequest: PullRequestReference, baseRefName: string, mergeCommitSha: string): Promise<void> {
+        if (!/^[A-Za-z0-9._/-]+$/.test(baseRefName) || baseRefName.includes("..") ||
+            !/^[a-f0-9]{7,40}$/i.test(mergeCommitSha)) {
+            throw new Error("Merged validation requires a safe base branch and exact merge commit.");
+        }
+        const base = await this.commands.run("gh", ["api", `repos/${pullRequest.repository}/commits/${baseRefName}`]);
+        const baseSha = String((JSON.parse(base.stdout) as { sha?: string }).sha ?? "");
+        if (baseSha !== mergeCommitSha) {
+            throw new Error(`Default branch ${baseRefName} advanced to ${baseSha || "UNKNOWN"}; exact merged revision ${mergeCommitSha} requires a governed recovery branch.`);
+        }
+        await this.commands.run("gh", ["workflow", "run", "ci.yml", "--repo", pullRequest.repository, "--ref", baseRefName]);
     }
 
     fingerprint(evidence: readonly PullRequestCheckEvidence[]): string {

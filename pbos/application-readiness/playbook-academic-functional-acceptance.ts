@@ -28,6 +28,30 @@ const required = (name: string): string => {
   return value;
 };
 
+function isTransientSupabaseFailure(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message : JSON.stringify(error);
+  return /fetch failed|connect.*timeout|network|UND_ERR/i.test(detail);
+}
+
+async function withSupabaseRetry<T extends { error: unknown }>(label: string,
+  operation: () => PromiseLike<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const result = await operation();
+      if (!result.error) return result;
+      lastError = result.error;
+      if (!isTransientSupabaseFailure(result.error)) throw result.error;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSupabaseFailure(error)) throw error;
+    }
+    if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 500));
+  }
+  throw new Error(label + " failed after 3 bounded network attempts: " +
+    (lastError instanceof Error ? lastError.message : JSON.stringify(lastError)));
+}
+
 function syntheticTranscriptPdf(): Buffer {
   const stream = "BT /F1 12 Tf 72 720 Td (PBOS Synthetic Scholar Transcript) Tj 0 -22 Td (English 9 A English 10 B) Tj 0 -22 Td (Algebra I A Geometry B Biology A World History B) Tj ET";
   const objects = [
@@ -56,8 +80,8 @@ test("Scholar transcript produces durable academic readiness through PBOS", asyn
   const admin = createClient(required("NEXT_PUBLIC_SUPABASE_URL"), required("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { autoRefreshToken: false, persistSession: false }
   });
-  const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (users.error) throw users.error;
+  const users = await withSupabaseRetry("Acceptance identity lookup",
+    () => admin.auth.admin.listUsers({ page: 1, perPage: 1000 }));
   const user = users.data.users.find(candidate => candidate.email === email);
   if (!user) throw new Error("The governed Scholar acceptance identity must exist before academic acceptance.");
 
@@ -73,13 +97,12 @@ test("Scholar transcript produces durable academic readiness through PBOS", asyn
     mimeType: "application/pdf", buffer: syntheticTranscriptPdf() });
   await expect(page.getByRole("status")).toContainText("Transcript parsed", { timeout: 120_000 });
 
-  const progress = await admin.from("ag_progress").select("user_id,subject").eq("user_id", user.id);
-  if (progress.error) throw progress.error;
+  const progress = await withSupabaseRetry("Academic progress verification",
+    () => admin.from("ag_progress").select("user_id,subject").eq("user_id", user.id));
   expect(progress.data).toHaveLength(7);
-  const evidence = await admin.from("academic_journey_evidence")
+  const evidence = await withSupabaseRetry("Academic evidence verification", () => admin.from("academic_journey_evidence")
     .select("owner_id,readiness_score,ag_updates,delivery_state,provenance")
-    .eq("owner_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (evidence.error) throw evidence.error;
+    .eq("owner_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle());
   expect(evidence.data).toMatchObject({ owner_id: user.id, ag_updates: 7, delivery_state: "DELIVERED" });
   expect((evidence.data?.provenance as string[] | undefined)?.length).toBeGreaterThan(0);
 
@@ -96,7 +119,12 @@ test("Scholar transcript produces durable academic readiness through PBOS", asyn
   await context.tracing.stop({ path: artifacts + "/academic-trace.zip" });
   await writeFile(artifacts + "/academic-acceptance.json", JSON.stringify({ schemaVersion: 1,
     journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS", commit: required("PBOS_ACCEPTANCE_COMMIT"),
-    checks: ["AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "ACCESSIBILITY", "SECURITY"] }, null, 2));
+    checks: [
+      { dimension: "DURABLE_DATA", passed: true, detail: "Transcript-derived readiness survived an authenticated database read." },
+      { dimension: "PBOS_INTEGRATION", passed: true, detail: "The approval-bound transcript exchange produced provenance-bearing academic evidence." },
+      { dimension: "AUTHORITY", passed: true, detail: "Anonymous transcript mutation was denied before authenticated execution." },
+      { dimension: "SECURITY", passed: true, detail: "Protected academic configuration remained server controlled." }
+    ] }, null, 2));
 });
 `;
 

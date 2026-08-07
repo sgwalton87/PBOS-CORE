@@ -95,7 +95,10 @@ export class PlaybookLaunchPlanCompiler {
             HUMAN_APPROVAL: ["HUMAN_APPROVAL"],
             EXTERNAL_ACCOUNT: ["EXTERNAL_PROOF"]
         };
-        if (!acceptedTypes[task.gate].includes(evidence.evidenceType)) return false;
+        const acceptedEvidenceType = task.taskId === "050-isolation"
+            ? evidence.evidenceType === "PLATFORM_ARTIFACT"
+            : acceptedTypes[task.gate].includes(evidence.evidenceType);
+        if (!acceptedEvidenceType) return false;
         return evidence.evidenceType !== "HUMAN_APPROVAL" || Boolean(evidence.approvalId?.trim());
     }
 }

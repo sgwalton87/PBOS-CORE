@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
-import { GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRecoveryAuthority,
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRecoveryAuthority,
     ProductionRuntimeService, assertProductionTransition } from "../index";
 
 const runtime = (clock = new Date("2026-08-05T00:00:00.000Z")) => {
@@ -149,6 +149,90 @@ describe("canonical PBOS production runtime", () => {
             inputs: { recoveryCheckpoint: "VALIDATION" } });
     });
 
+    it("attaches a governed recovery PR to the same functional run while preserving its authorized acceptance attempt", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "academic", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing functional mission",
+            approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
+                requiredDimensions: ["ROUTE"], acceptanceCriteria: ["Academic route works"] } }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, { planId: "academic-plan", systemId: input.systemId,
+            productNodeId: "academic", journeyId: "academic-journey", repository: input.repository,
+            branch: input.branch, commit: input.commit, workingDirectory: "/tmp/playbook", prerequisites: [],
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4311", healthPath: "/",
+                startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [] });
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        fixture.runtime.recordValidation(run.runId, "Original validation", true, 0, "remediation-run:original");
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "STARTED");
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "FAILED");
+        }
+        fixture.runtime.transition(run.runId, "BLOCKED", "Idempotency key reused with a different request.");
+        const authority = new ProductionRecoveryAuthority(fixture.state, fixture.runtime);
+        const epoch = authority.request(run.runId);
+        authority.authorize(epoch.recoveryEpochId, "recovery-approval", input.actorId, () => true);
+        fixture.state.saveRemediationRun({ runId: "recovery-validation", systemId: input.systemId,
+            pullRequest: { url: "https://github.com/sgwalton87/playbook-platform/pull/57", number: 57,
+                branch: "agent/academic-recovery", repository: input.repository }, headSha: "UNKNOWN", attempt: 0,
+            maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() });
+
+        const attached = fixture.runtime.registerRecoveryRemediation(run.runId, "recovery-validation",
+            "agent/academic-recovery", "abcdef1", "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
+
+        expect(attached).toMatchObject({ runId: run.runId, status: "BLOCKED", currentBranch: "agent/academic-recovery",
+            currentCommit: "abcdef1", repairAttempts: 5, repairAttemptLimit: 6,
+            activeRecoveryEpochId: epoch.recoveryEpochId });
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 5, limit: 6, remaining: 1 });
+        expect(attached.evidenceIds).toContain("remediation-run:recovery-validation");
+        expect(attached.functionalAcceptancePlan).toMatchObject({ branch: "agent/academic-recovery", commit: "abcdef1" });
+        expect(fixture.runtime.events(run.runId).map(event => event.type)).toContain("RECOVERY_REMEDIATION_REGISTERED");
+        expect(() => fixture.runtime.registerRecoveryRemediation(run.runId, "recovery-validation",
+            "agent/academic-recovery", "abcdef1", "DUPLICATE")).toThrow("active authorized production epoch");
+    });
+
+    it("attaches a bounded deterministic repair without replacing the mission or pull request", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "opportunity", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing functional mission",
+            approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
+                requiredDimensions: ["ROUTE"], acceptanceCriteria: ["Opportunity route works"] } }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, { planId: "opportunity-plan", systemId: input.systemId,
+            productNodeId: "opportunity", journeyId: "opportunity-journey", repository: input.repository,
+            branch: input.branch, commit: input.commit, workingDirectory: "/tmp/playbook", prerequisites: [],
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4311", healthPath: "/",
+                startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [] });
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        fixture.runtime.recordRepairAttempt(run.runId, "FUNCTIONAL_ACCEPTANCE_FAILURE", "STARTED");
+        fixture.runtime.recordRepairAttempt(run.runId, "FUNCTIONAL_ACCEPTANCE_FAILURE", "FAILED");
+        fixture.runtime.transition(run.runId, "BLOCKED", "Identity mapping already registered");
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/61", number: 61,
+            branch: input.branch, repository: input.repository };
+        fixture.state.saveRemediationRun({ runId: "bounded-validation", systemId: input.systemId, pullRequest,
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [],
+            blockers: [], updatedAt: new Date().toISOString() });
+
+        const attached = fixture.runtime.registerBoundedRemediation(run.runId, "bounded-validation",
+            input.branch, "abcdef2", "OPPORTUNITY_IDENTITY_IDEMPOTENCY");
+
+        expect(attached).toMatchObject({ runId: run.runId, selectedMission: input.mission, status: "BLOCKED",
+            currentBranch: input.branch, currentCommit: "abcdef2", repairAttempts: 1, repairAttemptLimit: 5 });
+        expect(attached.evidenceIds).toContain("remediation-run:bounded-validation");
+        expect(attached.functionalAcceptancePlan).toMatchObject({ branch: input.branch, commit: "abcdef2" });
+        expect(fixture.runtime.events(run.runId).map(event => event.type)).toEqual(expect.arrayContaining([
+            "BOUNDED_REMEDIATION_REGISTERED", "REMEDIATION_LINEAGE_REBOUND"
+        ]));
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 1, limit: 5, remaining: 4 });
+        expect(() => fixture.runtime.registerBoundedRemediation(run.runId, "bounded-validation",
+            input.branch, "abcdef2", "DUPLICATE")).toThrow("blocked production lineage");
+    });
+
     it("rejects invalid status transitions and mission dependency cycles", () => {
         expect(() => assertProductionTransition("AUTHORIZED", "CERTIFIED")).toThrow(/Invalid PBOS production transition/);
         const queue = new GovernedMissionQueue();
@@ -184,7 +268,12 @@ describe("canonical PBOS production runtime", () => {
                     publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: input.commit } },
                 viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshotArtifacts: ["desktop.png", "mobile.png"],
                 traceArtifact: "trace.zip", accessibilityArtifact: "a11y.json", acceptanceArtifact: "acceptance.json",
-                verifiedDimensions: ["DURABLE_DATA"] }] });
+                verifiedDimensions: ["DURABLE_DATA"] }],
+            nativeJourneys: [{ journeyId: "native", behavior: "Native journey works", platforms: ["IOS", "ANDROID"],
+                command: { command: "npm", args: ["run", "mobile:acceptance"],
+                    publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: input.commit } },
+                artifacts: ["native-builds.json"], acceptanceArtifact: "native-acceptance.json",
+                verifiedDimensions: ["AUTHORITY"] }] });
         fixture.runtime.recordAcceptanceEvidence(run.runId, [{ evidenceId: "old", dimension: "ROUTE", behavior: "Old route",
             repository: input.repository, commit: input.commit, artifact: "/", passed: true, source: "RUNTIME_PROBE" }]);
         const rebound = fixture.runtime.rebindRepositoryAfterRemediation(run.runId, "validation-1", "agent/remediated", "abcdef2");
@@ -192,15 +281,22 @@ describe("canonical PBOS production runtime", () => {
         expect(rebound.functionalAcceptancePlan).toMatchObject({ branch: "agent/remediated", commit: "abcdef2" });
         expect(rebound.functionalAcceptancePlan?.browserJourneys[0].command.publicEnvironment)
             .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
+        expect(rebound.functionalAcceptancePlan?.nativeJourneys?.[0].command.publicEnvironment)
+            .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
         expect(rebound.acceptanceEvidence).toEqual([]);
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("REMEDIATION_LINEAGE_REBOUND");
         fixture.state.saveProductionRun({ ...rebound, functionalAcceptancePlan: { ...rebound.functionalAcceptancePlan!,
             browserJourneys: rebound.functionalAcceptancePlan!.browserJourneys.map(journey => ({ ...journey,
                 command: { ...journey.command, publicEnvironment: { ...journey.command.publicEnvironment,
+                    PBOS_ACCEPTANCE_COMMIT: input.commit } } })),
+            nativeJourneys: rebound.functionalAcceptancePlan!.nativeJourneys?.map(journey => ({ ...journey,
+                command: { ...journey.command, publicEnvironment: { ...journey.command.publicEnvironment,
                     PBOS_ACCEPTANCE_COMMIT: input.commit } } })) } });
         const normalized = fixture.runtime.normalizeFunctionalAcceptanceLineage(run.runId);
         expect(normalized.currentCommit).toBe("abcdef2");
         expect(normalized.functionalAcceptancePlan?.browserJourneys[0].command.publicEnvironment)
+            .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
+        expect(normalized.functionalAcceptancePlan?.nativeJourneys?.[0].command.publicEnvironment)
             .toMatchObject({ PBOS_ACCEPTANCE_COMMIT: "abcdef2" });
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED");
     });
@@ -228,6 +324,68 @@ describe("canonical PBOS production runtime", () => {
         expect(preview.viewports).toEqual(["DESKTOP_1440X900", "MOBILE_390X844"]);
         expect(preview.commit).toBe("5dda9e7");
         expect(() => new GovernedPreviewPipeline().compile({ ...preview, experienceChanging: true, commit: "latest" })).toThrow(/exact/);
+    });
+
+    it("projects separate exact-revision application previews and excludes simulated or stale lineage", () => {
+        const fixture = runtime();
+        fixture.state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001",
+            name: "The Playbook", domain: "Education", repository: "sgwalton87/playbook-platform",
+            defaultBranch: "main", status: "READY", capabilities: [] });
+        fixture.state.saveSystem({ systemId: "BULLETPROOF-SYSTEM-001", operatingSystemId: "BULLETPROOF-OS-001",
+            name: "Bulletproof Beneficiary", domain: "Legacy Planning",
+            repository: "vycoywalton/bulletproof-beneficiary-registry", defaultBranch: "main",
+            status: "READY", capabilities: [] });
+        const playbook = fixture.runtime.begin({ ...input, runId: "playbook-preview-run", commit: "aaaaaaa" });
+        const bulletproof = fixture.runtime.begin({ ...input, runId: "bulletproof-preview-run",
+            systemId: "BULLETPROOF-SYSTEM-001", repository: "vycoywalton/bulletproof-beneficiary-registry",
+            commit: "bbbbbbb" });
+        const manifest = (runId: string, repository: string, commit: string, previewId: string) => ({
+            previewId, runId, repository, branch: "agent/preview", commit, status: "READY" as const,
+            webUrl: `https://${previewId}.example.com`, mobileUrl: `https://expo.dev/${previewId}`,
+            routes: ["/"], personas: ["MEMBER"], viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
+            screenshots: [], generatedAt: "2026-08-06T00:00:00.000Z", label: "LIVE" as const });
+        fixture.runtime.recordPreview(manifest(playbook.runId, playbook.repository, playbook.currentCommit, "playbook"));
+        fixture.runtime.recordPreview(manifest(bulletproof.runId, bulletproof.repository, bulletproof.currentCommit, "bulletproof"));
+        fixture.runtime.recordPreview({ ...manifest(playbook.runId, playbook.repository, "ccccccc", "stale"), label: "SIMULATED" });
+
+        expect(fixture.runtime.snapshot().applicationPreviews).toMatchObject([
+            { systemId: "BULLETPROOF-SYSTEM-001", systemName: "Bulletproof Beneficiary", commit: "bbbbbbb" },
+            { systemId: "PLAYBOOK-SYSTEM-001", systemName: "The Playbook", commit: "aaaaaaa" }
+        ]);
+    });
+
+    it("issues application delivery proof only after exact-revision functional and preview acceptance", () => {
+        const fixture = runtime();
+        fixture.state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001",
+            name: "The Playbook", domain: "Education", repository: "sgwalton87/playbook-platform",
+            defaultBranch: "main", status: "READY", capabilities: [] });
+        const run = fixture.runtime.begin({ ...input, runId: "delivery-run", commit: "ddddddd" });
+        const webUrl = "https://playbook-preview.example.com";
+        const mobileUrl = "https://expo.dev/playbook-preview";
+        fixture.runtime.recordPreview({ previewId: "delivery-preview", runId: run.runId, repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, status: "READY", webUrl, mobileUrl,
+            routes: ["/login", "/dashboard"], personas: ["SCHOLAR"],
+            viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshots: [],
+            generatedAt: "2026-08-06T00:00:00.000Z", label: "LIVE" });
+        expect(fixture.runtime.applicationDeliveryProofs()).toEqual([]);
+        const plan: FunctionalAcceptancePlan = { planId: "delivery:ddddddd", systemId: run.systemId,
+            productNodeId: "THE-PLAYBOOK", journeyId: "SCHOLAR", repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, workingDirectory: "/tmp/playbook",
+            launch: { command: "npm", args: ["run", "start"], baseUrl: "http://127.0.0.1:3000",
+                healthPath: "/login", startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [],
+            durablePreview: { webUrl, mobileUrl, healthPath: "/login", label: "LIVE" } };
+        const dimensions: ApplicationAcceptanceEvidence["dimension"][] = ["ROUTE", "USER_INTERFACE",
+            "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"];
+        fixture.state.saveProductionRun({ ...fixture.state.productionRun(run.runId)!, status: "AWAITING_APPROVAL",
+            functionalAcceptancePlan: plan, acceptanceEvidence: dimensions.map(dimension => ({
+                evidenceId: `delivery:${dimension}`, dimension, behavior: `${dimension} passed`,
+                repository: run.repository, commit: run.currentCommit, artifact: `${webUrl}#${dimension}`,
+                passed: true, source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION" : "APPLICATION_TEST" })) });
+
+        expect(fixture.runtime.applicationDeliveryProofs()).toMatchObject([{ systemId: "PLAYBOOK-SYSTEM-001",
+            deliveryState: "VALIDATED", webUrl, mobileUrl, evidenceIds: expect.arrayContaining([
+                "delivery:INDEPENDENT_VALIDATION", "delivery:PREVIEW"
+            ]) }]);
     });
 
     it("executes an eligible automated mission and stops before the next human approval boundary", async () => {

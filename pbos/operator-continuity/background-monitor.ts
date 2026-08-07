@@ -12,6 +12,32 @@ import { AutonomousBatchService } from "./autonomous-batch-service";
 import { ApplicationAcceptanceEvidence, ProductionRecoveryAuthority, ProductionRuntimeService } from "../production-runtime";
 import { RemediationRun } from "../validation-automation";
 import { AutonomousProductionKernel } from "../kernel";
+import { GovernedPreviewDeploymentGateway, PreviewDeploymentGateway, VercelPreviewDeploymentGateway } from "../production-runtime";
+import { CommandRunner, NodeCommandRunner } from "../platform";
+
+export interface MergedRevisionPositioner {
+    position(workingDirectory: string, branch: string, commit: string): Promise<void>;
+}
+
+export class GitMergedRevisionPositioner implements MergedRevisionPositioner {
+    constructor(private readonly commands: CommandRunner = new NodeCommandRunner()) {}
+
+    async position(workingDirectory: string, branch: string, commit: string): Promise<void> {
+        if (!workingDirectory.startsWith("/") || !/^[A-Za-z0-9._/-]+$/.test(branch) || branch.includes("..") ||
+            !/^[a-f0-9]{7,40}$/i.test(commit)) {
+            throw new Error("Merged-revision positioning requires an absolute checkout, default branch, and exact commit.");
+        }
+        await this.commands.run("git", ["fetch", "origin", branch], workingDirectory);
+        try {
+            await this.commands.run("git", ["merge-base", "--is-ancestor", commit, `origin/${branch}`], workingDirectory);
+        } catch {
+            throw new Error(`Merged revision ${commit} is not reachable from origin/${branch}.`);
+        }
+        await this.commands.run("git", ["switch", "--detach", commit], workingDirectory);
+        const actual = (await this.commands.run("git", ["rev-parse", "HEAD"], workingDirectory)).stdout.trim();
+        if (actual !== commit) throw new Error(`Merged-revision checkout resolved ${actual}, expected ${commit}.`);
+    }
+}
 
 export interface OperatorNotifier { notify(title: string, message: string): Promise<void>; }
 export class DesktopOperatorNotifier implements OperatorNotifier {
@@ -48,7 +74,12 @@ export class BackgroundMonitor {
     constructor(private readonly state: GenesisStateRepository, private readonly remediation: ResumableRemediationEngine,
         private readonly workflows: GenesisWorkflowService, private readonly memos: OperatorMemoService,
         private readonly wait: (milliseconds: number) => Promise<void> = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds)),
-        private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier()) {}
+        private readonly batches = new AutonomousBatchService(state), private readonly notifier: OperatorNotifier = new DesktopOperatorNotifier(),
+        private readonly previewDeployment: PreviewDeploymentGateway =
+            new GovernedPreviewDeploymentGateway(new VercelPreviewDeploymentGateway()),
+        private readonly applicationVerifier: Pick<AutonomousProductionKernel, "verifyApplication"> =
+            new AutonomousProductionKernel(state, new ProductionRuntimeService(state)),
+        private readonly mergedRevisionPositioner: MergedRevisionPositioner = new GitMergedRevisionPositioner()) {}
 
     async run(runId: string, sessionId: string, intervalMs = 10_000, maximumPolls = 360): Promise<void> {
         const session = this.state.sessions().find(item => item.sessionId === sessionId);
@@ -110,11 +141,13 @@ export class BackgroundMonitor {
             if (!replacementRevision || !/^[a-f0-9]{7,40}$/i.test(replacementRevision)) {
                 throw new Error("Blocked-run recovery requires the exact replacement pull-request revision.");
             }
-            if (run.currentCommit !== replacementRevision) {
+            const replacementBranch = remediation.pullRequestState === "MERGED"
+                ? run.startingBranch : remediation.pullRequest.branch;
+            if (run.currentCommit !== replacementRevision || run.currentBranch !== replacementBranch) {
                 run = run.functionalAcceptancePlan
                     ? production.rebindRepositoryAfterRemediation(run.runId, remediationRunId,
-                        remediation.pullRequest.branch, replacementRevision)
-                    : production.updateRepositoryPosition(run.runId, remediation.pullRequest.branch, replacementRevision);
+                        replacementBranch, replacementRevision)
+                    : production.updateRepositoryPosition(run.runId, replacementBranch, replacementRevision);
             }
             run = blockedMission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION"
                 ? production.recoverBlockedFunctionalValidation(run.runId, remediationRunId, replacementRevision)
@@ -153,8 +186,19 @@ export class BackgroundMonitor {
                     source: "CI_VALIDATION"
                 };
                 if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
-                    await new AutonomousProductionKernel(this.state, production)
-                        .verifyApplication(run.runId, validationEvidence);
+                    const plan = run.functionalAcceptancePlan;
+                    if (remediation.pullRequestState === "MERGED") {
+                        if (!plan) throw new Error("Merged functional recovery requires an executable acceptance plan.");
+                        await this.mergedRevisionPositioner.position(plan.workingDirectory, run.startingBranch, run.currentCommit);
+                    }
+                    if (mission.completionPolicy.requiredDimensions.includes("PREVIEW") && plan?.previewDeployment && !plan.durablePreview) {
+                        const deploymentApproval = this.state.audit().some(event => event.eventId === plan.previewDeployment!.approvalId &&
+                            event.resource === mission.missionId && event.evidence.purpose === "START_PRODUCTION_MISSION");
+                        if (!deploymentApproval) throw new Error("Protected staging deployment is missing its durable mission approval.");
+                        const preview = await this.previewDeployment.deploy(plan);
+                        run = production.attachDurablePreview(run.runId, preview);
+                    }
+                    await this.applicationVerifier.verifyApplication(run.runId, validationEvidence);
                     new ProductionRecoveryAuthority(this.state, production).completeActive(run.runId,
                         "Independent exact-revision validation and functional application acceptance passed.");
                     return;

@@ -120,6 +120,13 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         await this.commands.run("npm", ["install", "--package-lock-only", "--ignore-scripts"], await this.checkout(repository));
     }
 
+    async prepareExpoDependencyLock(repository: RepositoryReference, workspacePath: string): Promise<void> {
+        const cwd = await this.checkout(repository);
+        const workspace = this.safePath(cwd, workspacePath);
+        await this.commands.run("npx", ["--yes", "expo@~57.0.0", "install", "--fix"], workspace);
+        await this.commands.run("npm", ["install", "--package-lock-only", "--ignore-scripts"], cwd);
+    }
+
     async openDraftPullRequest(repository: RepositoryReference, branch: string, title: string, body: string): Promise<PullRequestReference> {
         this.assertBranch(branch);
         const result = await this.commands.run("gh", ["pr", "create", "--draft", "--repo", `${repository.owner}/${repository.name}`,

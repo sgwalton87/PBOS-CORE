@@ -8,7 +8,7 @@ export type ProductionStatus = typeof PRODUCTION_STATUSES[number];
 export type RuntimeHealth = "HEALTHY" | "DEGRADED" | "UNHEALTHY" | "UNKNOWN";
 export type StageType = "DISCOVERY" | "CONTEXT" | "SPECIFICATION" | "DEPENDENCY_GRAPH" | "MISSION" |
     "AUTHORIZATION" | "PLANNING" | "EXECUTION" | "COMMAND" | "TEST" | "BUILD" | "VALIDATION" | "REPAIR" |
-    "PREREQUISITE" | "APPLICATION_LAUNCH" | "RUNTIME_VERIFICATION" | "BROWSER_JOURNEY" | "ACCEPTANCE" |
+    "PREREQUISITE" | "APPLICATION_LAUNCH" | "RUNTIME_VERIFICATION" | "BROWSER_JOURNEY" | "NATIVE_JOURNEY" | "ACCEPTANCE" |
     "PREVIEW" | "EVIDENCE" | "CERTIFICATION" | "COMMIT" | "CONTINUATION";
 
 export const TERMINAL_PRODUCTION_STATUSES: readonly ProductionStatus[] = ["BLOCKED", "FAILED", "COMPLETED", "CERTIFIED", "CANCELLED"];
@@ -220,7 +220,7 @@ export interface ApplicationAcceptanceEvidence {
     readonly artifact: string;
     readonly passed: boolean;
     readonly source: "IMPLEMENTATION" | "APPLICATION_TEST" | "RUNTIME_PROBE" | "BROWSER_JOURNEY" |
-        "ACCESSIBILITY_AUDIT" | "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
+        "NATIVE_JOURNEY" | "ACCESSIBILITY_AUDIT" | "SECURITY_TEST" | "CI_VALIDATION" | "PREVIEW_PROBE";
 }
 
 export interface FunctionalRuntimeCommand {
@@ -261,8 +261,26 @@ export interface BrowserJourneyPlan {
     readonly traceArtifact: string;
     readonly accessibilityArtifact: string;
     readonly acceptanceArtifact: string;
+    readonly visualCanon?: Readonly<{
+        readonly screenId: string;
+        readonly manifestPath: string;
+        readonly requiredRoute: string;
+        readonly requiredAssets: readonly string[];
+    }>;
     readonly verifiedDimensions: readonly Extract<ApplicationAcceptanceDimension,
         "ROUTE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" | "SECURITY">[];
+}
+
+export interface NativeJourneyPlan {
+    readonly journeyId: string;
+    readonly behavior: string;
+    readonly platforms: readonly ("IOS" | "ANDROID")[];
+    readonly command: FunctionalRuntimeCommand;
+    readonly artifacts: readonly string[];
+    readonly acceptanceArtifact: string;
+    readonly verifiedDimensions: readonly Extract<ApplicationAcceptanceDimension,
+        "ROUTE" | "USER_INTERFACE" | "DURABLE_DATA" | "AUTHORITY" | "PBOS_INTEGRATION" |
+        "ACCEPTANCE_TEST" | "ACCESSIBILITY" | "SECURITY">[];
 }
 
 export interface FunctionalAcceptancePlan {
@@ -284,6 +302,9 @@ export interface FunctionalAcceptancePlan {
     }>;
     readonly probes: readonly FunctionalRuntimeProbe[];
     readonly browserJourneys: readonly BrowserJourneyPlan[];
+    readonly nativeJourneys?: readonly NativeJourneyPlan[];
+    /** Protected provider action prepared by an adapter and executed only after exact-revision CI passes. */
+    readonly previewDeployment?: PreviewDeploymentRequest;
     /**
      * Durable preview endpoints are separate from the temporary verification
      * process. They are optional for journey missions and required by any
@@ -292,10 +313,49 @@ export interface FunctionalAcceptancePlan {
     readonly durablePreview?: Readonly<{
         webUrl: string;
         mobileUrl: string;
+        iosUrl?: string;
+        androidUrl?: string;
         healthPath: string;
+        /** A provider install page is probed at its existing path, not the web application's health route. */
+        mobileHealthPath?: string;
+        providerEvidence?: Readonly<Record<string, string>>;
         label: "LIVE" | "SEEDED";
     }>;
 }
+
+interface PreviewDeploymentRequestBase {
+    readonly repository: string;
+    readonly branch: string;
+    readonly commit: string;
+    readonly environment: "preview";
+    readonly approvalId: string;
+    readonly browserTarget: "DEPLOYED_PREVIEW";
+}
+
+export interface VercelPreviewDeploymentRequest extends PreviewDeploymentRequestBase {
+    readonly provider: "VERCEL";
+    readonly tokenEnvironmentVariable: "VERCEL_TOKEN";
+    readonly projectEnvironmentVariable: "VERCEL_PROJECT_ID";
+    readonly teamEnvironmentVariable?: "VERCEL_TEAM_ID";
+    readonly requiredProjectEnvironmentVariables: readonly string[];
+    readonly previewOnlyEnvironmentVariables: readonly string[];
+}
+
+export interface EasPreviewDeploymentRequest extends PreviewDeploymentRequestBase {
+    readonly provider: "EAS";
+    readonly tokenEnvironmentVariable: "EXPO_TOKEN";
+    readonly projectEnvironmentVariable: "EXPO_PROJECT_ID";
+    readonly webPreviewEnvironmentVariable: "PBOS_WEB_PREVIEW_URL";
+    readonly applicationDirectory: "apps/mobile";
+    readonly cliVersion: string;
+    readonly previewProfile: "preview";
+    readonly storeProfile: "production";
+    readonly submitProfile: "production";
+    readonly platforms: readonly ["IOS", "ANDROID"];
+    readonly distributionTarget: "TESTFLIGHT_AND_PLAY_INTERNAL";
+}
+
+export type PreviewDeploymentRequest = VercelPreviewDeploymentRequest | EasPreviewDeploymentRequest;
 
 export interface MissionCompletionPolicy {
     readonly kind: "PLATFORM_ARTIFACT" | "FUNCTIONAL_APPLICATION";
@@ -320,6 +380,24 @@ export interface PreviewManifest {
     readonly screenshots: readonly string[];
     readonly generatedAt: string;
     readonly label: "LIVE" | "SEEDED" | "SIMULATED" | "NONVISUAL";
+}
+
+export interface MissionControlApplicationPreview {
+    readonly systemId: string;
+    readonly systemName: string;
+    readonly repository: string;
+    readonly runId: string;
+    readonly commit: string;
+    readonly status: "READY";
+    readonly label: "LIVE" | "SEEDED";
+    readonly webUrl?: string;
+    readonly mobileUrl?: string;
+    readonly generatedAt: string;
+}
+
+export interface ApplicationDeliveryProof extends MissionControlApplicationPreview {
+    readonly deliveryState: "VALIDATED" | "CERTIFIED";
+    readonly evidenceIds: readonly string[];
 }
 
 export interface RuntimeHealthReport {
@@ -352,6 +430,8 @@ export interface MissionControlSnapshot {
     readonly lastRun?: ProductionRun;
     readonly history: readonly ProductionRun[];
     readonly latestPreview?: PreviewManifest;
+    readonly applicationPreviews: readonly MissionControlApplicationPreview[];
+    readonly applicationDeliveries: readonly ApplicationDeliveryProof[];
     readonly nextMission?: MissionQueueItem;
     readonly recentEvents: readonly ProductionEvent[];
     readonly health: RuntimeHealthReport;

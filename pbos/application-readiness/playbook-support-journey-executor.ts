@@ -1,8 +1,9 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
-import { GitHubRepositoryGateway, PullRequestReference, RepositoryFileChange, RepositoryReference } from "../platform";
+import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
+import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -89,7 +90,7 @@ export class ApplicationSupportRequestService {
 const routeSource = `import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { ApplicationSupportRequestService, SUPPORT_CATEGORIES, type SupportCategory } from "@/lib/pbos/application-support-request";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
 
@@ -132,11 +133,11 @@ export async function POST(request: NextRequest) {
       .eq("scholar_id", user.id).eq("status", "active").maybeSingle();
     if (relationship.error) throw new Error(relationship.error.message);
     if (!relationship.data) return NextResponse.json({ error: "Authorized support relationship not found." }, { status: 403 });
-    const mapper = new PlaybookIdentityMapper();
     const client = new PlaybookPbosRuntimeClient(new SignedPlaybookPbosTransport(required("PBOS_API_URL"), {
       organizationId: required("PBOS_ORGANIZATION_ID"), connectorId: required("PBOS_CONNECTOR_ID"),
       keyId: required("PBOS_CONNECTOR_KEY_ID"), secretBase64: required("PBOS_CONNECTOR_SECRET_BASE64")
     }));
+    const connector = new PlaybookConnector(client);
     const service = new ApplicationSupportRequestService({
       async createRequest(input) {
         const saved = await supabase.from("application_support_requests").upsert({ scholar_id: input.scholarId,
@@ -152,11 +153,7 @@ export async function POST(request: NextRequest) {
         if (updated.error) throw new Error(updated.error.message);
       }
     }, {
-      async registerIdentity(userId) {
-        const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-        const response = await client.send("REGISTER_IDENTITY", identity, requestId + "-identity", requestId + "-identity");
-        if (!response.success) throw new Error(response.error.message); return identity;
-      },
+      registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
       async publishRequest(identity, input) {
         const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
           domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
@@ -182,11 +179,18 @@ export async function POST(request: NextRequest) {
 
 const panelSource = `"use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type Workspace = { id: string; opportunity_name: string; status: string; deadline?: string | null };
 type Relationship = { id: string; supporter_name?: string | null; supporter_email: string; relationship: string };
 type SupportContext = { workspaces: Workspace[]; relationships: Relationship[]; categories: string[] };
+
+async function fetchSupportContext(): Promise<SupportContext> {
+  const response = await fetch("/api/pbos/application-support", { cache: "no-store" });
+  const result = await response.json() as SupportContext & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Support options could not be loaded.");
+  return result;
+}
 
 export default function ApplicationSupportRequestPanel() {
   const [context, setContext] = useState<SupportContext>({ workspaces: [], relationships: [], categories: [] });
@@ -195,22 +199,23 @@ export default function ApplicationSupportRequestPanel() {
   const [loading, setLoading] = useState(true); const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState("Loading your application support options…"); const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(""); setStatus("Loading your application support options…");
-    try {
-      const response = await fetch("/api/pbos/application-support", { cache: "no-store" });
-      const result = await response.json() as SupportContext & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Support options could not be loaded.");
+  useEffect(() => { let active = true; void fetchSupportContext().then(result => { if (!active) return;
       setContext(result); setWorkspaceId(current => current || result.workspaces[0]?.id || "");
       setRelationshipId(current => current || result.relationships[0]?.id || "");
       setCategory(current => current || result.categories[0] || "RECOMMENDATION");
       setStatus(result.workspaces.length && result.relationships.length ? "Choose an application and authorized supporter."
         : "Create an application workspace and activate a support relationship before requesting help.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); }
-    finally { setLoading(false); }
-  }, []);
+    }).catch(cause => { if (active) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; }; }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  async function reload() { setLoading(true); setError(""); try { const result = await fetchSupportContext();
+      setContext(result); setWorkspaceId(current => current || result.workspaces[0]?.id || "");
+      setRelationshipId(current => current || result.relationships[0]?.id || ""); setCategory(current => current || result.categories[0] || "RECOMMENDATION");
+      setStatus(result.workspaces.length && result.relationships.length ? "Choose an application and authorized supporter."
+        : "Create an application workspace and activate a support relationship before requesting help.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); }
+    finally { setLoading(false); } }
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(""); setSubmitting(true); setStatus("Sending your governed support request…");
@@ -229,7 +234,7 @@ export default function ApplicationSupportRequestPanel() {
     <p style={{ color: "#B45309", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase" }}>Authorized support</p>
     <h2 id="application-support-heading">Ask your support network for application help</h2>
     <p id="application-support-description">Only active relationships with support-task permission can receive this request.</p>
-    {error && <div role="alert" aria-live="assertive"><p>{error}</p><button type="button" onClick={() => void load()}>Try again</button></div>}
+    {error && <div role="alert" aria-live="assertive"><p>{error}</p><button type="button" onClick={() => void reload()}>Try again</button></div>}
     <p role="status" aria-live="polite">{status}</p>
     <form onSubmit={submit} aria-describedby="application-support-description" style={{ display: "grid", gap: 14, maxWidth: 720 }}>
       <label>Application workspace<select value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} disabled={unavailable || submitting} required>
@@ -392,7 +397,8 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
         if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
             throw new Error("The active Genesis session does not authorize the Playbook application-support journey.");
         }
-        const reference: RepositoryReference = { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" };
+        const reference = governedBuildReference(
+            { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, context.run.startingBranch);
         const branch = `agent/pbos-playbook-system-001-048-support-${context.run.runId.slice(0, 8)}`;
         for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
             ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
@@ -407,9 +413,13 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
         }
         await dependencies.gateway.readFileAtRevision(reference, APPLICATION_ROUTE, inspection.revision);
         const dashboardSource = await dependencies.gateway.readFileAtRevision(reference, APPLICATION_DASHBOARD, inspection.revision);
-        const environmentSource = await dependencies.gateway.readFileAtRevision(reference, ".env.example", inspection.revision);
-        const files = changes(inspection.revision, context.run.runId, wireApplicationSupportPanel(dashboardSource),
-            wireEnvironmentExample(environmentSource));
+        const [environmentSource, packageSource] = await Promise.all([
+            dependencies.gateway.readFileAtRevision(reference, ".env.example", inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
+        ]);
+        const files = [...changes(inspection.revision, context.run.runId, wireApplicationSupportPanel(dashboardSource),
+            wireEnvironmentExample(environmentSource)),
+            ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-support-journey")];
         context.report("BUILDING", `Wiring the application-to-authorized-support journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, files);
@@ -423,6 +433,8 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             `PBOS Genesis mission \`048-support-journey\` connects a Scholar-owned application workspace to an active, permission-bearing support relationship at governed revision \`${inspection.revision}\`. Requests are durable under RLS and publish an approval-bound signed PBOS lifecycle event.\n\nValidation and certification remain human-controlled.\n\nGenerated revision: \`${revision}\``);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         context.report("VALIDATING", `GitHub Actions and bounded remediation are monitoring ${pullRequest.url}.`);
+        const functionalAcceptancePlan = await playbookConnectedJourneyAcceptancePlan(
+            dependencies.gateway, reference, branch, revision, "048-support-journey");
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
             files: { added: files.filter(file => ![APPLICATION_DASHBOARD, ".env.example"].includes(file.path)).map(file => file.path),
@@ -432,6 +444,6 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             validations: [{ name: "Application-support journey published for independent validation", passed: true, durationMs: 0,
                 evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: acceptanceEvidence(revision) };
+            acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan };
     };
 }

@@ -2,7 +2,7 @@
 
 ## Status
 
-DELIVERY FOUNDATION PREPARED — APPLICATION MATERIALIZATION AND STORE ACCOUNTS PENDING
+GOVERNED EXECUTION ADAPTERS PREPARED — APPLICATION EVIDENCE AND HUMAN CERTIFICATION PENDING
 
 ## Delivery architecture
 
@@ -18,6 +18,9 @@ The factory now prepares:
 - universal-link/deep-link boundary
 - privacy and store-readiness checklist
 - explicit protected actions for signing, credential upload, store submission, and production release
+- exact-revision EAS internal-build and TestFlight/Play-internal deployment boundary
+- final mobile release-candidate adapter that inherits verified store-readiness lineage
+- PBOS Kernel handoff for the sole final human certification authority
 
 ## Store gates
 
@@ -27,6 +30,9 @@ The factory now prepares:
 - [x] Approved brand assets, design tokens, and journey contracts included in delivery output
 - [x] Secure-storage, deep-link, and notification-consent interfaces prepared
 - [x] Web/iOS/Android release-evidence verifier prepared
+- [x] Exact-revision EAS internal distribution gateway prepared
+- [x] Store-readiness execution adapter prepared
+- [x] Mobile final-certification execution adapter prepared
 - [ ] Materialize delivery files in Playbook through an approved PR
 - [ ] Implement and validate primary mobile journeys
 - [ ] Configure Apple Developer ownership and signing

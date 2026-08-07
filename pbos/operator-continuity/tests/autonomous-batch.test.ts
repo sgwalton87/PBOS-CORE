@@ -16,6 +16,15 @@ const session = {
 };
 
 describe("CIP-051 autonomous build batches", () => {
+    it("classifies CIP-050 isolation and final certification as human-certified platform artifacts", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-isolation-policy-")), "state.json"));
+        new AutonomousBatchService(state).prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1");
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "050-isolation"))
+            .toMatchObject({ approvalRequired: true, completionPolicy: { kind: "PLATFORM_ARTIFACT" } });
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "050-certification"))
+            .toMatchObject({ approvalRequired: true, completionPolicy: { kind: "PLATFORM_ARTIFACT" } });
+    });
+
     it("persists at most ten authorized work packages and follows validation state", () => {
         const statePath = join(mkdtempSync(join(tmpdir(), "pbos-batch-")), "state.json");
         const state = new GenesisStateRepository(statePath);

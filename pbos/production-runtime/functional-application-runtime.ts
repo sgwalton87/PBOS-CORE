@@ -1,9 +1,10 @@
 import { ChildProcess, execFile, spawn } from "child_process";
+import { createHash } from "crypto";
 import { readFile, stat, statfs } from "fs/promises";
 import { isAbsolute, join, relative, resolve } from "path";
 import { promisify } from "util";
 import { ApplicationAcceptanceEvidence, BrowserJourneyPlan, FunctionalAcceptancePlan,
-    FunctionalRuntimeCommand, FunctionalRuntimeProbe, PreviewManifest } from "./contracts";
+    FunctionalRuntimeCommand, FunctionalRuntimeProbe, NativeJourneyPlan, PreviewManifest } from "./contracts";
 import { ProtectedEnvironmentResolver } from "./protected-environment";
 import { DistributedPlatformGraph } from "../platform-convergence";
 
@@ -25,11 +26,20 @@ export interface BrowserJourneyObservation {
     readonly passed: boolean;
 }
 
+export interface NativeJourneyObservation {
+    readonly journey: NativeJourneyPlan;
+    readonly durationMs: number;
+    readonly artifacts: readonly string[];
+    readonly verifiedDimensions: NativeJourneyPlan["verifiedDimensions"];
+    readonly passed: boolean;
+}
+
 export interface FunctionalRuntimeResult {
     readonly evidence: readonly ApplicationAcceptanceEvidence[];
     readonly preview: PreviewManifest;
     readonly probes: readonly RuntimeProbeObservation[];
     readonly journeys: readonly BrowserJourneyObservation[];
+    readonly nativeJourneys: readonly NativeJourneyObservation[];
     readonly applicationLogs: string;
 }
 
@@ -50,8 +60,13 @@ export interface BrowserJourneyRuntime {
     run(plan: FunctionalAcceptancePlan, journey: BrowserJourneyPlan, environment?: NodeJS.ProcessEnv): Promise<BrowserJourneyObservation>;
 }
 
+export interface NativeJourneyRuntime {
+    run(plan: FunctionalAcceptancePlan, journey: NativeJourneyPlan,
+        environment?: NodeJS.ProcessEnv): Promise<NativeJourneyObservation>;
+}
+
 export type FunctionalRuntimeTelemetryEvent = "PREREQUISITES_VERIFIED" | "APPLICATION_HEALTHY" | "RUNTIME_PROBES_VERIFIED" |
-    "BROWSER_JOURNEYS_VERIFIED" | "DURABLE_PREVIEW_VERIFIED";
+    "VISUAL_CANON_VERIFIED" | "BROWSER_JOURNEYS_VERIFIED" | "NATIVE_JOURNEYS_VERIFIED" | "DURABLE_PREVIEW_VERIFIED";
 
 export type FunctionalRuntimeReporter = (event: FunctionalRuntimeTelemetryEvent,
     detail: Readonly<Record<string, unknown>>) => void;
@@ -65,6 +80,62 @@ const availableDiskBytes: AvailableDiskBytes = async workingDirectory => {
 
 async function exists(path: string): Promise<boolean> {
     try { await stat(path); return true; } catch { return false; }
+}
+
+export function redactFunctionalRuntimeOutput(value: string, environment: NodeJS.ProcessEnv,
+    protectedNames: readonly string[]): string {
+    let safe = value;
+    for (const name of new Set(protectedNames)) {
+        const secret = environment[name];
+        if (secret) safe = safe.replaceAll(secret, "[REDACTED]");
+    }
+    return safe
+        .replace(/authorization\s*[:=]\s*bearer\s+[^\s]+/gi, "authorization: Bearer [REDACTED]")
+        .replace(/(token|secret|password)\s*[:=]\s*[^\s]+/gi, "$1=[REDACTED]");
+}
+
+function governedPath(workingDirectory: string, repositoryPath: string, label: string): string {
+    const absolutePath = resolve(workingDirectory, repositoryPath);
+    const relativePath = relative(workingDirectory, absolutePath);
+    if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+        throw new Error(`${label} must remain inside the governed repository: ${repositoryPath}`);
+    }
+    return absolutePath;
+}
+
+export async function verifyVisualCanonContract(plan: FunctionalAcceptancePlan, journey: BrowserJourneyPlan): Promise<void> {
+    const contract = journey.visualCanon;
+    if (!contract) return;
+    const manifestPath = governedPath(plan.workingDirectory, contract.manifestPath, "Visual canon manifest");
+    const manifestMetadata = await stat(manifestPath);
+    if (!manifestMetadata.isFile() || manifestMetadata.size === 0) {
+        throw new Error(`Visual canon manifest is missing or empty: ${contract.manifestPath}`);
+    }
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+        schemaVersion?: unknown;
+        screenId?: unknown;
+        route?: unknown;
+        authority?: unknown;
+        assets?: readonly { path?: unknown; sha256?: unknown; required?: unknown }[];
+    };
+    if (manifest.schemaVersion !== 1 || manifest.screenId !== contract.screenId ||
+        manifest.route !== contract.requiredRoute || manifest.authority !== "USER_APPROVED_CANON_REFERENCE") {
+        throw new Error(`Visual canon manifest does not authorize ${contract.screenId} at ${contract.requiredRoute}.`);
+    }
+    const assets = Array.isArray(manifest.assets) ? manifest.assets : [];
+    for (const assetPath of contract.requiredAssets) {
+        const declaration = assets.find(asset => asset.path === assetPath && asset.required === true);
+        if (!declaration || typeof declaration.sha256 !== "string" || !/^[a-f0-9]{64}$/i.test(declaration.sha256)) {
+            throw new Error(`Visual canon asset is not hash-bound in the approved manifest: ${assetPath}`);
+        }
+        const absolutePath = governedPath(plan.workingDirectory, assetPath, "Visual canon asset");
+        const metadata = await stat(absolutePath);
+        if (!metadata.isFile() || metadata.size === 0) throw new Error(`Visual canon asset is missing or empty: ${assetPath}`);
+        const digest = createHash("sha256").update(await readFile(absolutePath)).digest("hex");
+        if (digest !== declaration.sha256.toLowerCase()) {
+            throw new Error(`Visual canon asset digest does not match the approved manifest: ${assetPath}`);
+        }
+    }
 }
 
 function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
@@ -259,12 +330,65 @@ export class CommandBrowserJourneyRuntime implements BrowserJourneyRuntime {
     }
 }
 
+export class CommandNativeJourneyRuntime implements NativeJourneyRuntime {
+    constructor(private readonly protectedEnvironment = new ProtectedEnvironmentResolver()) {}
+
+    async run(plan: FunctionalAcceptancePlan, journey: NativeJourneyPlan,
+        runtimeEnvironment?: NodeJS.ProcessEnv): Promise<NativeJourneyObservation> {
+        if (!journey.command.command.trim()) throw new Error(`Native journey ${journey.journeyId} has no executable command.`);
+        const commands = (plan.nativeJourneys ?? []).map(item => item.command);
+        const environment = runtimeEnvironment ?? await this.protectedEnvironment.resolve(
+            [plan.launch, ...commands], plan.protectedEnvironmentFiles);
+        const startedAt = Date.now();
+        try {
+            await promisify(execFile)(journey.command.command, [...journey.command.args], {
+                cwd: plan.workingDirectory, env: environment,
+                timeout: journey.command.timeoutMs ?? 300_000, maxBuffer: 10 * 1024 * 1024
+            });
+        } catch (error) {
+            const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number };
+            let output = `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`.trim().slice(-20_000);
+            for (const name of journey.command.requiredEnvironmentVariables ?? []) {
+                const secret = environment[name];
+                if (secret) output = output.replaceAll(secret, "[REDACTED]");
+            }
+            output = output.replace(/(token|secret|password|authorization)=?\s*[^\s]+/gi, "$1=[REDACTED]");
+            throw new Error(`Native journey command failed for ${journey.journeyId}` +
+                `${failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
+        }
+        const artifacts = [...new Set([...journey.artifacts, journey.acceptanceArtifact])];
+        for (const artifact of artifacts) {
+            const artifactPath = governedPath(plan.workingDirectory, artifact, "Native journey evidence");
+            const metadata = await stat(artifactPath);
+            if (!metadata.isFile() || metadata.size === 0) throw new Error(`Native journey evidence is missing or empty: ${artifact}`);
+        }
+        const report = JSON.parse(await readFile(governedPath(plan.workingDirectory, journey.acceptanceArtifact,
+            "Native acceptance report"), "utf8")) as {
+            schemaVersion?: unknown; journeyId?: unknown; commit?: unknown; platforms?: readonly unknown[];
+            checks?: readonly { dimension?: unknown; passed?: unknown; detail?: unknown }[];
+        };
+        const platforms = Array.isArray(report.platforms) ? report.platforms : [];
+        const checks = Array.isArray(report.checks) ? report.checks : [];
+        const missingPlatform = journey.platforms.find(platform => !platforms.includes(platform));
+        const invalidDimension = journey.verifiedDimensions.find(dimension => !checks.some(check =>
+            check.dimension === dimension && check.passed === true && typeof check.detail === "string" && check.detail.trim()));
+        if (report.schemaVersion !== 1 || report.journeyId !== journey.journeyId || report.commit !== plan.commit ||
+            missingPlatform || invalidDimension) {
+            throw new Error(`Native acceptance report is invalid for ${journey.journeyId}` +
+                `${missingPlatform ? `: ${missingPlatform}` : invalidDimension ? `: ${invalidDimension}` : ""}.`);
+        }
+        return { journey, durationMs: Date.now() - startedAt, artifacts,
+            verifiedDimensions: journey.verifiedDimensions, passed: true };
+    }
+}
+
 export class FunctionalApplicationRuntime {
     constructor(private readonly launcher: ApplicationLauncher = new NodeApplicationLauncher(),
         private readonly probes: RuntimeProbeRunner = new HttpRuntimeProbeRunner(),
         private readonly browser: BrowserJourneyRuntime = new CommandBrowserJourneyRuntime(),
         private readonly protectedEnvironment = new ProtectedEnvironmentResolver(),
-        private readonly measureAvailableDiskBytes: AvailableDiskBytes = availableDiskBytes) {}
+        private readonly measureAvailableDiskBytes: AvailableDiskBytes = availableDiskBytes,
+        private readonly native: NativeJourneyRuntime = new CommandNativeJourneyRuntime()) {}
 
     async execute(runId: string, plan: FunctionalAcceptancePlan,
         report: FunctionalRuntimeReporter = () => undefined): Promise<FunctionalRuntimeResult> {
@@ -280,9 +404,17 @@ export class FunctionalApplicationRuntime {
         if (availableBytes < minimumFreeBytes) {
             throw new Error(`Functional runtime requires ${minimumFreeBytes} free bytes but only ${availableBytes} are available.`);
         }
+        const canonicalJourneys = plan.browserJourneys.filter(journey => journey.visualCanon);
+        for (const journey of canonicalJourneys) await verifyVisualCanonContract(plan, journey);
+        if (canonicalJourneys.length) report("VISUAL_CANON_VERIFIED", {
+            total: canonicalJourneys.length,
+            screens: canonicalJourneys.map(journey => journey.visualCanon!.screenId),
+            manifests: canonicalJourneys.map(journey => journey.visualCanon!.manifestPath)
+        });
         const prerequisites = await resolveFunctionalPrerequisites(plan);
         const runtimeEnvironment = await this.protectedEnvironment.resolve(
-            [...prerequisites, plan.launch, ...plan.browserJourneys.map(journey => journey.command)],
+            [...prerequisites, plan.launch, ...plan.browserJourneys.map(journey => journey.command),
+                ...(plan.nativeJourneys ?? []).map(journey => journey.command)],
             plan.protectedEnvironmentFiles);
         for (const prerequisite of prerequisites) {
             try {
@@ -317,12 +449,22 @@ export class FunctionalApplicationRuntime {
             report("BROWSER_JOURNEYS_VERIFIED", { total: journeys.length,
                 passed: journeys.filter(item => item.passed).length, journeyIds: journeys.map(item => item.journey.journeyId),
                 viewports: [...new Set(plan.browserJourneys.flatMap(item => item.viewports))] });
+            const nativeJourneys: NativeJourneyObservation[] = [];
+            for (const journey of plan.nativeJourneys ?? []) {
+                nativeJourneys.push(await this.native.run(plan, journey, runtimeEnvironment));
+            }
+            const failedNativeJourneys = nativeJourneys.filter(item => !item.passed).map(item => item.journey.journeyId);
+            if (failedNativeJourneys.length) throw new Error(`Functional native journeys failed: ${failedNativeJourneys.join(", ")}.`);
+            if (nativeJourneys.length) report("NATIVE_JOURNEYS_VERIFIED", { total: nativeJourneys.length,
+                passed: nativeJourneys.filter(item => item.passed).length,
+                journeyIds: nativeJourneys.map(item => item.journey.journeyId),
+                platforms: [...new Set(nativeJourneys.flatMap(item => item.journey.platforms))] });
             const durablePreview = await this.verifyDurablePreview(plan);
             if (durablePreview) report("DURABLE_PREVIEW_VERIFIED", {
                 webUrl: durablePreview.webUrl, mobileUrl: durablePreview.mobileUrl, label: durablePreview.label
             });
-            return { probes, journeys, applicationLogs: application.logs(),
-                evidence: this.evidence(plan, probes, journeys),
+            return { probes, journeys, nativeJourneys, applicationLogs: application.logs(),
+                evidence: this.evidence(plan, probes, journeys, nativeJourneys),
                 preview: { previewId: `functional-preview:${runId}:${plan.commit}`, runId, repository: plan.repository,
                     branch: plan.branch, commit: plan.commit, status: durablePreview ? "READY" : "REQUESTED",
                     webUrl: durablePreview?.webUrl, mobileUrl: durablePreview?.mobileUrl,
@@ -331,13 +473,25 @@ export class FunctionalApplicationRuntime {
                     viewports: [...new Set(plan.browserJourneys.flatMap(item => item.viewports))],
                     screenshots: plan.browserJourneys.flatMap(item => item.screenshotArtifacts), generatedAt: new Date().toISOString(),
                     label: durablePreview?.label ?? "SIMULATED" } };
+        } catch (error) {
+            const protectedNames = [
+                ...prerequisites.flatMap(command => command.requiredEnvironmentVariables ?? []),
+                ...(plan.launch.requiredEnvironmentVariables ?? []),
+                ...plan.browserJourneys.flatMap(journey => journey.command.requiredEnvironmentVariables ?? []),
+                ...(plan.nativeJourneys ?? []).flatMap(journey => journey.command.requiredEnvironmentVariables ?? [])
+            ];
+            const logs = redactFunctionalRuntimeOutput(application.logs(), runtimeEnvironment, protectedNames)
+                .trim().slice(-20_000);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`${message}${logs ? `\nRedacted application logs:\n${logs}` : ""}`, { cause: error });
         } finally {
             await application.stop();
         }
     }
 
     private evidence(plan: FunctionalAcceptancePlan, probes: readonly RuntimeProbeObservation[],
-        journeys: readonly BrowserJourneyObservation[]): readonly ApplicationAcceptanceEvidence[] {
+        journeys: readonly BrowserJourneyObservation[],
+        nativeJourneys: readonly NativeJourneyObservation[]): readonly ApplicationAcceptanceEvidence[] {
         const evidence: ApplicationAcceptanceEvidence[] = probes.map(item => ({ evidenceId: `runtime:${item.probe.probeId}:${plan.commit}`,
             dimension: item.probe.dimension, behavior: item.probe.behavior, repository: plan.repository, commit: plan.commit,
             artifact: `${plan.launch.baseUrl}${item.probe.path}`, passed: item.passed, source: "RUNTIME_PROBE" as const }));
@@ -358,6 +512,14 @@ export class FunctionalApplicationRuntime {
                 passed: item.passed, source: "BROWSER_JOURNEY"
             });
         }
+        for (const item of nativeJourneys) {
+            for (const dimension of item.verifiedDimensions) evidence.push({
+                evidenceId: `native-${dimension.toLowerCase()}:${item.journey.journeyId}:${plan.commit}`, dimension,
+                behavior: `${item.journey.behavior} verified ${dimension.toLowerCase().replaceAll("_", " ")} on ${item.journey.platforms.join(" and ")}.`,
+                repository: plan.repository, commit: plan.commit, artifact: item.journey.acceptanceArtifact,
+                passed: item.passed, source: dimension === "ACCESSIBILITY" ? "ACCESSIBILITY_AUDIT" : "NATIVE_JOURNEY"
+            });
+        }
         if (plan.durablePreview) evidence.push({ evidenceId: `preview:${plan.commit}`, dimension: "PREVIEW",
             behavior: "The exact application revision is live and interactive on durable desktop and mobile preview URLs.",
             repository: plan.repository, commit: plan.commit,
@@ -375,12 +537,17 @@ export class FunctionalApplicationRuntime {
                 !journey.acceptanceArtifact || journey.verifiedDimensions.length === 0)) {
             throw new Error("Functional acceptance plan is incomplete or lacks exact lineage.");
         }
+        if ((plan.nativeJourneys ?? []).some(journey => !journey.platforms.includes("IOS") ||
+            !journey.platforms.includes("ANDROID") || journey.artifacts.length === 0 ||
+            !journey.acceptanceArtifact || journey.verifiedDimensions.length === 0)) {
+            throw new Error("Native functional acceptance must prove both iOS and Android with exact-revision artifacts.");
+        }
         const base = new URL(plan.launch.baseUrl);
         if (!["http:", "https:"].includes(base.protocol)) throw new Error("Functional application runtime requires an HTTP or HTTPS base URL.");
         if (plan.durablePreview) {
-            const web = new URL(plan.durablePreview.webUrl);
-            const mobile = new URL(plan.durablePreview.mobileUrl);
-            if (![web.protocol, mobile.protocol].every(protocol => ["http:", "https:"].includes(protocol))) {
+            const urls = [plan.durablePreview.webUrl, plan.durablePreview.mobileUrl,
+                plan.durablePreview.iosUrl, plan.durablePreview.androidUrl].filter((value): value is string => Boolean(value));
+            if (!urls.map(value => new URL(value).protocol).every(protocol => ["http:", "https:"].includes(protocol))) {
                 throw new Error("Durable application previews require HTTP or HTTPS URLs.");
             }
         }
@@ -388,11 +555,17 @@ export class FunctionalApplicationRuntime {
 
     private async verifyDurablePreview(plan: FunctionalAcceptancePlan): Promise<FunctionalAcceptancePlan["durablePreview"]> {
         if (!plan.durablePreview) return undefined;
-        for (const previewUrl of [plan.durablePreview.webUrl, plan.durablePreview.mobileUrl]) {
-            const response = await fetch(new URL(plan.durablePreview.healthPath, previewUrl), {
+        const targets = [
+            { url: plan.durablePreview.webUrl, path: plan.durablePreview.healthPath },
+            { url: plan.durablePreview.mobileUrl,
+                path: plan.durablePreview.mobileHealthPath ?? plan.durablePreview.healthPath }
+        ];
+        for (const target of targets) {
+            const probeUrl = target.path ? new URL(target.path, target.url) : new URL(target.url);
+            const response = await fetch(probeUrl, {
                 signal: AbortSignal.timeout(10_000)
             });
-            if (!response.ok) throw new Error(`Durable preview is not healthy: ${previewUrl} returned HTTP ${response.status}.`);
+            if (!response.ok) throw new Error(`Durable preview is not healthy: ${target.url} returned HTTP ${response.status}.`);
         }
         return plan.durablePreview;
     }
