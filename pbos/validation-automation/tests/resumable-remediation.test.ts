@@ -71,7 +71,10 @@ class MergedPullRequestCommands implements CommandRunner {
             }
             this.inspectedRevision = args[1].split("/").at(-2) ?? "";
             return { stdout: JSON.stringify({ check_runs: this.validated ? [{ name: "CI", status: "completed",
-                conclusion: "success", details_url: "https://github.com/acme/app/actions/runs/14" }] : [] }), stderr: "" };
+                conclusion: "success", details_url: "https://github.com/acme/app/actions/runs/14" }] : [{
+                name: "archive", status: "completed", conclusion: "skipped",
+                details_url: "https://github.com/acme/app/actions/runs/13"
+            }] }), stderr: "" };
         }
         if (args[0] === "workflow" && args[1] === "run") {
             this.validationDispatches += 1;
@@ -155,7 +158,7 @@ describe("resumable validation remediation", () => {
         expect(moved).toMatchObject({ headSha: "abcdef2", state: "WAITING_FOR_CHECKS" });
     });
 
-    it("converges a merged pull request to its merge commit and never waits forever without exact-revision CI", async () => {
+    it("dispatches exact-revision CI for a merged pull request with only skipped evidence and never waits forever", async () => {
         const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
         const commands = new MergedPullRequestCommands();
         let now = new Date("2026-08-06T18:00:00.000Z");

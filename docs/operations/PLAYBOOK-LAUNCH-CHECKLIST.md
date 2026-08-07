@@ -17,7 +17,7 @@ terminal.
 - [x] Final ecosystem certification requires separate application and platform approvals
 - [x] Human validation of the application-delivery proof implementation
 - [x] Detect a merged pull request and use its merge commit as validation lineage
-- [x] Dispatch governed CI once for an unvalidated merge commit and stop finitely if it never starts
+- [x] Dispatch governed CI once when a merge commit has no checks or only skipped checks, then stop finitely if CI never starts
 - [x] Refuse to mutate closed or merged pull-request branches
 - [x] Position the governed checkout on the exact default-branch merge commit before acceptance
 - [ ] Human validation of merged-revision convergence implementation
