@@ -12,6 +12,7 @@ export interface PullRequestCheckEvidence {
     readonly infrastructureReason?: string;
     readonly collectedAt: string;
 }
+export type PullRequestLifecycleState = "OPEN" | "CLOSED" | "MERGED";
 export type RemediationState = "WAITING_FOR_CHECKS" | "WAITING_FOR_INFRASTRUCTURE" | "REMEDIATION_REQUIRED" |
     "REMEDIATION_PUSHED" | "READY_FOR_CERTIFICATION" | "BLOCKED";
 export interface RemediationRun {
@@ -19,6 +20,10 @@ export interface RemediationRun {
     readonly systemId: string;
     readonly pullRequest: PullRequestReference;
     readonly headSha: string;
+    readonly pullRequestState?: PullRequestLifecycleState;
+    readonly mergeCommitSha?: string;
+    readonly mergedValidationRevision?: string;
+    readonly mergedValidationRequestedAt?: string;
     readonly attempt: number;
     readonly maximumAttempts: number;
     readonly state: RemediationState;

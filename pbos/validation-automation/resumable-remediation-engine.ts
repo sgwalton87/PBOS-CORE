@@ -12,7 +12,7 @@ export interface RemediationHandler {
 export class ResumableRemediationEngine {
     constructor(private readonly state: GenesisStateRepository, private readonly checks: GitHubCheckCollector,
         private readonly handler: RemediationHandler, private readonly now: () => Date = () => new Date(),
-        private readonly infrastructureRetryDelayMs = 60_000) {}
+        private readonly infrastructureRetryDelayMs = 60_000, private readonly mergedValidationWaitMs = 10 * 60_000) {}
 
     start(systemId: string, pullRequest: PullRequestReference, maximumAttempts = 5): RemediationRun {
         const run: RemediationRun = { runId: randomUUID(), systemId, pullRequest, headSha: "UNKNOWN", attempt: 0,
@@ -31,36 +31,76 @@ export class ResumableRemediationEngine {
     async resume(runId: string, beforeApply?: (run: RemediationRun) => void): Promise<RemediationRun> {
         const persisted = this.state.remediationRun(runId);
         if (!persisted) throw new Error(`Remediation run not found: ${runId}`);
-        if (persisted.state === "BLOCKED") return persisted;
+        // Legacy runs predate durable pull-request lifecycle metadata. Recollect them once so PBOS can
+        // discover an out-of-band merge instead of leaving the production mission pinned to a closed branch.
+        if (persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED") {
+            return persisted;
+        }
         const falselyReady = persisted.state === "READY_FOR_CERTIFICATION" &&
             !persisted.evidence.some(item => item.state === "PASSED");
         const current = falselyReady ? this.save({ ...persisted, state: "WAITING_FOR_CHECKS",
             blockers: ["Independent validation has not reported a passing check for the exact revision."] }) : persisted;
         const collected = await this.checks.collect(current.pullRequest);
+        const lifecycle = { pullRequestState: collected.pullRequestState, mergeCommitSha: collected.mergeCommitSha };
+        if (collected.pullRequestState === "CLOSED") {
+            return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED",
+                evidence: collected.evidence,
+                blockers: ["The pull request was closed without merge. PBOS will not validate or mutate its abandoned branch; recover the existing mission on a new governed pull request."] });
+        }
         if (collected.evidence.length === 0 || collected.evidence.some(item => item.state === "PENDING")) {
-            return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
+            if (collected.pullRequestState === "MERGED" && collected.evidence.length === 0) {
+                const alreadyRequested = current.mergedValidationRevision === collected.headSha &&
+                    Boolean(current.mergedValidationRequestedAt);
+                if (!alreadyRequested) {
+                    try {
+                        await this.checks.requestMergedValidation(current.pullRequest, collected.baseRefName, collected.headSha);
+                    } catch (error) {
+                        return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED",
+                            evidence: [], blockers: [
+                                `Merged revision validation could not start: ${error instanceof Error ? error.message : String(error)}`
+                            ] });
+                    }
+                    return this.save({ ...current, ...lifecycle, headSha: collected.headSha,
+                        mergedValidationRevision: collected.headSha, mergedValidationRequestedAt: this.now().toISOString(),
+                        state: "WAITING_FOR_CHECKS", evidence: [], blockers: [
+                            `PBOS dispatched governed CI for merged revision ${collected.headSha}; waiting for exact-revision evidence.`
+                        ] });
+                }
+                const elapsed = this.now().getTime() - Date.parse(current.mergedValidationRequestedAt!);
+                return this.save({ ...current, ...lifecycle, headSha: collected.headSha,
+                    state: elapsed >= this.mergedValidationWaitMs ? "BLOCKED" : "WAITING_FOR_CHECKS", evidence: [],
+                    blockers: [elapsed >= this.mergedValidationWaitMs
+                        ? `Merged revision ${collected.headSha} did not start independent validation within the bounded wait; inspect the governed CI workflow.`
+                        : `PBOS already dispatched governed CI for merged revision ${collected.headSha}; waiting for exact-revision evidence.`] });
+            }
+            return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
                 evidence: collected.evidence, blockers: [] });
         }
         const infrastructure = collected.evidence.filter(item => item.state === "INFRASTRUCTURE_WAIT");
         if (infrastructure.length > 0) {
-            return this.waitForInfrastructure(current, collected.headSha, collected.evidence, infrastructure[0]);
+            return this.waitForInfrastructure({ ...current, ...lifecycle }, collected.headSha, collected.evidence, infrastructure[0]);
         }
         const failures = collected.evidence.filter(item => item.state === "FAILED");
         const passed = collected.evidence.filter(item => item.state === "PASSED");
         if (failures.length === 0 && passed.length === 0) {
-            return this.save({ ...current, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
+            return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "WAITING_FOR_CHECKS",
                 evidence: collected.evidence,
                 blockers: ["GitHub reported only skipped checks; PBOS is waiting for an independent passing check."] });
         }
-        if (failures.length === 0) return this.save({ ...current, headSha: collected.headSha,
+        if (failures.length === 0) return this.save({ ...current, ...lifecycle, headSha: collected.headSha,
             state: "READY_FOR_CERTIFICATION", evidence: collected.evidence, blockers: [] });
         const fingerprint = this.checks.fingerprint(collected.evidence);
         if (current.attempt >= current.maximumAttempts || (current.attempt > 0 && current.headSha === collected.headSha &&
             current.failureFingerprint === fingerprint)) {
-            return this.save({ ...current, headSha: collected.headSha, state: "BLOCKED", evidence: collected.evidence,
+            return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED", evidence: collected.evidence,
                 failureFingerprint: fingerprint, blockers: ["Identical validation failure repeated without a new revision; human review required."] });
         }
-        const requiringRemediation = this.save({ ...current, headSha: collected.headSha, state: "REMEDIATION_REQUIRED",
+        if (collected.pullRequestState === "MERGED") {
+            return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED",
+                evidence: collected.evidence, failureFingerprint: fingerprint,
+                blockers: ["The merged revision failed independent validation. PBOS will not mutate a closed pull-request branch; create a governed recovery change on a new branch."] });
+        }
+        const requiringRemediation = this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "REMEDIATION_REQUIRED",
             evidence: collected.evidence, failureFingerprint: fingerprint });
         const changes = await this.handler.propose(requiringRemediation);
         if (!changes) return this.save({ ...requiringRemediation, state: "BLOCKED", blockers: ["No deterministic remediation is registered for the collected failure evidence."] });

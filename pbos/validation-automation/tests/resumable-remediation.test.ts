@@ -9,7 +9,9 @@ import { GitHubCheckCollector, RemediationHandler, ResumableRemediationEngine } 
 class CheckCommands implements CommandRunner {
     passed = false;
     async run(command: string, args: readonly string[]) {
-        if (command === "gh" && args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: this.passed ? "fixed-sha" : "failed-sha" }), stderr: "" };
+        if (command === "gh" && args[0] === "pr") return { stdout: JSON.stringify({
+            headRefOid: this.passed ? "fixed-sha" : "failed-sha", state: "OPEN", baseRefName: "main",
+            mergeCommit: null }), stderr: "" };
         if (command === "gh" && args[0] === "api") return { stdout: JSON.stringify({ check_runs: [{ name: "CI", status: "completed",
             conclusion: this.passed ? "success" : "failure", details_url: "https://github.com/acme/app/actions/runs/12" }] }), stderr: "" };
         return { stdout: "npm ci requires an existing package-lock.json", stderr: "" };
@@ -24,7 +26,8 @@ class RepairHandler implements RemediationHandler {
 
 class SkippedCheckCommands implements CommandRunner {
     async run(_command: string, args: readonly string[]) {
-        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1" }), stderr: "" };
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1", state: "OPEN",
+            baseRefName: "main", mergeCommit: null }), stderr: "" };
         return { stdout: JSON.stringify({ check_runs: [{ name: "archive", status: "completed",
             conclusion: "skipped", details_url: "https://github.com/acme/app/actions/runs/12" }] }), stderr: "" };
     }
@@ -34,7 +37,8 @@ class MovingHeadCommands implements CommandRunner {
     headSha = "abcdef1";
     pending = false;
     async run(_command: string, args: readonly string[]) {
-        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: this.headSha }), stderr: "" };
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: this.headSha, state: "OPEN",
+            baseRefName: "main", mergeCommit: null }), stderr: "" };
         return { stdout: JSON.stringify({ check_runs: [{ name: "CI", status: this.pending ? "in_progress" : "completed",
             conclusion: this.pending ? null : "success", details_url: "https://github.com/acme/app/actions/runs/13" }] }), stderr: "" };
     }
@@ -43,12 +47,45 @@ class MovingHeadCommands implements CommandRunner {
 class InfrastructureCancelledCommands implements CommandRunner {
     reruns = 0;
     async run(_command: string, args: readonly string[]) {
-        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1" }), stderr: "" };
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1", state: "OPEN",
+            baseRefName: "main", mergeCommit: null }), stderr: "" };
         if (args[0] === "api") return { stdout: JSON.stringify({ check_runs: [{ name: "validate", status: "completed",
             conclusion: "cancelled", details_url: "https://github.com/acme/app/actions/runs/99" }] }), stderr: "" };
         if (args[0] === "run" && args[1] === "view") return { stdout: JSON.stringify({ attempt: 2,
             jobs: [{ status: "completed", conclusion: "cancelled", steps: [] }] }), stderr: "" };
         if (args[0] === "run" && args[1] === "rerun") { this.reruns += 1; return { stdout: "", stderr: "" }; }
+        throw new Error(`Unexpected command: ${args.join(" ")}`);
+    }
+}
+
+class MergedPullRequestCommands implements CommandRunner {
+    validated = false;
+    inspectedRevision = "";
+    validationDispatches = 0;
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1", state: "MERGED",
+            baseRefName: "main", mergeCommit: { oid: "abcdef2" } }), stderr: "" };
+        if (args[0] === "api") {
+            if (args[1] === "repos/acme/app/commits/main") {
+                return { stdout: JSON.stringify({ sha: "abcdef2" }), stderr: "" };
+            }
+            this.inspectedRevision = args[1].split("/").at(-2) ?? "";
+            return { stdout: JSON.stringify({ check_runs: this.validated ? [{ name: "CI", status: "completed",
+                conclusion: "success", details_url: "https://github.com/acme/app/actions/runs/14" }] : [] }), stderr: "" };
+        }
+        if (args[0] === "workflow" && args[1] === "run") {
+            this.validationDispatches += 1;
+            return { stdout: "", stderr: "" };
+        }
+        throw new Error(`Unexpected command: ${args.join(" ")}`);
+    }
+}
+
+class ClosedPullRequestCommands implements CommandRunner {
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1", state: "CLOSED",
+            baseRefName: "main", mergeCommit: null }), stderr: "" };
+        if (args[0] === "api") return { stdout: JSON.stringify({ check_runs: [] }), stderr: "" };
         throw new Error(`Unexpected command: ${args.join(" ")}`);
     }
 }
@@ -116,6 +153,55 @@ describe("resumable validation remediation", () => {
         commands.headSha = "abcdef2"; commands.pending = true;
         const moved = await engine.resume(started.runId);
         expect(moved).toMatchObject({ headSha: "abcdef2", state: "WAITING_FOR_CHECKS" });
+    });
+
+    it("converges a merged pull request to its merge commit and never waits forever without exact-revision CI", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new MergedPullRequestCommands();
+        let now = new Date("2026-08-06T18:00:00.000Z");
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(commands), new RepairHandler(),
+            () => now, 60_000, 10 * 60_000);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        state.saveRemediationRun({ ...started, state: "BLOCKED",
+            blockers: ["Historical failure recorded before pull-request lifecycle metadata existed."] });
+
+        const waiting = await engine.resume(started.runId);
+        expect(waiting).toMatchObject({ state: "WAITING_FOR_CHECKS", headSha: "abcdef2", pullRequestState: "MERGED",
+            mergeCommitSha: "abcdef2" });
+        expect(waiting.blockers[0]).toContain("dispatched governed CI");
+        expect(commands.inspectedRevision).toBe("abcdef2");
+        expect(commands.validationDispatches).toBe(1);
+
+        const stillWaiting = await engine.resume(started.runId);
+        expect(stillWaiting.state).toBe("WAITING_FOR_CHECKS");
+        expect(commands.validationDispatches).toBe(1);
+
+        now = new Date("2026-08-06T18:11:00.000Z");
+        const finitelyBlocked = await engine.resume(started.runId);
+        expect(finitelyBlocked.state).toBe("BLOCKED");
+        expect(finitelyBlocked.blockers[0]).toContain("did not start independent validation");
+        expect(commands.validationDispatches).toBe(1);
+
+        commands.validated = true;
+        const ready = await engine.resume(started.runId);
+        expect(ready).toMatchObject({ state: "READY_FOR_CERTIFICATION", headSha: "abcdef2",
+            pullRequestState: "MERGED", mergeCommitSha: "abcdef2" });
+    });
+
+    it("blocks a closed unmerged pull request without spending a remediation attempt", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const handler = new RepairHandler();
+        const engine = new ResumableRemediationEngine(state,
+            new GitHubCheckCollector(new ClosedPullRequestCommands()), handler);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+
+        const blocked = await engine.resume(started.runId);
+
+        expect(blocked).toMatchObject({ state: "BLOCKED", pullRequestState: "CLOSED", attempt: 0 });
+        expect(blocked.blockers[0]).toContain("closed without merge");
+        expect(handler.applied).toBe(0);
     });
 
     it("selects the newest pull request even when an older run was appended later", () => {

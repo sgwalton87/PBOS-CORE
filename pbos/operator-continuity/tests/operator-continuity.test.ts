@@ -5,8 +5,9 @@ import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { GenesisWorkflowService } from "../../genesis-console";
 import { RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
-import { AutonomousBatchService, BackgroundMonitor, OperatorMemoService } from "../index";
+import { AutonomousBatchService, BackgroundMonitor, GitMergedRevisionPositioner, OperatorMemoService } from "../index";
 import { ProductionRuntimeService } from "../../production-runtime";
+import { CommandRunner } from "../../platform";
 
 const session = {
     sessionId: "session-1", activatedAt: new Date(),
@@ -23,6 +24,23 @@ const run: RemediationRun = { runId: "run-1", systemId: "SYSTEM-001",
     blockers: [], updatedAt: new Date().toISOString() };
 
 describe("operator continuity", () => {
+    it("positions a merged recovery on the exact default-branch revision before acceptance", async () => {
+        const calls: { args: readonly string[]; cwd?: string }[] = [];
+        const commands: CommandRunner = { async run(_command, args, cwd) {
+            calls.push({ args, cwd });
+            return { stdout: args[0] === "rev-parse" ? "abcdef2\n" : "", stderr: "" };
+        } };
+
+        await new GitMergedRevisionPositioner(commands).position("/tmp/example", "main", "abcdef2");
+
+        expect(calls).toEqual([
+            { args: ["fetch", "origin", "main"], cwd: "/tmp/example" },
+            { args: ["merge-base", "--is-ancestor", "abcdef2", "origin/main"], cwd: "/tmp/example" },
+            { args: ["switch", "--detach", "abcdef2"], cwd: "/tmp/example" },
+            { args: ["rev-parse", "HEAD"], cwd: "/tmp/example" }
+        ]);
+    });
+
     it("writes a durable exit memo with status, pull request, and next action", () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-memo-"));
         const state = new GenesisStateRepository(join(root, "state.json"));

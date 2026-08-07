@@ -2,9 +2,10 @@
 
 ## Current gate
 
-Human validation of the PBOS application-delivery proof batch, followed by one
-live PBOS Playbook run that returns exact-revision desktop and mobile URLs in
-the launch terminal.
+Converge the already-merged academic mission onto Playbook `main`, rerun
+functional acceptance on the exact merge commit, then continue one live PBOS
+Playbook run that returns exact-revision desktop and mobile URLs in the launch
+terminal.
 
 ## Active PBOS-to-Playbook delivery proof
 
@@ -14,7 +15,14 @@ the launch terminal.
 - [x] Same-terminal telemetry follows CI, deployment, runtime, browser, native, and acceptance stages
 - [x] Mission Control separates Playbook and Bulletproof application delivery surfaces
 - [x] Final ecosystem certification requires separate application and platform approvals
-- [ ] Human validation of the application-delivery proof implementation
+- [x] Human validation of the application-delivery proof implementation
+- [x] Detect a merged pull request and use its merge commit as validation lineage
+- [x] Dispatch governed CI once for an unvalidated merge commit and stop finitely if it never starts
+- [x] Refuse to mutate closed or merged pull-request branches
+- [x] Position the governed checkout on the exact default-branch merge commit before acceptance
+- [ ] Human validation of merged-revision convergence implementation
+- [ ] Exact Playbook merge commit receives an independent CI check
+- [ ] Academic browser acceptance passes on the exact Playbook merge commit
 - [ ] One real Playbook exact-revision preview passes functional acceptance
 - [ ] Terminal renders the real desktop web and mobile links from that same run
 - [ ] Human reviews the links and issues the distinct certification/merge decision
