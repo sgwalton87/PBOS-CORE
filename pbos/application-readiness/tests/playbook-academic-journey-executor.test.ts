@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
 import { playbookAcademicJourneyExecutor, preparePlaybookAcademicIdempotencyRecovery,
-    isAcademicAcceptanceEvidenceDefect, isPlaybookAcademicRecoveryDefect, wireAcademicAcceptanceEvidenceContract,
+    isAcademicAcceptanceEvidenceDefect, isAcademicAcceptanceNetworkDefect, isPlaybookAcademicRecoveryDefect,
+    wireAcademicAcceptanceEvidenceContract, wireAcademicAcceptanceNetworkRetry,
     wireAcademicServicePublicationIdempotency,
     wireAcademicTestPublicationIdempotency, wireTranscriptUploadCard } from "../playbook-academic-journey-executor";
 
@@ -129,6 +130,36 @@ describe("CIP-048 academic journey execution adapter", () => {
         expect(isAcademicAcceptanceEvidenceDefect(blocked)).toBe(true);
         expect(isPlaybookAcademicRecoveryDefect(blocked)).toBe(true);
         expect(isPlaybookAcademicRecoveryDefect({ ...blocked, selectedMission: "Different mission" })).toBe(false);
+    });
+
+    it("adds transient-only bounded Supabase retries to academic acceptance", () => {
+        const source = `const required = (name: string): string => {
+  const value = process.env[name];
+  if (!value) throw new Error("Missing PBOS academic acceptance configuration: " + name);
+  return value;
+};
+  const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (users.error) throw users.error;
+  const progress = await admin.from("ag_progress").select("user_id,subject").eq("user_id", user.id);
+  if (progress.error) throw progress.error;
+  const evidence = await admin.from("academic_journey_evidence")
+    .select("owner_id,readiness_score,ag_updates,delivery_state,provenance")
+    .eq("owner_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (evidence.error) throw evidence.error;`;
+        const repaired = wireAcademicAcceptanceNetworkRetry(source);
+        expect(repaired).toContain("attempt <= 3");
+        expect(repaired).toContain("isTransientSupabaseFailure");
+        expect(repaired).toContain('withSupabaseRetry("Acceptance identity lookup"');
+        expect(repaired).toContain('withSupabaseRetry("Academic evidence verification"');
+        expect(wireAcademicAcceptanceNetworkRetry(repaired)).toBe(repaired);
+    });
+
+    it("recognizes only a transient network failure for the academic browser journey", () => {
+        const blocked = { ...run, status: "BLOCKED", selectedMission: "Complete transcript-to-academic-readiness journey",
+            blockers: ["Browser journey command failed for TRANSCRIPT-TO-ACADEMIC-READINESS: TypeError: fetch failed; UND_ERR_CONNECT_TIMEOUT"] } as ProductionRun;
+        expect(isAcademicAcceptanceNetworkDefect(blocked)).toBe(true);
+        expect(isPlaybookAcademicRecoveryDefect(blocked)).toBe(true);
+        expect(isAcademicAcceptanceNetworkDefect({ ...blocked, blockers: ["Authorization denied"] })).toBe(false);
     });
 
     it("prepares one recovery PR on the existing mission and authorized recovery epoch", async () => {

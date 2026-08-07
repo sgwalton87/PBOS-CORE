@@ -332,6 +332,62 @@ export function wireAcademicAcceptanceEvidenceContract(source: string): string {
     return source.replace(legacyChecks, academicAcceptanceChecks);
 }
 
+const academicAcceptanceRequired = `const required = (name: string): string => {
+  const value = process.env[name];
+  if (!value) throw new Error("Missing PBOS academic acceptance configuration: " + name);
+  return value;
+};`;
+const academicAcceptanceRetry = `
+
+function isTransientSupabaseFailure(error: unknown): boolean {
+  const detail = error instanceof Error ? error.message : JSON.stringify(error);
+  return /fetch failed|connect.*timeout|network|UND_ERR/i.test(detail);
+}
+
+async function withSupabaseRetry<T extends { error: unknown }>(label: string,
+  operation: () => PromiseLike<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const result = await operation();
+      if (!result.error) return result;
+      lastError = result.error;
+      if (!isTransientSupabaseFailure(result.error)) throw result.error;
+    } catch (error) {
+      lastError = error;
+      if (!isTransientSupabaseFailure(error)) throw error;
+    }
+    if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 500));
+  }
+  throw new Error(label + " failed after 3 bounded network attempts: " +
+    (lastError instanceof Error ? lastError.message : JSON.stringify(lastError)));
+}`;
+
+/** Adds bounded retries only at transient Supabase acceptance-read boundaries. */
+export function wireAcademicAcceptanceNetworkRetry(source: string): string {
+    if (source.includes("withSupabaseRetry")) return source;
+    const users = `  const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (users.error) throw users.error;`;
+    const progress = `  const progress = await admin.from("ag_progress").select("user_id,subject").eq("user_id", user.id);
+  if (progress.error) throw progress.error;`;
+    const evidence = `  const evidence = await admin.from("academic_journey_evidence")
+    .select("owner_id,readiness_score,ag_updates,delivery_state,provenance")
+    .eq("owner_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (evidence.error) throw evidence.error;`;
+    if (![academicAcceptanceRequired, users, progress, evidence].every(item => source.includes(item))) {
+        throw new Error("Playbook academic acceptance source changed; re-inspect before adding bounded network recovery.");
+    }
+    return source
+        .replace(academicAcceptanceRequired, academicAcceptanceRequired + academicAcceptanceRetry)
+        .replace(users, `  const users = await withSupabaseRetry("Acceptance identity lookup",
+    () => admin.auth.admin.listUsers({ page: 1, perPage: 1000 }));`)
+        .replace(progress, `  const progress = await withSupabaseRetry("Academic progress verification",
+    () => admin.from("ag_progress").select("user_id,subject").eq("user_id", user.id));`)
+        .replace(evidence, `  const evidence = await withSupabaseRetry("Academic evidence verification", () => admin.from("academic_journey_evidence")
+    .select("owner_id,readiness_score,ag_updates,delivery_state,provenance")
+    .eq("owner_id", user.id).order("created_at", { ascending: false }).limit(1).maybeSingle());`);
+}
+
 export function isAcademicPublicationIdempotencyDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
     return run.systemId === SYSTEM_ID && run.selectedMission === "Complete transcript-to-academic-readiness journey" &&
         [run.terminalSummary, ...run.blockers, ...recoveryDefects]
@@ -344,9 +400,17 @@ export function isAcademicAcceptanceEvidenceDefect(run: ProductionRun, recoveryD
             .some(value => value?.includes("Browser acceptance report is invalid for TRANSCRIPT-TO-ACADEMIC-READINESS"));
 }
 
+export function isAcademicAcceptanceNetworkDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete transcript-to-academic-readiness journey" &&
+        evidence.includes("Browser journey command failed for TRANSCRIPT-TO-ACADEMIC-READINESS") &&
+        /fetch failed|connect.*timeout|UND_ERR_CONNECT_TIMEOUT/i.test(evidence);
+}
+
 export function isPlaybookAcademicRecoveryDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
     return isAcademicPublicationIdempotencyDefect(run, recoveryDefects) ||
-        isAcademicAcceptanceEvidenceDefect(run, recoveryDefects);
+        isAcademicAcceptanceEvidenceDefect(run, recoveryDefects) ||
+        isAcademicAcceptanceNetworkDefect(run, recoveryDefects);
 }
 
 /**
@@ -378,6 +442,7 @@ export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: P
     const defects = dependencies.recoveryDefects ?? [];
     const repairIdempotency = isAcademicPublicationIdempotencyDefect(run, defects);
     const repairAcceptance = isAcademicAcceptanceEvidenceDefect(run, defects);
+    const repairNetwork = isAcademicAcceptanceNetworkDefect(run, defects);
     const files: RepositoryFileChange[] = [];
     if (repairIdempotency) {
         const [service, tests] = await Promise.all([
@@ -389,11 +454,12 @@ export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: P
             { path: "tests/unit/pbos/academic-transcript-journey.test.ts", content: wireAcademicTestPublicationIdempotency(tests) }
         );
     }
-    if (repairAcceptance) {
+    if (repairAcceptance || repairNetwork) {
         const acceptance = await dependencies.gateway.readFileAtRevision(reference,
             "tests/acceptance/pbos-academic.spec.ts", inspection.revision);
+        const evidenceContract = repairAcceptance ? wireAcademicAcceptanceEvidenceContract(acceptance) : acceptance;
         files.push({ path: "tests/acceptance/pbos-academic.spec.ts",
-            content: wireAcademicAcceptanceEvidenceContract(acceptance) });
+            content: repairNetwork ? wireAcademicAcceptanceNetworkRetry(evidenceContract) : evidenceContract });
     }
     await dependencies.gateway.createBranch(reference, branch, inspection.revision);
     await dependencies.gateway.applyChange(reference, files);
@@ -402,10 +468,11 @@ export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: P
     await dependencies.gateway.push(reference, branch);
     const pullRequest = await dependencies.gateway.openDraftPullRequest(reference, branch,
         "fix: recover academic acceptance contract",
-        `PBOS Recovery Authority repairs only the detected academic acceptance contract while preserving the existing mission, run, behavior, and evidence lineage.\n\nExisting mission: \`048-academic-journey\`\nRecovery epoch: \`${run.activeRecoveryEpochId}\`\nBase revision: \`${inspection.revision}\`\nRepair revision: \`${revision}\`\nRepair scope: \`${repairIdempotency ? "PUBLICATION_IDEMPOTENCY " : ""}${repairAcceptance ? "BROWSER_EVIDENCE_SCHEMA" : ""}\`\n\nCertification and merge remain human-controlled.`);
+        `PBOS Recovery Authority repairs only the detected academic acceptance contract while preserving the existing mission, run, behavior, and evidence lineage.\n\nExisting mission: \`048-academic-journey\`\nRecovery epoch: \`${run.activeRecoveryEpochId}\`\nBase revision: \`${inspection.revision}\`\nRepair revision: \`${revision}\`\nRepair scope: \`${repairIdempotency ? "PUBLICATION_IDEMPOTENCY " : ""}${repairAcceptance ? "BROWSER_EVIDENCE_SCHEMA " : ""}${repairNetwork ? "BOUNDED_NETWORK_RETRY" : ""}\`\n\nCertification and merge remain human-controlled.`);
     const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
     dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
-        repairAcceptance ? "ACADEMIC_BROWSER_EVIDENCE_CONTRACT" : "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
+        repairNetwork ? "ACADEMIC_ACCEPTANCE_NETWORK_RESILIENCE" :
+            repairAcceptance ? "ACADEMIC_BROWSER_EVIDENCE_CONTRACT" : "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
     return { branch, revision, remediation };
 }
 
