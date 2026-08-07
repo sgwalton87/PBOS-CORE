@@ -34,9 +34,10 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
+    isApplicationWorkspaceMigrationFoundationDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
-    preparePlaybookAcademicIdempotencyRecovery, preparePlaybookOpportunityIdentityRecovery,
+    preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
@@ -537,8 +538,12 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     }
     const activeEpoch = refreshedRun.activeRecoveryEpochId
         ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
-    const functionalDefects = services.state.productionStages(refreshedRun.runId)
-        .map(stage => stage.error).filter((error): error is string => Boolean(error));
+    const blockedMission = services.state.missionQueue(refreshedRun.systemId)
+        .find(item => item.title === refreshedRun.selectedMission);
+    const functionalDefects = [
+        ...services.state.productionStages(refreshedRun.runId).map(stage => stage.error),
+        blockedMission?.executionBlocker
+    ].filter((error): error is string => Boolean(error));
     const currentRemediationRunId = remediationRun.runId;
     const identityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
         event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
@@ -554,6 +559,22 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const applicationRemediationRunId = remediationRun.runId;
+    const applicationMigrationRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === applicationRemediationRunId &&
+        event.payload.classification === "APPLICATION_WORKSPACE_MIGRATION_FOUNDATION");
+    if (!activeEpoch && !applicationMigrationRepairAlreadyRegistered &&
+        isApplicationWorkspaceMigrationFoundationDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Making the application migration reproducible on the existing pull request.\n");
+        const prepared = await preparePlaybookApplicationMigrationRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; migration revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
