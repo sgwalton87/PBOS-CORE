@@ -34,10 +34,10 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
-    isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
+    isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookOpportunityIdentityRecovery,
-    preparePlaybookOpportunityJourneyContextRecovery,
+    preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
@@ -554,6 +554,27 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
+        const epoch = activeEpoch;
+        if (epoch.status !== "ACTIVE") throw new Error("Opportunity accessibility recovery requires an active constitutional recovery epoch.");
+        const linkedIds = refreshedRun.evidenceIds.filter(item => item.startsWith("remediation-run:"))
+            .map(item => item.slice("remediation-run:".length));
+        const recoveryRemediationId = linkedIds.find(id => !epoch.repositoryState.remediationRunIds.includes(id));
+        if (recoveryRemediationId) {
+            const existingRecovery = services.state.remediationRun(recoveryRemediationId);
+            if (!existingRecovery) throw new Error(`Recovery remediation state is missing: ${recoveryRemediationId}.`);
+            remediationRun = existingRecovery;
+        } else {
+            stdout.write("[RECOVERY] Preparing the exact WCAG contrast repair on the existing opportunity pull request.\n");
+            const prepared = await preparePlaybookOpportunityAccessibilityRecovery({
+                gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+                recoveryDefects: epoch.remainingDefects, pullRequest: remediationRun.pullRequest,
+                authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+            }, refreshedRun);
+            remediationRun = prepared.remediation;
+            stdout.write(`[RECOVERY] Existing mission and PR preserved; accessibility revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+        }
     }
     if (activeEpoch && isOpportunityJourneyContextDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
