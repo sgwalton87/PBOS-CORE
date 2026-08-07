@@ -362,7 +362,8 @@ export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: P
     if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
         throw new Error("The active Genesis session does not authorize Playbook academic recovery.");
     }
-    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, "main");
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+        run.currentBranch ?? run.startingBranch);
     const branch = `agent/pbos-playbook-system-001-048-academic-recovery-${run.activeRecoveryEpochId.slice(0, 8)}`;
     for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
         ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],

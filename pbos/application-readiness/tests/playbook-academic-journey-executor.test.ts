@@ -184,8 +184,11 @@ describe("CIP-048 academic journey execution adapter", () => {
         const acceptance = `journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS",\n` +
             `checks: ["AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "ACCESSIBILITY", "SECURITY"]`;
         const gateway = {
-            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
-                revision: "abcdef2", findings: [], files: [], inspectedAt: new Date() }),
+            inspectRepository: async (reference: { defaultBranch: string }) => {
+                calls.push(`inspect:${reference.defaultBranch}`);
+                return { repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: reference.defaultBranch },
+                    revision: "abcdef2", findings: [], files: [], inspectedAt: new Date() };
+            },
             readFileAtRevision: async (_reference: unknown, path: string) => { calls.push(`read:${path}`); return acceptance; },
             createBranch: async () => "branch", applyChange: async (_reference: unknown,
                 files: readonly { path: string; content: string }[]) => {
@@ -209,6 +212,7 @@ describe("CIP-048 academic journey execution adapter", () => {
                 reason: "authorized", decidedAt: new Date() }) }, recoveryRun);
         expect([...generated.keys()]).toEqual(["tests/acceptance/pbos-academic.spec.ts"]);
         expect(generated.get("tests/acceptance/pbos-academic.spec.ts")).toContain('dimension: "DURABLE_DATA"');
+        expect(calls).toContain("inspect:agent/previous");
         expect(calls).not.toContain("read:lib/pbos/academic-transcript-journey.ts");
         expect(calls).toContain("register:ACADEMIC_BROWSER_EVIDENCE_CONTRACT");
     });
