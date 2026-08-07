@@ -1,4 +1,4 @@
-import { mkdtempSync } from "fs";
+import { mkdtempSync, readFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -11,6 +11,7 @@ import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
+import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition } from "../functional-acceptance-authority";
 
 class ApprovalIO {
     readonly output: string[] = [];
@@ -153,6 +154,46 @@ describe("partner-ready CLI durable state", () => {
         expect(state.audit()).toHaveLength(0);
         expect(state.missionQueue(mission.systemId)[0]).toMatchObject({ status: "ELIGIBLE", evidenceIds: [] });
         expect(io.output).toContain("MISSION NOT AUTHORIZED");
+    });
+
+    it("binds exact-revision connected-journey authority to the protected PBOS source", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-acceptance-authority-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const protectedFile = join(root, "secrets", "playbook-scholar-acceptance.env");
+        const io = new ApprovalIO("yes");
+
+        const approval = await ensureFunctionalAcceptanceAuthority(io, { state, identities, operator },
+            "048-opportunity-journey", "abcdef1", protectedFile);
+
+        expect(approval && identities.verify(approval, "AUTHORIZE_FUNCTIONAL_ACCEPTANCE",
+            "048-opportunity-journey:abcdef1")).toBe(true);
+        expect(readFileSync(protectedFile, "utf8")).toContain(`PBOS_OPPORTUNITY_JOURNEY_APPROVAL_ID=${approval?.approvalId}`);
+        expect(statSync(protectedFile).mode & 0o077).toBe(0);
+        expect(state.audit().at(-1)).toMatchObject({ type: "VERIFIABLE_APPROVAL",
+            resource: "048-opportunity-journey:abcdef1",
+            evidence: { purpose: "AUTHORIZE_FUNCTIONAL_ACCEPTANCE", commit: "abcdef1" } });
+        expect(io.output.join("\n")).toContain("Production, merge, certification, secrets");
+
+        const auditCount = state.audit().length;
+        const reused = await ensureFunctionalAcceptanceAuthority(new ApprovalIO("no"), { state, identities, operator },
+            "048-opportunity-journey", "abcdef1", protectedFile);
+        expect(reused?.approvalId).toBe(approval?.approvalId);
+        expect(state.audit()).toHaveLength(auditCount);
+    });
+
+    it("registers acceptance authority for every connected Playbook journey without domain leakage", () => {
+        expect([
+            "048-opportunity-journey", "048-application-journey", "048-support-journey",
+            "048-messaging-journey", "048-notification-journey"
+        ].map(missionId => functionalAcceptanceAuthorityDefinition(missionId)?.environmentVariable)).toEqual([
+            "PBOS_OPPORTUNITY_JOURNEY_APPROVAL_ID", "PBOS_APPLICATION_JOURNEY_APPROVAL_ID",
+            "PBOS_SUPPORT_REQUEST_APPROVAL_ID", "PBOS_MESSAGING_JOURNEY_APPROVAL_ID",
+            "PBOS_NOTIFICATION_JOURNEY_APPROVAL_ID"
+        ]);
+        expect(functionalAcceptanceAuthorityDefinition("049-mobile-foundation")).toBeUndefined();
     });
 
     it("describes the bounded EAS authority when mobile final certification is requested", async () => {

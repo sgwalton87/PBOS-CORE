@@ -59,6 +59,13 @@ If GitHub Actions cancels or fails a workflow before any validation step execute
 revision remains fixed, a separate three-attempt infrastructure retry budget applies, operator
 telemetry and memos explain the wait, and the application remediation budget is not consumed.
 
+After exact-revision CI passes for a connected application journey, PBOS checks that journey's
+additive staging schema and requests any required protected migration decision in the same terminal.
+It then requests a separate, exact-revision functional-acceptance decision for the synthetic staging
+transaction. The signed approval ID is written without display to the mode-0600 PBOS acceptance
+source. Opportunity, application, support, messaging, and notification journeys share this mechanism;
+production, merge, certification, destructive migration, secrets, and unrelated journeys remain excluded.
+
 The operator does not need to repeatedly select evidence collection. PBOS writes every transition to durable state and the session memo, resumes unfinished monitors on the next launch, and sends a macOS notification when the batch is ready or blocked.
 
 The durable telemetry ledger records `BATCH_STARTED`, `WORK_PACKAGE_QUEUED`, `WORK_PACKAGE_STARTED`, `WORK_PACKAGE_COMPLETED`, `SECTION_COMPLETED`, `VALIDATION_STARTED`, `REMEDIATION_STARTED`, `BATCH_READY_FOR_APPROVAL`, and `BATCH_BLOCKED`. Both `pbos watch` and `pbos memo` render this timeline.

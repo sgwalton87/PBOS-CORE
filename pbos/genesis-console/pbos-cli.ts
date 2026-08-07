@@ -45,6 +45,8 @@ import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
     ecosystemIsolationExecutor, ecosystemPlatformCertificationResource, ecosystemPlatformEvidenceExecutor,
     ecosystemSystemCertificationResource, inspectEcosystemEvidenceReadiness,
     inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
+import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition,
+    functionalAcceptanceAuthorityDefinitions } from "./functional-acceptance-authority";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -578,32 +580,35 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
             : services.production.updateRepositoryPosition(productionRun.runId, remediationRun.pullRequest.branch,
                 validatedRevision);
     }
-    if (productionRun.selectedMission === "Complete Scholar onboarding-to-dashboard slice") {
-        const [owner, name] = productionRun.repository.split("/");
-        if (!owner || !name) throw new Error(`Invalid repository identity: ${productionRun.repository}`);
-        const workingDirectory = await services.gateway.workingDirectory({ owner, name, defaultBranch: "main" });
-        const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
-        stdout.write(`Protected Scholar staging resources: ${staging.resources.filter(item => item.ready).length}/${staging.resources.length}\n`);
-        if (!staging.ready) {
-            stdout.write(`PBOS STAGING MIGRATION REQUIRED: ${staging.blockers.join(", ")}\n`);
-            try {
-                const migration = await migratePlaybookStaging(remediationRun.runId);
-                if (migration !== 0) {
-                    const current = services.production.run(productionRun.runId);
-                    if (current?.status === "VALIDATING") services.production.pause(current.runId, current.actorId);
-                    return migration;
-                }
-            } catch (error) {
-                const reason = error instanceof Error ? error.message : String(error);
+    const stagingDefinition = productionMission && playbookStagingMigrationDefinition(productionMission.missionId);
+    if (stagingDefinition) {
+        stdout.write(`PBOS STAGING READINESS: ${stagingDefinition.label}\n`);
+        try {
+            const migration = await migratePlaybookStaging(remediationRun.runId, stagingDefinition.missionId);
+            if (migration !== 0) {
                 const current = services.production.run(productionRun.runId);
-                if (current && current.status !== "BLOCKED") {
-                    services.production.blockMissionForRun(productionRun.runId, reason);
-                    services.production.transition(productionRun.runId, "BLOCKED",
-                        "Protected Scholar staging preparation failed.", { reason });
-                }
-                throw error;
+                if (current?.status === "VALIDATING") services.production.pause(current.runId, current.actorId);
+                return migration;
             }
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            const current = services.production.run(productionRun.runId);
+            if (current && current.status !== "BLOCKED") {
+                services.production.blockMissionForRun(productionRun.runId, reason);
+                services.production.transition(productionRun.runId, "BLOCKED",
+                    "Protected Playbook staging preparation failed.", { reason, missionId: stagingDefinition.missionId });
+            }
+            throw error;
         }
+    }
+    if (productionMission && functionalAcceptanceAuthorityDefinition(productionMission.missionId)) {
+        const io = new NodeTerminalIO();
+        let acceptanceApproval: VerifiableApproval | undefined;
+        try {
+            acceptanceApproval = await ensureFunctionalAcceptanceAuthority(io, services, productionMission.missionId,
+                governedRun.currentCommit, join(stateRoot, "secrets", "playbook-scholar-acceptance.env"));
+        } finally { io.close(); }
+        if (!acceptanceApproval) return 0;
     }
     const resumableRun = services.production.run(productionRun.runId)!;
     if (["PAUSED", "RECOVERING"].includes(resumableRun.status)) {
@@ -1073,6 +1078,18 @@ async function migratePlaybookStaging(remediationRunId?: string,
         requiredEnvironmentVariables: ["NEXT_PUBLIC_SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ACCESS_TOKEN"]
     }], playbookScholarProtectedEnvironmentFiles(workingDirectory));
     const projectRef = new URL(environment.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0];
+    if (definition.missionId !== "048-scholar-slice") {
+        const existingBlockers = await waitForPlaybookMissionTables(environment.NEXT_PUBLIC_SUPABASE_URL!,
+            environment.SUPABASE_SERVICE_ROLE_KEY!, definition, 1);
+        if (!existingBlockers.length) {
+            stdout.write(`PBOS ${definition.label} staging schema is already ready; no migration was applied.\n`);
+            return 0;
+        }
+        const unexpected = existingBlockers.filter(blocker => !blocker.endsWith(":HTTP_404"));
+        if (unexpected.length) {
+            throw new Error(`Staging migration is not eligible while existing resources are unhealthy: ${unexpected.join(", ")}.`);
+        }
+    }
     const branch = remediation.pullRequest.branch;
     const io = new NodeTerminalIO();
     let authorized = false;
@@ -1191,6 +1208,10 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(academic.ready
             ? "ACADEMIC ACCEPTANCE: READY — protected configuration names were verified without displaying values.\n"
             : "ACADEMIC ACCEPTANCE: BLOCKED — add only the missing values to an accepted mode-0600 source.\n");
+        stdout.write("\nPBOS CONNECTED JOURNEY ACCEPTANCE AUTHORITIES\n");
+        functionalAcceptanceAuthorityDefinitions().forEach(definition =>
+            stdout.write(`${definition.environmentVariable}: GOVERNED_CHECKPOINT — issued only after exact-revision CI for ${definition.journey}.\n`));
+        stdout.write("CONNECTED JOURNEY AUTHORITY: MANAGED — PBOS will request the scoped decision in this terminal and bind it without displaying its value.\n");
         stdout.write("\nPBOS WEB PREVIEW PROVIDER\n");
         playbookWebStagingProtectedEnvironmentFiles().forEach(source =>
             stdout.write(`Accepted source: ${source.path}\n`));
