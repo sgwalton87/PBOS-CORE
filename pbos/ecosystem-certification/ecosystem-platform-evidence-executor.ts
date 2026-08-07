@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { readFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
@@ -30,6 +30,10 @@ export function loadEcosystemCandidates(path = ecosystemCandidatePath()): readon
     }
     if (!Array.isArray(parsed)) throw new Error("CIP-050 candidate evidence must be a JSON array.");
     return parsed as EcosystemSystemCandidate[];
+}
+
+export function ecosystemCandidateDigest(candidates: readonly EcosystemSystemCandidate[]): string {
+    return createHash("sha256").update(JSON.stringify(candidates)).digest("hex");
 }
 
 export interface EcosystemEvidenceReadiness {
@@ -105,9 +109,14 @@ export function ecosystemPlatformEvidenceExecutor(
             throw new Error(`CIP-050 Playbook lineage mismatch: run ${context.run.startingCommit}, governed repository ${playbookInspection.revision}.`);
         }
         const occurredAt = (dependencies.now?.() ?? new Date()).toISOString();
+        const candidateDigest = ecosystemCandidateDigest(candidates);
+        const candidateBoundaries = candidates.map(candidate => ({ systemId: candidate.systemId,
+            applicationId: candidate.applicationId, repository: candidate.repository, revision: candidate.revision,
+            brandId: candidate.brandId, dataOwnershipBoundary: candidate.dataOwnershipBoundary,
+            releaseAuthority: candidate.releaseAuthority, pbosContractVersion: candidate.pbosContractVersion }));
         dependencies.state.appendAudit({ eventId: randomUUID(), type: "CIP_050_PLATFORM_EVIDENCE_COMPILED",
             actorId: context.run.actorId, resource: context.run.runId, occurredAt,
-            evidence: { missionId: context.mission.missionId, report,
+            evidence: { missionId: context.mission.missionId, report, candidateDigest, candidateBoundaries,
                 repositoryRevisions: { [PLAYBOOK_REPOSITORY]: playbookInspection.revision,
                     [BULLETPROOF_REPOSITORY]: bulletproofInspection.revision } } });
         const evidenceIds = [...new Set([`ecosystem-report:${report.reportId}`,
@@ -117,7 +126,7 @@ export function ecosystemPlatformEvidenceExecutor(
             ...candidates.flatMap(candidate => Object.values(candidate.approvalIds)
                 .filter((value): value is string => Boolean(value)))])];
         return {
-            outputs: { reportId: report.reportId, status: report.status, independenceProven: report.independenceProven,
+            outputs: { reportId: report.reportId, candidateDigest, status: report.status, independenceProven: report.independenceProven,
                 sharedContractVersion: report.sharedContractVersion,
                 systems: report.systems.map(system => ({ systemId: system.systemId, status: system.status,
                     platforms: system.platforms.map(platform => ({ platform: platform.platform, ready: platform.ready,

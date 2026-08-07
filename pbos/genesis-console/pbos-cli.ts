@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { promisify } from "util";
-import { BuildAuthorityService } from "../autonomous-authority";
+import { BuildAuthorityDecision, BuildAuthorityService } from "../autonomous-authority";
 import { AuthenticatedOperator, GenesisStateRepository, OperatorIdentityService, PersistentAuthorityLedger,
     PersistentBuildGrantRegistry, VerifiableApproval } from "../genesis-state";
 import { GitHubRepositoryGateway } from "../platform";
@@ -39,7 +39,7 @@ import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlay
 import { RepositoryInspection } from "../platform";
 import { MissionQueueItem, ProductionRun } from "../production-runtime";
 import { ConstitutionalAuthorityLoader } from "../boot";
-import { ecosystemPlatformEvidenceExecutor, inspectEcosystemEvidenceReadiness } from "../ecosystem-certification";
+import { ecosystemIsolationExecutor, ecosystemPlatformEvidenceExecutor, inspectEcosystemEvidenceReadiness } from "../ecosystem-certification";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -241,6 +241,42 @@ export async function promptForMissionApproval(io: TerminalIO, services: Mission
     io.write(`Approval: ${approval.approvalId}`);
     io.write("The signed decision is durable. Certification will still require a separate human decision after validation.");
     return approval;
+}
+
+export interface InlinePlatformCertificationServices extends MissionApprovalServices {
+    readonly authorizeCertification: (branch: string, approvalId: string) => BuildAuthorityDecision;
+}
+
+export async function promptForInlinePlatformCertification(io: TerminalIO,
+    services: InlinePlatformCertificationServices, run: ProductionRun, mission: MissionQueueItem): Promise<boolean> {
+    if (run.status !== "AWAITING_APPROVAL" || mission.completionPolicy?.kind !== "PLATFORM_ARTIFACT") {
+        throw new Error("Inline platform certification requires validated platform evidence awaiting approval.");
+    }
+    io.write("");
+    io.write("PBOS PLATFORM EVIDENCE CERTIFICATION CHECKPOINT");
+    io.write(`Mission: ${mission.title}`);
+    io.write(`Run: ${run.runId}`);
+    io.write("Repository code was not changed. This decision certifies only the validated PBOS-owned platform proof.");
+    const answer = (await io.prompt("Certify this validated platform proof now? [y/N] ")).trim().toLowerCase();
+    if (answer !== "y" && answer !== "yes") {
+        io.write("Platform proof remains durable and awaiting certification.");
+        return false;
+    }
+    const approval = services.identities.approve(services.operator, "CERTIFY_PRODUCTION_MISSION", run.runId, 15);
+    if (!services.identities.verify(approval, "CERTIFY_PRODUCTION_MISSION", run.runId)) {
+        throw new Error("Platform-proof certification signature verification failed.");
+    }
+    const decision = services.authorizeCertification(run.currentBranch, approval.approvalId);
+    if (!decision.allowed) throw new Error(`Platform-proof certification denied: ${decision.reason}`);
+    services.state.appendAudit({ eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL",
+        actorId: services.operator.operatorId, resource: run.runId, occurredAt: approval.issuedAt,
+        evidence: { approval, purpose: "CERTIFY_PRODUCTION_MISSION" } });
+    const runner = new ProductionMissionRunner(services.state);
+    runner.assertCertifiable(run.runId);
+    runner.certify(run.runId, approval.approvalId);
+    io.write(`[CERTIFIED] ${mission.title}`);
+    io.write("PBOS CONTINUES: no pull request or application merge was invented for this platform-owned proof.");
+    return true;
 }
 
 export async function promptForRecoveryAuthority(io: TerminalIO, services: MissionApprovalServices,
@@ -683,6 +719,8 @@ async function runNextProductionMission(target?: string): Promise<number> {
                 services.control.authorizeAction(session.sessionId, action, risk, branch, explicitApprovalId) }),
             { producesFunctionalAcceptancePlan: true })
         .register("PLAYBOOK-SYSTEM-001", "050-platform-evidence", () => ecosystemPlatformEvidenceExecutor({
+            gateway: services.gateway, state: services.state }))
+        .register("PLAYBOOK-SYSTEM-001", "050-isolation", () => ecosystemIsolationExecutor({
             gateway: services.gateway, state: services.state }));
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
@@ -735,6 +773,22 @@ async function runNextProductionMission(target?: string): Promise<number> {
                     return runNextProductionMission(target);
                 }
             }
+        }
+    }
+    const inlinePlatformRun = sequence.runs.at(-1);
+    if (sequence.stopReason === "APPROVAL_REQUIRED" && inlinePlatformRun?.status === "AWAITING_APPROVAL" &&
+        sequence.nextMission?.completionPolicy?.kind === "PLATFORM_ARTIFACT") {
+        const io = new NodeTerminalIO();
+        try {
+            const certified = await promptForInlinePlatformCertification(io, {
+                state: services.state, identities: services.identities, operator: services.operator,
+                authorizeCertification: (branch, approvalId) =>
+                    services.control.authorizeAction(session.sessionId, "CERTIFY_SYSTEM", "HIGH", branch, approvalId)
+            }, inlinePlatformRun, sequence.nextMission);
+            if (certified) return runNextProductionMission(target);
+            return 0;
+        } finally {
+            io.close();
         }
     }
     if (sequence.nextMission) {

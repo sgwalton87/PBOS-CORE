@@ -14,7 +14,7 @@ const FUNCTIONAL_DIMENSIONS: readonly ApplicationAcceptanceDimension[] = [
 ];
 
 function completionPolicy(task: (typeof PLAYBOOK_LAUNCH_TASKS)[number]): MissionCompletionPolicy {
-    if (["048-repository-gap-analysis", "048-foundation", "049-mobile-foundation", "050-platform-evidence"].includes(task.taskId)) {
+    if (["048-repository-gap-analysis", "048-foundation", "049-mobile-foundation", "050-platform-evidence", "050-isolation"].includes(task.taskId)) {
         return { kind: "PLATFORM_ARTIFACT", requiredDimensions: [], acceptanceCriteria: task.acceptanceCriteria };
     }
     const previewRequired = ["048-web-staging", "049-store-readiness", "049-certification", "050-certification"].includes(task.taskId);

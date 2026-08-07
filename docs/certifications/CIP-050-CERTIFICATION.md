@@ -51,6 +51,14 @@ The execution adapter then independently inspects both governed repositories,
 rejects stale revisions, and writes the compiled report to the PBOS audit
 ledger without changing either application repository.
 
+The subsequent `050-isolation` mission is also a PBOS-owned platform proof,
+not an application-code mission. It accepts only the unchanged candidate
+digest from platform compilation, rechecks both governed revisions, and
+records explicit checks for shared contract version plus separate system,
+application, repository, brand, data-ownership, and release-authority
+boundaries. Passing automation stops at a distinct human platform-evidence
+certification checkpoint; it does not create a synthetic pull request.
+
 The command may produce `NOT_READY`, `READY_FOR_HUMAN_CERTIFICATION`, or `CERTIFIED`. The automated platform-evidence mission can complete only for the latter two states. The final state is possible only when both independent human certification identifiers are present and every earlier evidence gate is satisfied.
 
 ## Current decision

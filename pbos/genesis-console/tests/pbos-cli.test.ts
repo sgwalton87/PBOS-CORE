@@ -3,7 +3,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
-import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
+import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
+    promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
@@ -158,6 +159,47 @@ describe("partner-ready CLI durable state", () => {
         expect(io.output.join("\n")).toContain("exact-revision EAS internal builds");
         expect(io.output.join("\n")).toContain("Public release");
         expect(state.audit()).toHaveLength(0);
+    });
+
+    it("uses a distinct certification decision after inline platform validation", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-platform-certification-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const mission = { missionId: "050-isolation", systemId: "PLAYBOOK-SYSTEM-001",
+            title: "Prove shared PBOS contracts and independent ownership", dependencies: ["050-platform-evidence"],
+            status: "ACTIVE" as const, rationale: "Platform evidence is complete.", approvalRequired: true,
+            evidenceIds: [], completionPolicy: { kind: "PLATFORM_ARTIFACT" as const, requiredDimensions: [],
+                acceptanceCriteria: ["Independent ownership is proven"] } };
+        state.saveMissionQueue([{
+            missionId: "050-platform-evidence", systemId: "PLAYBOOK-SYSTEM-001",
+            title: "Compile independent multi-platform ecosystem evidence", dependencies: [],
+            status: "COMPLETE" as const, rationale: "Platform evidence compiled.", approvalRequired: false,
+            evidenceIds: ["ecosystem-report:report-1"], completionPolicy: { kind: "PLATFORM_ARTIFACT" as const,
+                requiredDimensions: [], acceptanceCriteria: ["Independent scorecards are complete"] }
+        }, mission], mission.systemId);
+        const production = new ProductionRuntimeService(state);
+        let run = production.begin({ systemId: mission.systemId, actorId: operator.operatorId,
+            authorizationArtifactId: "start-approval", repository: "sgwalton87/playbook-platform", branch: "main",
+            commit: "abcdef1", objective: mission.title, mission: mission.title, rationale: mission.rationale });
+        production.transition(run.runId, "QUEUED", "Queued");
+        production.transition(run.runId, "STARTING", "Starting");
+        production.transition(run.runId, "RUNNING", "Running");
+        production.transition(run.runId, "VALIDATING", "Validating");
+        run = production.transition(run.runId, "AWAITING_APPROVAL", "Validated");
+        const io = new ApprovalIO("yes");
+
+        const certified = await promptForInlinePlatformCertification(io, { state, identities, operator,
+            authorizeCertification: (_branch, approvalId) => ({ decisionId: "decision", grantId: "grant",
+                action: "CERTIFY_SYSTEM", allowed: true, reason: "explicitly approved", explicitApprovalId: approvalId,
+                decidedAt: new Date() }) }, run, mission);
+
+        expect(certified).toBe(true);
+        expect(state.productionRun(run.runId)?.status).toBe("CERTIFIED");
+        expect(state.missionQueue(mission.systemId).find(item => item.missionId === mission.missionId)?.status).toBe("COMPLETE");
+        expect(state.audit().at(-1)?.evidence).toMatchObject({ purpose: "CERTIFY_PRODUCTION_MISSION" });
+        expect(io.output.join("\n")).toContain("no pull request or application merge was invented");
     });
 
     it("keeps same-terminal telemetry attached until validation reaches human approval", async () => {

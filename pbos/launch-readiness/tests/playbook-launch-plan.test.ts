@@ -59,4 +59,12 @@ describe("CIP-046 through CIP-050 Playbook launch plan", () => {
         ]);
         expect(plan.tasks.find(item => item.taskId === task)?.state).not.toBe("COMPLETE");
     });
+
+    it("accepts CIP-050 isolation only as a PBOS-owned platform artifact", () => {
+        const compiler = new PlaybookLaunchPlanCompiler();
+        const functional = compiler.compile([proof("050-isolation")]);
+        expect(functional.tasks.find(item => item.taskId === "050-isolation")?.state).not.toBe("COMPLETE");
+        const platform = compiler.compile([proof("050-isolation", { evidenceType: "PLATFORM_ARTIFACT" })]);
+        expect(platform.tasks.find(item => item.taskId === "050-isolation")?.state).toBe("COMPLETE");
+    });
 });
