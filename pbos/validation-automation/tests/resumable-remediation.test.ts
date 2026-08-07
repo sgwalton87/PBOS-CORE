@@ -4,7 +4,8 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { CommandRunner } from "../../platform";
-import { GitHubCheckCollector, RemediationHandler, ResumableRemediationEngine } from "../index";
+import { GitHubCheckCollector, isRetryableRemediationApplicationFailure, RemediationHandler,
+    ResumableRemediationEngine } from "../index";
 
 class CheckCommands implements CommandRunner {
     passed = false;
@@ -144,6 +145,50 @@ describe("resumable validation remediation", () => {
         expect(blocked.state).toBe("BLOCKED");
         expect(blocked.blockers).toContain("Remediation application failed: repository produced no diff");
         expect(state.remediationRun(started.runId)?.state).toBe("BLOCKED");
+    });
+
+    it("retries an open pull request after remediation application failed without discarding lineage", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const commands = new CheckCommands();
+        const checks = new GitHubCheckCollector(commands);
+        const handler = new RepairHandler();
+        const engine = new ResumableRemediationEngine(state, checks, handler);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        const collected = await checks.collect(started.pullRequest);
+        const priorEvidence = [...collected.evidence, { evidenceId: "prior-attempt", name: "prior repair",
+            state: "FAILED" as const, collectedAt: new Date().toISOString() }];
+        state.saveRemediationRun({ ...started, state: "BLOCKED", pullRequestState: "OPEN", headSha: collected.headSha,
+            attempt: 1, evidence: priorEvidence, failureFingerprint: checks.fingerprint(collected.evidence),
+            remediationRevision: "prior-revision", blockers: ["Remediation application failed: repository produced no diff"] });
+        let authorizations = 0;
+
+        const resumed = await engine.resume(started.runId, () => { authorizations += 1; });
+
+        expect(resumed).toMatchObject({ state: "REMEDIATION_PUSHED", attempt: 2,
+            remediationRevision: "fixed-sha", pullRequestState: "OPEN" });
+        expect(resumed.runId).toBe(started.runId);
+        expect(resumed.pullRequest).toEqual(started.pullRequest);
+        expect(resumed.blockers).toEqual([]);
+        expect(authorizations).toBe(1);
+        expect(handler.applied).toBe(1);
+    });
+
+    it("keeps unrelated blocked remediation states fail-closed", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const handler = new RepairHandler();
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(new CheckCommands()), handler);
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1, branch: "agent/build",
+            url: "https://github.com/acme/app/pull/1" });
+        const blocked = { ...started, state: "BLOCKED" as const, pullRequestState: "OPEN" as const,
+            blockers: ["No deterministic remediation is registered for the collected failure evidence."] };
+        state.saveRemediationRun(blocked);
+
+        const unchanged = await engine.resume(started.runId);
+
+        expect(unchanged).toEqual(blocked);
+        expect(isRetryableRemediationApplicationFailure(unchanged)).toBe(false);
+        expect(handler.applied).toBe(0);
     });
 
     it("recollects a previously ready pull request and waits when its head advances", async () => {

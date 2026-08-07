@@ -9,6 +9,13 @@ export interface RemediationHandler {
     apply(run: RemediationRun, changes: RemediationChangeSet): Promise<string>;
 }
 
+export function isRetryableRemediationApplicationFailure(
+    run: Pick<RemediationRun, "state" | "pullRequestState" | "attempt" | "maximumAttempts" | "blockers">
+): boolean {
+    return run.state === "BLOCKED" && run.pullRequestState === "OPEN" && run.attempt < run.maximumAttempts &&
+        run.blockers.some(blocker => blocker.startsWith("Remediation application failed:"));
+}
+
 export class ResumableRemediationEngine {
     constructor(private readonly state: GenesisStateRepository, private readonly checks: GitHubCheckCollector,
         private readonly handler: RemediationHandler, private readonly now: () => Date = () => new Date(),
@@ -31,9 +38,11 @@ export class ResumableRemediationEngine {
     async resume(runId: string, beforeApply?: (run: RemediationRun) => void): Promise<RemediationRun> {
         const persisted = this.state.remediationRun(runId);
         if (!persisted) throw new Error(`Remediation run not found: ${runId}`);
-        // Legacy runs predate durable pull-request lifecycle metadata. Recollect them once so PBOS can
-        // discover an out-of-band merge instead of leaving the production mission pinned to a closed branch.
-        if (persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED") {
+        // Legacy runs without lifecycle metadata are recollected once so PBOS can discover an out-of-band
+        // merge. A failed repository application is the sole durable BLOCKED state eligible for another
+        // authorized application attempt; all other known open/closed PR blockers remain fail-closed.
+        if (persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED" &&
+            !isRetryableRemediationApplicationFailure(persisted)) {
             return persisted;
         }
         const falselyReady = persisted.state === "READY_FOR_CERTIFICATION" &&
@@ -95,8 +104,9 @@ export class ResumableRemediationEngine {
         if (failures.length === 0) return this.save({ ...current, ...lifecycle, headSha: collected.headSha,
             state: "READY_FOR_CERTIFICATION", evidence: collected.evidence, blockers: [] });
         const fingerprint = this.checks.fingerprint(collected.evidence);
+        const retryingApplicationFailure = isRetryableRemediationApplicationFailure(current);
         if (current.attempt >= current.maximumAttempts || (current.attempt > 0 && current.headSha === collected.headSha &&
-            current.failureFingerprint === fingerprint)) {
+            current.failureFingerprint === fingerprint && !retryingApplicationFailure)) {
             return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED", evidence: collected.evidence,
                 failureFingerprint: fingerprint, blockers: ["Identical validation failure repeated without a new revision; human review required."] });
         }

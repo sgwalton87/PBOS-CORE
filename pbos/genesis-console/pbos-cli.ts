@@ -17,7 +17,8 @@ import { NodeTerminalIO, TerminalIO } from "./terminal-io";
 import { SystemIntakeTerminal } from "./system-intake-terminal";
 import { createInterface } from "readline/promises";
 import { stdin, stdout } from "process";
-import { createDefaultRemediationHandler, GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../validation-automation";
+import { createDefaultRemediationHandler, GitHubCheckCollector, isRetryableRemediationApplicationFailure,
+    RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { NodeCommandRunner } from "../platform";
 import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, OperatorContinuityService, OperatorMemoService } from "../operator-continuity";
 import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
@@ -500,7 +501,8 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         .slice("remediation-run:".length);
     let remediationRun = services.state.remediationRun(remediationId);
     if (!remediationRun) throw new Error(`Production run ${productionRun.runId} references missing remediation state ${remediationId}.`);
-    if (remediationRun.state === "BLOCKED" && productionRun.status !== "BLOCKED") {
+    if (remediationRun.state === "BLOCKED" && productionRun.status !== "BLOCKED" &&
+        !isRetryableRemediationApplicationFailure(remediationRun)) {
         stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
         return 1;
     }
