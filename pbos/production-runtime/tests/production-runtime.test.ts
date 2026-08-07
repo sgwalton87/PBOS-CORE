@@ -3,7 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
-import { GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRecoveryAuthority,
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, GovernedMissionQueue, GovernedPreviewPipeline, ProductionMissionRunner, ProductionRecoveryAuthority,
     ProductionRuntimeService, assertProductionTransition } from "../index";
 
 const runtime = (clock = new Date("2026-08-05T00:00:00.000Z")) => {
@@ -268,6 +268,40 @@ describe("canonical PBOS production runtime", () => {
             { systemId: "BULLETPROOF-SYSTEM-001", systemName: "Bulletproof Beneficiary", commit: "bbbbbbb" },
             { systemId: "PLAYBOOK-SYSTEM-001", systemName: "The Playbook", commit: "aaaaaaa" }
         ]);
+    });
+
+    it("issues application delivery proof only after exact-revision functional and preview acceptance", () => {
+        const fixture = runtime();
+        fixture.state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001",
+            name: "The Playbook", domain: "Education", repository: "sgwalton87/playbook-platform",
+            defaultBranch: "main", status: "READY", capabilities: [] });
+        const run = fixture.runtime.begin({ ...input, runId: "delivery-run", commit: "ddddddd" });
+        const webUrl = "https://playbook-preview.example.com";
+        const mobileUrl = "https://expo.dev/playbook-preview";
+        fixture.runtime.recordPreview({ previewId: "delivery-preview", runId: run.runId, repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, status: "READY", webUrl, mobileUrl,
+            routes: ["/login", "/dashboard"], personas: ["SCHOLAR"],
+            viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshots: [],
+            generatedAt: "2026-08-06T00:00:00.000Z", label: "LIVE" });
+        expect(fixture.runtime.applicationDeliveryProofs()).toEqual([]);
+        const plan: FunctionalAcceptancePlan = { planId: "delivery:ddddddd", systemId: run.systemId,
+            productNodeId: "THE-PLAYBOOK", journeyId: "SCHOLAR", repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, workingDirectory: "/tmp/playbook",
+            launch: { command: "npm", args: ["run", "start"], baseUrl: "http://127.0.0.1:3000",
+                healthPath: "/login", startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [],
+            durablePreview: { webUrl, mobileUrl, healthPath: "/login", label: "LIVE" } };
+        const dimensions: ApplicationAcceptanceEvidence["dimension"][] = ["ROUTE", "USER_INTERFACE",
+            "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"];
+        fixture.state.saveProductionRun({ ...fixture.state.productionRun(run.runId)!, status: "AWAITING_APPROVAL",
+            functionalAcceptancePlan: plan, acceptanceEvidence: dimensions.map(dimension => ({
+                evidenceId: `delivery:${dimension}`, dimension, behavior: `${dimension} passed`,
+                repository: run.repository, commit: run.currentCommit, artifact: `${webUrl}#${dimension}`,
+                passed: true, source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION" : "APPLICATION_TEST" })) });
+
+        expect(fixture.runtime.applicationDeliveryProofs()).toMatchObject([{ systemId: "PLAYBOOK-SYSTEM-001",
+            deliveryState: "VALIDATED", webUrl, mobileUrl, evidenceIds: expect.arrayContaining([
+                "delivery:INDEPENDENT_VALIDATION", "delivery:PREVIEW"
+            ]) }]);
     });
 
     it("executes an eligible automated mission and stops before the next human approval boundary", async () => {

@@ -1,7 +1,7 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
+import { ApplicationAcceptanceEvidence, ApplicationDeliveryProof, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
     PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
     RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
@@ -698,7 +698,8 @@ export class ProductionRuntimeService {
             activeLease: activeRun ? this.activeLease(activeRun.runId) : undefined,
             lastRun: history.find(run => run.runId !== activeRun?.runId), history: history.slice(0, 20),
             latestPreview: this.state.previewManifests(activeRun?.runId).at(-1) ?? this.state.previewManifests().at(-1),
-            applicationPreviews: this.applicationPreviews(), nextMission: queue.next(items),
+            applicationPreviews: this.applicationPreviews(), applicationDeliveries: this.applicationDeliveryProofs(),
+            nextMission: queue.next(items),
             recentEvents: this.state.productionEvents(activeRun?.runId).slice(-100), health: this.health(), metrics: this.metrics(),
             generatedAt: this.now().toISOString(), sourceVersion: "PBOS-PRODUCTION-RUNTIME-1" };
     }
@@ -719,6 +720,23 @@ export class ProductionRuntimeService {
                 generatedAt: preview.generatedAt });
         });
         return [...latest.values()].sort((left, right) => left.systemName.localeCompare(right.systemName));
+    }
+
+    applicationDeliveryProofs(): readonly ApplicationDeliveryProof[] {
+        const runs = new Map(this.state.productionRuns().map(run => [run.runId, run]));
+        return this.applicationPreviews().flatMap(preview => {
+            const run = runs.get(preview.runId);
+            const durable = run?.functionalAcceptancePlan?.durablePreview;
+            const dimensions = new Set(run?.acceptanceEvidence.filter(item => item.passed &&
+                item.repository === preview.repository && item.commit === preview.commit).map(item => item.dimension));
+            const required = ["ROUTE", "USER_INTERFACE", "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"] as const;
+            if (!run || !["AWAITING_APPROVAL", "CERTIFIED"].includes(run.status) || !preview.webUrl || !preview.mobileUrl ||
+                !durable || durable.webUrl !== preview.webUrl || durable.mobileUrl !== preview.mobileUrl ||
+                required.some(dimension => !dimensions.has(dimension))) return [];
+            return [{ ...preview, deliveryState: run.status === "CERTIFIED" ? "CERTIFIED" as const : "VALIDATED" as const,
+                evidenceIds: run.acceptanceEvidence.filter(item => item.passed && item.commit === preview.commit)
+                    .map(item => item.evidenceId) }];
+        });
     }
 
     private acquireLease(run: ProductionRun): ExecutionLease {

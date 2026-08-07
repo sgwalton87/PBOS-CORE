@@ -389,12 +389,17 @@ export async function streamProductionTelemetry(state: GenesisStateRepository, r
                     .find(value => typeof value === "string" && value.trim());
                 if (typeof detail === "string") write(`  ↳ ${detail.replace(/\s+/g, " ").slice(0, 2_000)}`);
             }
+            if (event.type === "PREVIEW_DEPLOYMENT_READY") {
+                if (typeof event.payload.webUrl === "string") write(`  → Desktop web preview: ${event.payload.webUrl}`);
+                if (typeof event.payload.mobileUrl === "string") write(`  → Mobile preview: ${event.payload.mobileUrl}`);
+            }
         });
         const run = production.run(runId);
         if (!run) throw new Error(`Production telemetry run not found: ${runId}`);
         const stage = run.activeStageId ? state.productionStages(runId).find(item => item.stageId === run.activeStageId) : undefined;
         write(`ACTIVE: ${run.status} — ${stage?.title ?? "transitioning"} — elapsed ${Math.max(0, Date.now() - Date.parse(run.startedAt))}ms — heartbeat ${run.lastHeartbeatAt}`);
         if (run.status === "AWAITING_APPROVAL") {
+            applicationDeliverySummary(state, run.systemId).forEach(write);
             write("HUMAN APPROVAL REQUIRED: validation passed; review the certification memo and draft pull request.");
             return "AWAITING_APPROVAL";
         }
@@ -406,6 +411,19 @@ export async function streamProductionTelemetry(state: GenesisStateRepository, r
     }
     write("PBOS monitoring remains active in the background; this terminal detached after the foreground polling limit.");
     return "DETACHED";
+}
+
+export function applicationDeliverySummary(state: GenesisStateRepository, systemId: string): readonly string[] {
+    const proof = new ProductionRuntimeService(state).applicationDeliveryProofs()
+        .find(item => item.systemId === systemId);
+    if (!proof) return ["PBOS APPLICATION DELIVERY: exact-revision web/mobile functional proof is not ready yet."];
+    return ["PBOS APPLICATION DELIVERY READY",
+        `Application: ${proof.systemName}`,
+        `Run: ${proof.runId}`,
+        `Revision: ${proof.repository}@${proof.commit}`,
+        `Desktop web: ${proof.webUrl}`,
+        `Mobile: ${proof.mobileUrl}`,
+        `Evidence: ${proof.evidenceIds.length} exact-revision acceptance records`];
 }
 
 async function promptForValidatedMissionPromotion(services: ReturnType<typeof runtime>, session: GenesisBuildSession,
@@ -454,6 +472,7 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
     await services.gateway.mergePullRequest(remediationRun.pullRequest);
     missionRunner.certify(productionRunId, certificationApproval.approvalId);
     stdout.write(`[CERTIFIED] ${mission.title}\n[MERGED] ${remediationRun.pullRequest.url}\n`);
+    applicationDeliverySummary(services.state, mission.systemId).forEach(line => stdout.write(`${line}\n`));
     return true;
 }
 
@@ -579,7 +598,9 @@ async function runNextProductionMission(target?: string): Promise<number> {
     if (!next) {
         const incomplete = candidates.filter(item => item.status !== "COMPLETE");
         if (candidates.length > 0 && incomplete.length === 0) {
-            stdout.write("PBOS BUILD MISSION QUEUE COMPLETE\nAll governed missions are complete. Review exact-commit web/mobile previews and release certification before public launch.\n");
+            stdout.write("PBOS BUILD MISSION QUEUE COMPLETE\n");
+            applicationDeliverySummary(services.state, selectedSystemId).forEach(line => stdout.write(`${line}\n`));
+            stdout.write("All governed missions are complete. Review exact-commit web/mobile previews and release certification before public launch.\n");
             return 0;
         }
         throw new Error(`No eligible production mission. ${incomplete.length} queued or blocked mission(s) have unsatisfied dependencies.`);

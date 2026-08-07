@@ -10,6 +10,11 @@ describe("PBOS founder Mission Control", () => {
                 repository: "sgwalton87/playbook-platform", runId: "run-1", commit: "abcdef1",
                 status: "READY", label: "LIVE", webUrl: "https://playbook.example.com",
                 mobileUrl: "https://expo.dev/playbook", generatedAt: "2026-08-05T00:00:00Z" }],
+            applicationDeliveries: [{ systemId: "PLAYBOOK-SYSTEM-001", systemName: "The Playbook",
+                repository: "sgwalton87/playbook-platform", runId: "run-1", commit: "abcdef1",
+                status: "READY", label: "LIVE", deliveryState: "VALIDATED", evidenceIds: ["acceptance-1"],
+                webUrl: "https://playbook.example.com", mobileUrl: "https://expo.dev/playbook",
+                generatedAt: "2026-08-05T00:00:00Z" }],
             metrics: { runsStarted: 1, runsCompleted: 0, runsFailed: 0, runsBlocked: 0, runsRecovered: 0, totalDurationMs: 0,
                 medianDurationMs: 0, repairAttempts: 0, certificationRate: 0, queueDepth: 1, activeRunCount: 1, staleLeaseCount: 0 }
         } as MissionControlSnapshot;

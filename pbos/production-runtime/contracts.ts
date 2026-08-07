@@ -395,6 +395,11 @@ export interface MissionControlApplicationPreview {
     readonly generatedAt: string;
 }
 
+export interface ApplicationDeliveryProof extends MissionControlApplicationPreview {
+    readonly deliveryState: "VALIDATED" | "CERTIFIED";
+    readonly evidenceIds: readonly string[];
+}
+
 export interface RuntimeHealthReport {
     readonly health: RuntimeHealth;
     readonly checkedAt: string;
@@ -426,6 +431,7 @@ export interface MissionControlSnapshot {
     readonly history: readonly ProductionRun[];
     readonly latestPreview?: PreviewManifest;
     readonly applicationPreviews: readonly MissionControlApplicationPreview[];
+    readonly applicationDeliveries: readonly ApplicationDeliveryProof[];
     readonly nextMission?: MissionQueueItem;
     readonly recentEvents: readonly ProductionEvent[];
     readonly health: RuntimeHealthReport;

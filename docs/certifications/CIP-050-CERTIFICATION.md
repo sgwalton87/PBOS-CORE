@@ -63,8 +63,12 @@ The final `050-certification` mission remains PBOS-owned and fail-closed. Missio
 Control now projects the latest valid preview independently for every registered
 system by joining the preview manifest to its production run and exact commit.
 Simulated, nonvisual, stale-commit, and cross-repository manifests cannot become
-application launch actions. Both The Playbook and Bulletproof must expose their
-own desktop web and mobile URLs before final certification can start.
+application launch actions. A manifest becomes an application delivery proof
+only when the same run is awaiting certification or certified, its durable URLs
+match the manifest, and exact-revision route, interface, acceptance-test,
+independent-validation, and preview evidence all passed. Both The Playbook and
+Bulletproof must expose their own proven desktop web and mobile URLs before
+final certification can start.
 
 At the final checkpoint, PBOS creates eight distinct signed decisions: one
 system certification and separate web, iOS, and Android release-boundary

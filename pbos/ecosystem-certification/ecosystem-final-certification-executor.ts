@@ -83,7 +83,7 @@ export function inspectEcosystemFinalCertificationReadiness(
     if (digest && candidates.length && ecosystemCandidateDigest(candidates) !== digest) {
         missing.push("CIP-050 candidate evidence changed after certified isolation.");
     }
-    const previews = new ProductionRuntimeService(dependencies.state).applicationPreviews();
+    const previews = new ProductionRuntimeService(dependencies.state).applicationDeliveryProofs();
     candidates.forEach(candidate => {
         const preview = previews.find(item => item.systemId === candidate.systemId &&
             item.repository === candidate.repository && item.commit === candidate.revision);
@@ -126,7 +126,7 @@ export function ecosystemFinalCertificationExecutor(
             REQUIRED_SYSTEMS.some(systemId => !candidates.some(candidate => candidate.systemId === systemId))) {
             throw new Error("CIP-050 final certification requires both canonical reference systems.");
         }
-        const previews = new ProductionRuntimeService(dependencies.state).applicationPreviews();
+        const previews = new ProductionRuntimeService(dependencies.state).applicationDeliveryProofs();
         candidates.forEach(candidate => {
             const preview = previews.find(item => item.systemId === candidate.systemId &&
                 item.repository === candidate.repository && item.commit === candidate.revision);

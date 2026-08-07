@@ -3,13 +3,13 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
-import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
+import { applicationDeliverySummary, durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
     promptForEcosystemCertificationApprovals, promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
 import { GitHubRepositoryGateway } from "../../platform";
-import { ProductionRuntimeService } from "../../production-runtime";
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
 
 class ApprovalIO {
     readonly output: string[] = [];
@@ -232,11 +232,35 @@ describe("partner-ready CLI durable state", () => {
         production.transition(run.runId, "RUNNING", "Running");
         production.transition(run.runId, "VALIDATING", "Validating");
         production.transition(run.runId, "AWAITING_APPROVAL", "Ready for approval");
+        state.saveSystem({ systemId: run.systemId, operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook",
+            domain: "Education", repository: run.repository, defaultBranch: "main", status: "READY", capabilities: [] });
+        const webUrl = "https://playbook-preview.example.com";
+        const mobileUrl = "https://expo.dev/playbook-preview";
+        const plan: FunctionalAcceptancePlan = { planId: "delivery:abcdef1", systemId: run.systemId,
+            productNodeId: "THE-PLAYBOOK", journeyId: "SCHOLAR", repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, workingDirectory: "/tmp/playbook",
+            launch: { command: "npm", args: ["run", "start"], baseUrl: "http://127.0.0.1:3000",
+                healthPath: "/login", startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [],
+            durablePreview: { webUrl, mobileUrl, healthPath: "/login", label: "LIVE" } };
+        const dimensions: ApplicationAcceptanceEvidence["dimension"][] = ["ROUTE", "USER_INTERFACE",
+            "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"];
+        state.saveProductionRun({ ...state.productionRun(run.runId)!, functionalAcceptancePlan: plan,
+            acceptanceEvidence: dimensions.map(dimension => ({ evidenceId: `delivery:${dimension}`, dimension,
+                behavior: `${dimension} passed`, repository: run.repository, commit: run.currentCommit,
+                artifact: `${webUrl}#${dimension}`, passed: true,
+                source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION" : "APPLICATION_TEST" })) });
+        production.recordPreview({ previewId: "delivery-preview", runId: run.runId, repository: run.repository,
+            branch: run.currentBranch, commit: run.currentCommit, status: "READY", webUrl, mobileUrl,
+            routes: ["/login"], personas: ["SCHOLAR"], viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
+            screenshots: [], generatedAt: new Date().toISOString(), label: "LIVE" });
         const output: string[] = [];
         const result = await streamProductionTelemetry(state, run.runId, message => output.push(message), async () => undefined, 0, 1);
         expect(result).toBe("AWAITING_APPROVAL");
         expect(output.some(line => line.includes("HUMAN APPROVAL REQUIRED"))).toBe(true);
         expect(output.some(line => line.includes("RUN_AWAITING_APPROVAL"))).toBe(true);
+        expect(output).toContain(`Desktop web: ${webUrl}`);
+        expect(output).toContain(`Mobile: ${mobileUrl}`);
+        expect(applicationDeliverySummary(state, run.systemId)[0]).toBe("PBOS APPLICATION DELIVERY READY");
     });
 
     it("prints the governed failure reason instead of hiding it behind a generic blocked state", async () => {

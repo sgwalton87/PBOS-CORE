@@ -3,7 +3,8 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, VerifiableApproval } from "../../genesis-state";
 import { RepositoryInspection, RepositoryReference } from "../../platform";
-import { MissionExecutionContext, ProductionRuntimeService } from "../../production-runtime";
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, MissionExecutionContext,
+    ProductionRuntimeService } from "../../production-runtime";
 import { CertifiedPlatform, EcosystemSystemCandidate, PlatformReadinessDomain } from "../contracts";
 import { ecosystemFinalCertificationExecutor, ecosystemPlatformCertificationResource,
     ecosystemSystemCertificationResource } from "../ecosystem-final-certification-executor";
@@ -41,6 +42,24 @@ function appendApproval(state: GenesisStateRepository, action: string, resource:
     return value;
 }
 
+function recordDelivery(state: GenesisStateRepository, runId: string, candidate: EcosystemSystemCandidate,
+    webUrl: string, mobileUrl?: string): void {
+    const run = state.productionRun(runId)!;
+    const durablePreview = mobileUrl ? { webUrl, mobileUrl, healthPath: "/login", label: "LIVE" as const } : undefined;
+    const plan: FunctionalAcceptancePlan = { planId: `delivery:${candidate.revision}`, systemId: candidate.systemId,
+        productNodeId: candidate.applicationId, journeyId: "DELIVERY", repository: candidate.repository,
+        branch: run.currentBranch, commit: candidate.revision, workingDirectory: "/tmp/application",
+        launch: { command: "npm", args: ["run", "start"], baseUrl: "http://127.0.0.1:3000",
+            healthPath: "/login", startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [], durablePreview };
+    const dimensions: ApplicationAcceptanceEvidence["dimension"][] = ["ROUTE", "USER_INTERFACE",
+        "ACCEPTANCE_TEST", "INDEPENDENT_VALIDATION", "PREVIEW"];
+    state.saveProductionRun({ ...run, status: "CERTIFIED", functionalAcceptancePlan: plan,
+        acceptanceEvidence: dimensions.map(dimension => ({ evidenceId: `${candidate.systemId}:${dimension}`,
+            dimension, behavior: `${dimension} passed`, repository: candidate.repository,
+            commit: candidate.revision, artifact: `${webUrl}#${dimension}`, passed: true,
+            source: dimension === "INDEPENDENT_VALIDATION" ? "CI_VALIDATION" : "APPLICATION_TEST" })) });
+}
+
 function setup(includeBulletproofMobile = true) {
     const candidates = [candidate("PLAYBOOK"), candidate("BULLETPROOF")];
     const state = new GenesisStateRepository(join("/tmp", `pbos-050-final-${randomUUID()}.json`));
@@ -72,7 +91,8 @@ function setup(includeBulletproofMobile = true) {
             mobileUrl: index === 0 || includeBulletproofMobile ? `https://expo.dev/${index}` : undefined,
             routes: ["/"], personas: ["MEMBER"], viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
             screenshots: [], generatedAt: "2026-08-06T12:00:00.000Z", label: "LIVE" });
-        state.saveProductionRun({ ...state.productionRun(run.runId)!, status: "CERTIFIED" });
+        recordDelivery(state, run.runId, value, `https://${index}.example.com`,
+            index === 0 || includeBulletproofMobile ? `https://expo.dev/${index}` : undefined);
         appendApproval(state, "CERTIFY_ECOSYSTEM_SYSTEM", ecosystemSystemCertificationResource(value.systemId));
         platforms.forEach(platform => appendApproval(state, "CERTIFY_ECOSYSTEM_PLATFORM",
             ecosystemPlatformCertificationResource(value.systemId, platform)));

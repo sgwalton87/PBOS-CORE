@@ -16,4 +16,5 @@ contracts:
   - MissionQueueItem
   - PreviewManifest
   - MissionControlApplicationPreview
+  - ApplicationDeliveryProof
 status: READY_FOR_VALIDATION
