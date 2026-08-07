@@ -101,6 +101,27 @@ describe("PBS-5000 functional application runtime", () => {
             .rejects.toThrow("requires 1073741824 free bytes but only 134217728 are available");
     });
 
+    it("reserves build headroom before a reproducible dependency bootstrap", async () => {
+        const repo = repository();
+        const runtime = new FunctionalApplicationRuntime({ launch: async () => { throw new Error("must not launch"); } },
+            {} as RuntimeProbeRunner, {} as BrowserJourneyRuntime, undefined,
+            async () => 1536 * 1024 * 1024);
+        await expect(runtime.execute("run-build-headroom", plan(repo.path, repo.revision)))
+            .rejects.toThrow("dependency preparation requires 2147483648 free bytes");
+    });
+
+    it("rechecks the disk safety reserve after dependency preparation", async () => {
+        const repo = repository();
+        const acceptance = { ...plan(repo.path, repo.revision), launch: { ...plan(repo.path, repo.revision).launch,
+            command: process.execPath, args: ["server.js"] } };
+        const observations = [2 * 1024 * 1024 * 1024, 128 * 1024 * 1024];
+        const runtime = new FunctionalApplicationRuntime({ launch: async () => { throw new Error("must not launch"); } },
+            {} as RuntimeProbeRunner, {} as BrowserJourneyRuntime, undefined,
+            async () => observations.shift() ?? 128 * 1024 * 1024);
+        await expect(runtime.execute("run-disk-reserve", acceptance))
+            .rejects.toThrow("exhausted its disk safety reserve during dependency preparation");
+    });
+
     it("recovers a historical Node acceptance plan by deriving npm ci from its committed lockfile", async () => {
         const repo = repository();
         writeFileSync(join(repo.path, "package.json"), JSON.stringify({ scripts: { dev: "next dev" }, dependencies: { next: "1.0.0" } }));
@@ -155,6 +176,16 @@ describe("PBS-5000 functional application runtime", () => {
             expect(String(error)).toContain("PASSWORD=[REDACTED]");
             expect(String(error)).not.toContain("do-not-log");
         }
+    });
+
+    it("terminates a browser command at its declared bounded timeout", async () => {
+        const repo = repository(); const acceptance = plan(repo.path, repo.revision);
+        const journey = { ...acceptance.browserJourneys[0], command: { command: process.execPath,
+            args: ["-e", "setInterval(() => undefined, 1000)"], timeoutMs: 50 } };
+        const startedAt = Date.now();
+        await expect(new CommandBrowserJourneyRuntime().run(acceptance, journey))
+            .rejects.toThrow("timed out after 50ms");
+        expect(Date.now() - startedAt).toBeLessThan(2_000);
     });
 
     it("attaches redacted application logs when a browser journey exposes a server-side failure", async () => {
