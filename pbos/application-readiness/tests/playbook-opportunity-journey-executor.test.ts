@@ -3,14 +3,17 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
 import {
     assertOpportunityBaseline,
+    isOpportunityAccessibilityContrastDefect,
     isOpportunityIdentityIdempotencyDefect,
     isOpportunityJourneyContextDefect,
     playbookOpportunityJourneyExecutor,
+    preparePlaybookOpportunityAccessibilityRecovery,
     preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookOpportunityJourneyContextRecovery,
     wireOpportunityAcceptanceApiEvidence,
     wireOpportunityAcceptanceJourneyContext,
-    wireOpportunityIdentityIdempotency
+    wireOpportunityIdentityIdempotency,
+    wireOpportunityMarketplaceContrast
 } from "../playbook-opportunity-journey-executor";
 
 const legacyPage = `"use client";
@@ -20,6 +23,9 @@ export default function OpportunitiesPage() {
 }`;
 const legacyMarketplace = `const [saved, setSaved] = useState<Record<string, boolean>>({});
 const [statuses, setStatuses] = useState<Record<string, string>>({});`;
+const legacyOpportunityMarketplaceContrast = `<section>
+  <p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#64748B" }}>Opportunity Marketplace</p>
+</section>`;
 const legacyOpportunityRoute = `import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
 function runtime() {
   const client = createClient();
@@ -126,6 +132,7 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(marketplace).toContain('role="status"');
         expect(marketplace).toContain('aria-label="Opportunity views"');
         expect(marketplace).toContain('decision: "SAVED" | "DISMISSED"');
+        expect(marketplace).toContain('textTransform: "uppercase", color: "#475569" }}>Opportunity Marketplace');
         expect(marketplace).not.toContain("useCallback");
         expect(marketplace).toContain(".then(responseJson).then(body =>");
         const acceptance = generated.get("tests/acceptance/pbos-opportunity.spec.ts") ?? "";
@@ -174,6 +181,14 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(wireOpportunityAcceptanceJourneyContext(governed)).toBe(governed);
         expect(() => wireOpportunityAcceptanceJourneyContext("changed acceptance"))
             .toThrow("re-inspect");
+    });
+
+    it("repairs only the browser-proven opportunity label contrast defect", () => {
+        const governed = wireOpportunityMarketplaceContrast(legacyOpportunityMarketplaceContrast);
+        expect(governed).toContain('color: "#475569" }}>Opportunity Marketplace');
+        expect(governed).not.toContain('color: "#64748B" }}>Opportunity Marketplace');
+        expect(wireOpportunityMarketplaceContrast(governed)).toBe(governed);
+        expect(() => wireOpportunityMarketplaceContrast("changed marketplace")).toThrow("re-inspect");
     });
 
     it("advances the existing blocked mission and pull request with one bounded repair", async () => {
@@ -261,6 +276,48 @@ describe("CIP-048 opportunity journey execution adapter", () => {
             "OPPORTUNITY_JOURNEY_CONTEXT"]]);
         expect(changed.size).toBe(1);
         expect(changed.get("tests/acceptance/pbos-opportunity.spec.ts")).toContain('goalTitle: "Public Health"');
+    });
+
+    it("uses the next recovery epoch to repair the exact WCAG contrast defect on the same PR", async () => {
+        const calls: string[] = []; const changed = new Map<string, string>();
+        const blocked = { ...run, status: "BLOCKED", selectedMission: "Complete readiness-to-opportunity journey",
+            currentBranch: "agent/pbos-playbook-system-001-048-opportunity-12345678", currentCommit: "abcdef3",
+            activeRecoveryEpochId: "epoch-2", terminalSummary: "Functional application acceptance failed",
+            blockers: [], evidenceIds: ["remediation-run:context-validation"] } as ProductionRun;
+        const defect = 'Browser journey command failed for READINESS-TO-OPPORTUNITY: "id": "color-contrast", Opportunity Marketplace, #64748b on #f8f7f4';
+        expect(isOpportunityAccessibilityContrastDefect(blocked, [defect])).toBe(true);
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/61", number: 61,
+            branch: blocked.currentBranch!, repository: "sgwalton87/playbook-platform" };
+        const remediation = { runId: "contrast-validation", systemId: "PLAYBOOK-SYSTEM-001", pullRequest,
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS" as const,
+            evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+        const gateway = {
+            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform",
+                defaultBranch: blocked.currentBranch }, revision: blocked.currentCommit, findings: [], files: [], inspectedAt: new Date() }),
+            readFileAtRevision: async () => legacyOpportunityMarketplaceContrast,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                files.forEach(file => changed.set(file.path, file.content)); calls.push("apply"); return files.map(file => file.path);
+            },
+            commit: async () => { calls.push("commit"); return "abcdef4"; },
+            push: async () => { calls.push("push"); }
+        } as unknown as GitHubRepositoryGateway;
+        const registered: unknown[][] = [];
+        const prepared = await preparePlaybookOpportunityAccessibilityRecovery({ gateway, session, pullRequest,
+            recoveryDefects: [defect],
+            authorize: action => ({ decisionId: action, grantId: "grant-opportunity", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => remediation },
+            production: { registerRecoveryRemediation: (...args: unknown[]) => { registered.push(args); return blocked; } }
+        }, blocked);
+
+        expect(calls).toEqual(["apply", "commit", "push"]);
+        expect(prepared).toMatchObject({ branch: blocked.currentBranch, revision: "abcdef4",
+            remediation: { runId: "contrast-validation", pullRequest } });
+        expect(registered).toEqual([[blocked.runId, remediation.runId, blocked.currentBranch, "abcdef4",
+            "OPPORTUNITY_ACCESSIBILITY_CONTRAST"]]);
+        expect([...changed.keys()]).toEqual(["components/opportunity-marketplace/OpportunityMarketplace.tsx"]);
+        expect(changed.get("components/opportunity-marketplace/OpportunityMarketplace.tsx"))
+            .toContain('color: "#475569" }}>Opportunity Marketplace');
     });
 
     it("fails before repository inspection when authority is denied", async () => {

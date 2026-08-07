@@ -350,7 +350,7 @@ export default function OpportunityMarketplace() {
   return (
     <main style={{ background: "#F8F7F4", minHeight: "100vh", padding: "clamp(20px, 5vw, 48px)", fontFamily: "system-ui, sans-serif" }}>
       <section aria-labelledby="opportunity-heading" style={{ maxWidth: 1120, margin: "0 auto" }}>
-        <p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#64748B" }}>Opportunity Marketplace</p>
+        <p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#475569" }}>Opportunity Marketplace</p>
         <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 20, alignItems: "end", marginBottom: 22 }}>
           <div><h1 id="opportunity-heading" style={{ fontSize: "clamp(30px, 6vw, 48px)", lineHeight: 1.05, color: "#0F172A", margin: 0 }}>Your explainable matches</h1>
             <p style={{ color: "#475569", maxWidth: 680, lineHeight: 1.65 }}>Matches use your verified Scholar evidence. Every recommendation explains why it appears, and save or dismiss choices remain private to your account.</p></div>
@@ -582,6 +582,17 @@ export function wireOpportunityAcceptanceJourneyContext(source: string): string 
     return source.replace(boundary, governed);
 }
 
+/** Repairs only the WCAG AA contrast defect proven by the browser evidence. */
+export function wireOpportunityMarketplaceContrast(source: string): string {
+    const legacy = '<p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#64748B" }}>Opportunity Marketplace</p>';
+    const governed = '<p style={{ fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: "#475569" }}>Opportunity Marketplace</p>';
+    if (source.includes(governed)) return source;
+    if (!source.includes(legacy)) {
+        throw new Error("Playbook opportunity marketplace changed; re-inspect before repairing accessibility contrast.");
+    }
+    return source.replace(legacy, governed);
+}
+
 export function isOpportunityIdentityIdempotencyDefect(run: ProductionRun,
     recoveryDefects: readonly string[] = []): boolean {
     const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
@@ -598,6 +609,15 @@ export function isOpportunityJourneyContextDefect(run: ProductionRun,
     return run.systemId === SYSTEM_ID && run.selectedMission === "Complete readiness-to-opportunity journey" &&
         evidence.includes("Browser journey command failed for READINESS-TO-OPPORTUNITY") &&
         evidence.includes("toBeGreaterThan") && evidence.includes("Received:   0");
+}
+
+export function isOpportunityAccessibilityContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete readiness-to-opportunity journey" &&
+        evidence.includes("Browser journey command failed for READINESS-TO-OPPORTUNITY") &&
+        evidence.includes('"id": "color-contrast"') && evidence.includes("Opportunity Marketplace") &&
+        evidence.includes("#64748b") && evidence.includes("#f8f7f4");
 }
 
 /**
@@ -685,6 +705,47 @@ export async function preparePlaybookOpportunityJourneyContextRecovery(
     const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
     dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
         "OPPORTUNITY_JOURNEY_CONTEXT");
+    return { branch, revision, remediation };
+}
+
+/**
+ * Advances the existing opportunity PR with the exact contrast repair proven
+ * by axe. It requires an active Recovery Epoch and preserves all prior lineage.
+ */
+export async function preparePlaybookOpportunityAccessibilityRecovery(
+    dependencies: PlaybookOpportunityJourneyContextRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || !run.activeRecoveryEpochId ||
+        !isOpportunityAccessibilityContrastDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for opportunity accessibility recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize opportunity accessibility recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Opportunity recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const marketplace = await dependencies.gateway.readFileAtRevision(reference, OPPORTUNITY_MARKETPLACE, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [
+        { path: OPPORTUNITY_MARKETPLACE, content: wireOpportunityMarketplaceContrast(marketplace) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: meet opportunity contrast acceptance", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
+        "OPPORTUNITY_ACCESSIBILITY_CONTRAST");
     return { branch, revision, remediation };
 }
 
