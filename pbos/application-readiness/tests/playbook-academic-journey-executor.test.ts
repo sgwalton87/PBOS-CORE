@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
 import { playbookAcademicJourneyExecutor, preparePlaybookAcademicIdempotencyRecovery,
+    isAcademicAcceptanceEvidenceDefect, isPlaybookAcademicRecoveryDefect, wireAcademicAcceptanceEvidenceContract,
     wireAcademicServicePublicationIdempotency,
     wireAcademicTestPublicationIdempotency, wireTranscriptUploadCard } from "../playbook-academic-journey-executor";
 
@@ -111,6 +112,25 @@ describe("CIP-048 academic journey execution adapter", () => {
         expect(wireAcademicServicePublicationIdempotency(repairedService)).toBe(repairedService);
     });
 
+    it("upgrades academic browser checks to detailed constitutional evidence", () => {
+        const legacy = `journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS",\n` +
+            `checks: ["AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "ACCESSIBILITY", "SECURITY"]`;
+        const repaired = wireAcademicAcceptanceEvidenceContract(legacy);
+        expect(repaired).toContain('{ dimension: "DURABLE_DATA", passed: true, detail:');
+        expect(repaired).toContain('{ dimension: "PBOS_INTEGRATION", passed: true, detail:');
+        expect(wireAcademicAcceptanceEvidenceContract(repaired)).toBe(repaired);
+        expect(() => wireAcademicAcceptanceEvidenceContract("changed report"))
+            .toThrow("re-inspect before repairing its evidence contract");
+    });
+
+    it("recognizes the exact academic browser evidence defect without broadening recovery scope", () => {
+        const blocked = { ...run, status: "BLOCKED", selectedMission: "Complete transcript-to-academic-readiness journey",
+            blockers: ["Browser acceptance report is invalid for TRANSCRIPT-TO-ACADEMIC-READINESS: DURABLE_DATA."] } as ProductionRun;
+        expect(isAcademicAcceptanceEvidenceDefect(blocked)).toBe(true);
+        expect(isPlaybookAcademicRecoveryDefect(blocked)).toBe(true);
+        expect(isPlaybookAcademicRecoveryDefect({ ...blocked, selectedMission: "Different mission" })).toBe(false);
+    });
+
     it("prepares one recovery PR on the existing mission and authorized recovery epoch", async () => {
         const generated = new Map<string, string>();
         const calls: string[] = [];
@@ -153,6 +173,44 @@ describe("CIP-048 academic journey execution adapter", () => {
         expect(generated.has("app/api/parse-transcript/route.ts")).toBe(false);
         expect(generated.get("lib/pbos/academic-transcript-journey.ts")).toContain("academicPublicationIdempotencyKey");
         expect(calls).toContain("register:12345678-aaaa-bbbb-cccc-123456789012:recovery-validation:fedcba2");
+    });
+
+    it("prepares an evidence-only recovery without rewriting proven academic behavior", async () => {
+        const generated = new Map<string, string>();
+        const calls: string[] = [];
+        const recoveryRun = { ...run, status: "BLOCKED", currentBranch: "agent/previous", currentCommit: "abcdef2",
+            selectedMission: "Complete transcript-to-academic-readiness journey",
+            activeRecoveryEpochId: "epoch5678-aaaa-bbbb-cccc", blockers: [] } as ProductionRun;
+        const acceptance = `journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS",\n` +
+            `checks: ["AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "ACCESSIBILITY", "SECURITY"]`;
+        const gateway = {
+            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+                revision: "abcdef2", findings: [], files: [], inspectedAt: new Date() }),
+            readFileAtRevision: async (_reference: unknown, path: string) => { calls.push(`read:${path}`); return acceptance; },
+            createBranch: async () => "branch", applyChange: async (_reference: unknown,
+                files: readonly { path: string; content: string }[]) => {
+                files.forEach(file => generated.set(file.path, file.content)); return files.map(file => file.path);
+            },
+            commit: async () => "fedcba3", push: async () => undefined,
+            openDraftPullRequest: async (_reference: unknown, branch: string) => ({
+                url: "https://github.com/sgwalton87/playbook-platform/pull/58", number: 58, branch,
+                repository: "sgwalton87/playbook-platform" })
+        } as unknown as GitHubRepositoryGateway;
+        const remediation = { runId: "evidence-recovery", systemId: "PLAYBOOK-SYSTEM-001",
+            pullRequest: { url: "https://github.com/sgwalton87/playbook-platform/pull/58", number: 58,
+                branch: "agent/pbos-playbook-system-001-048-academic-recovery-epoch5678", repository: "sgwalton87/playbook-platform" },
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [],
+            updatedAt: new Date().toISOString() } as const;
+        await preparePlaybookAcademicIdempotencyRecovery({ gateway, session,
+            remediation: { start: () => remediation }, production: { registerRecoveryRemediation: (...args) => {
+                calls.push(`register:${args[4]}`); return recoveryRun;
+            } }, recoveryDefects: ["Browser acceptance report is invalid for TRANSCRIPT-TO-ACADEMIC-READINESS: DURABLE_DATA."],
+            authorize: action => ({ decisionId: action, grantId: "grant-academic", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }) }, recoveryRun);
+        expect([...generated.keys()]).toEqual(["tests/acceptance/pbos-academic.spec.ts"]);
+        expect(generated.get("tests/acceptance/pbos-academic.spec.ts")).toContain('dimension: "DURABLE_DATA"');
+        expect(calls).not.toContain("read:lib/pbos/academic-transcript-journey.ts");
+        expect(calls).toContain("register:ACADEMIC_BROWSER_EVIDENCE_CONTRACT");
     });
 
     it("fails before repository inspection when authority is denied", async () => {

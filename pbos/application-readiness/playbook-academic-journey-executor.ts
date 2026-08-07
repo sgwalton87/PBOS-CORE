@@ -314,10 +314,39 @@ export function wireAcademicTestPublicationIdempotency(source: string): string {
             '    expect(calls[3]).toBe("complete:evidence-1");');
 }
 
+const academicAcceptanceChecks = `checks: [
+      { dimension: "AUTHORITY", passed: true, detail: "Anonymous transcript mutation was denied before authenticated execution." },
+      { dimension: "DURABLE_DATA", passed: true, detail: "Transcript-derived readiness survived an authenticated database read." },
+      { dimension: "PBOS_INTEGRATION", passed: true, detail: "The approval-bound transcript exchange produced provenance-bearing academic evidence." },
+      { dimension: "ACCESSIBILITY", passed: true, detail: "The responsive transcript journey passed its serious-and-critical accessibility audit." },
+      { dimension: "SECURITY", passed: true, detail: "Protected academic configuration remained server controlled." }
+    ]`;
+
+/** Upgrades a behavior-only browser report to the constitutional evidence schema PBOS verifies. */
+export function wireAcademicAcceptanceEvidenceContract(source: string): string {
+    if (source.includes('{ dimension: "DURABLE_DATA", passed: true, detail:')) return source;
+    const legacyChecks = /checks:\s*\[\s*"AUTHORITY",\s*"DURABLE_DATA",\s*"PBOS_INTEGRATION",\s*"ACCESSIBILITY",\s*"SECURITY"\s*\]/;
+    if (!source.includes('journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS"') || !legacyChecks.test(source)) {
+        throw new Error("Playbook academic acceptance report changed; re-inspect before repairing its evidence contract.");
+    }
+    return source.replace(legacyChecks, academicAcceptanceChecks);
+}
+
 export function isAcademicPublicationIdempotencyDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
     return run.systemId === SYSTEM_ID && run.selectedMission === "Complete transcript-to-academic-readiness journey" &&
         [run.terminalSummary, ...run.blockers, ...recoveryDefects]
             .some(value => value?.includes("Idempotency key reused with a different request."));
+}
+
+export function isAcademicAcceptanceEvidenceDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete transcript-to-academic-readiness journey" &&
+        [run.terminalSummary, ...run.blockers, ...recoveryDefects]
+            .some(value => value?.includes("Browser acceptance report is invalid for TRANSCRIPT-TO-ACADEMIC-READINESS"));
+}
+
+export function isPlaybookAcademicRecoveryDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
+    return isAcademicPublicationIdempotencyDefect(run, recoveryDefects) ||
+        isAcademicAcceptanceEvidenceDefect(run, recoveryDefects);
 }
 
 /**
@@ -326,9 +355,9 @@ export function isAcademicPublicationIdempotencyDefect(run: ProductionRun, recov
  */
 export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: PlaybookAcademicJourneyRecoveryDependencies,
     run: ProductionRun): Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
-    if (!isAcademicPublicationIdempotencyDefect(run, dependencies.recoveryDefects) ||
+    if (!isPlaybookAcademicRecoveryDefect(run, dependencies.recoveryDefects) ||
         run.status !== "BLOCKED" || !run.activeRecoveryEpochId) {
-        throw new Error("The production run is not eligible for the Playbook academic idempotency recovery adapter.");
+        throw new Error("The production run is not eligible for the Playbook academic recovery adapter.");
     }
     if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
         throw new Error("The active Genesis session does not authorize Playbook academic recovery.");
@@ -345,25 +374,37 @@ export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: P
     if (inspection.revision !== run.currentCommit) {
         throw new Error(`Academic recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
     }
-    const [service, tests] = await Promise.all([
-        dependencies.gateway.readFileAtRevision(reference, "lib/pbos/academic-transcript-journey.ts", inspection.revision),
-        dependencies.gateway.readFileAtRevision(reference, "tests/unit/pbos/academic-transcript-journey.test.ts", inspection.revision)
-    ]);
-    const files: readonly RepositoryFileChange[] = [
-        { path: "lib/pbos/academic-transcript-journey.ts", content: wireAcademicServicePublicationIdempotency(service) },
-        { path: "tests/unit/pbos/academic-transcript-journey.test.ts", content: wireAcademicTestPublicationIdempotency(tests) }
-    ];
+    const defects = dependencies.recoveryDefects ?? [];
+    const repairIdempotency = isAcademicPublicationIdempotencyDefect(run, defects);
+    const repairAcceptance = isAcademicAcceptanceEvidenceDefect(run, defects);
+    const files: RepositoryFileChange[] = [];
+    if (repairIdempotency) {
+        const [service, tests] = await Promise.all([
+            dependencies.gateway.readFileAtRevision(reference, "lib/pbos/academic-transcript-journey.ts", inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, "tests/unit/pbos/academic-transcript-journey.test.ts", inspection.revision)
+        ]);
+        files.push(
+            { path: "lib/pbos/academic-transcript-journey.ts", content: wireAcademicServicePublicationIdempotency(service) },
+            { path: "tests/unit/pbos/academic-transcript-journey.test.ts", content: wireAcademicTestPublicationIdempotency(tests) }
+        );
+    }
+    if (repairAcceptance) {
+        const acceptance = await dependencies.gateway.readFileAtRevision(reference,
+            "tests/acceptance/pbos-academic.spec.ts", inspection.revision);
+        files.push({ path: "tests/acceptance/pbos-academic.spec.ts",
+            content: wireAcademicAcceptanceEvidenceContract(acceptance) });
+    }
     await dependencies.gateway.createBranch(reference, branch, inspection.revision);
     await dependencies.gateway.applyChange(reference, files);
     const revision = await dependencies.gateway.commit(reference,
-        "fix: separate academic publication idempotency", files.map(file => file.path));
+        "fix: recover academic acceptance contract", files.map(file => file.path));
     await dependencies.gateway.push(reference, branch);
     const pullRequest = await dependencies.gateway.openDraftPullRequest(reference, branch,
-        "fix: separate academic publication idempotency",
-        `PBOS Recovery Authority preserves transcript persistence idempotency while binding lifecycle publication to the exact derived payload.\n\nExisting mission: \`048-academic-journey\`\nRecovery epoch: \`${run.activeRecoveryEpochId}\`\nBase revision: \`${inspection.revision}\`\nRepair revision: \`${revision}\`\n\nCertification and merge remain human-controlled.`);
+        "fix: recover academic acceptance contract",
+        `PBOS Recovery Authority repairs only the detected academic acceptance contract while preserving the existing mission, run, behavior, and evidence lineage.\n\nExisting mission: \`048-academic-journey\`\nRecovery epoch: \`${run.activeRecoveryEpochId}\`\nBase revision: \`${inspection.revision}\`\nRepair revision: \`${revision}\`\nRepair scope: \`${repairIdempotency ? "PUBLICATION_IDEMPOTENCY " : ""}${repairAcceptance ? "BROWSER_EVIDENCE_SCHEMA" : ""}\`\n\nCertification and merge remain human-controlled.`);
     const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
     dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
-        "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
+        repairAcceptance ? "ACADEMIC_BROWSER_EVIDENCE_CONTRACT" : "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
     return { branch, revision, remediation };
 }
 

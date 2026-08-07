@@ -23,7 +23,7 @@ import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, O
 import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { isAcademicPublicationIdempotencyDefect, playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
+import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
     playbookMobileCertificationExecutor, playbookMobileFoundationExecutor, playbookMobileJourneysExecutor,
     playbookMobileStoreReadinessExecutor,
@@ -517,7 +517,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     const refreshedRun = services.production.run(productionRun.runId)!;
     const activeEpoch = refreshedRun.activeRecoveryEpochId
         ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
-    if (activeEpoch && isAcademicPublicationIdempotencyDefect(refreshedRun, activeEpoch.remainingDefects)) {
+    if (activeEpoch && isPlaybookAcademicRecoveryDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
         if (epoch.status !== "ACTIVE") throw new Error("Academic recovery requires an active constitutional recovery epoch.");
         const linkedIds = refreshedRun.evidenceIds.filter(item => item.startsWith("remediation-run:"))
@@ -528,7 +528,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
             if (!existingRecovery) throw new Error(`Recovery remediation state is missing: ${recoveryRemediationId}.`);
             remediationRun = existingRecovery;
         } else {
-            stdout.write("[RECOVERY] Preparing a governed academic idempotency repair on a new agent branch.\n");
+            stdout.write("[RECOVERY] Preparing the bounded academic repair authorized for this recovery epoch.\n");
             const prepared = await preparePlaybookAcademicIdempotencyRecovery({
                 gateway: services.gateway, remediation: services.remediation, production: services.production, session,
                 recoveryDefects: epoch.remainingDefects,
