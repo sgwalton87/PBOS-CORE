@@ -72,6 +72,15 @@ export function effectiveRemediationState(run: RemediationRun): RemediationRun["
         ? "WAITING_FOR_CHECKS" : run.state;
 }
 
+export type PlaybookDoctorReadinessState = "READY" | "READY_FOR_GOVERNED_MIGRATION" | "BLOCKED";
+
+export function playbookDoctorReadiness(stagingReady: boolean, migrationBootstrapReady: boolean,
+    academicReady: boolean): PlaybookDoctorReadinessState {
+    if (!academicReady) return "BLOCKED";
+    if (stagingReady) return "READY";
+    return migrationBootstrapReady ? "READY_FOR_GOVERNED_MIGRATION" : "BLOCKED";
+}
+
 async function login(): Promise<number> {
     const run = promisify(execFile);
     await run("gh", ["auth", "status"]);
@@ -1123,6 +1132,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const workingDirectory = await services.gateway.workingDirectory({ owner, name, defaultBranch: system.defaultBranch });
         const files = playbookScholarProtectedEnvironmentFiles(workingDirectory);
         const staging = await inspectPlaybookScholarStagingReadiness(workingDirectory);
+        const academic = await inspectPlaybookAcademicAcceptanceReadiness(workingDirectory);
         const migration = await inspectPlaybookStagingMigrationReadiness(workingDirectory);
         const webStaging = await inspectPlaybookWebStagingReadiness();
         const mobileRelease = await inspectPlaybookMobileReleaseReadiness();
@@ -1134,6 +1144,13 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         stdout.write(`Available: ${readiness.available.length}/${readiness.required.length}\n`);
         stdout.write(`Missing: ${readiness.missing.length ? readiness.missing.join(", ") : "NONE"}\n`);
         staging.resources.forEach(resource => stdout.write(`Resource: ${resource.resource} — ${resource.ready ? "READY" : "BLOCKED"} — ${resource.status}\n`));
+        stdout.write("\nPBOS ACADEMIC JOURNEY ACCEPTANCE\n");
+        files.forEach(source => stdout.write(`Accepted source: ${source.path}\n`));
+        stdout.write(`Available: ${academic.available.length}/${academic.required.length}\n`);
+        stdout.write(`Missing: ${academic.missing.length ? academic.missing.join(", ") : "NONE"}\n`);
+        stdout.write(academic.ready
+            ? "ACADEMIC ACCEPTANCE: READY — protected configuration names were verified without displaying values.\n"
+            : "ACADEMIC ACCEPTANCE: BLOCKED — add only the missing values to an accepted mode-0600 source.\n");
         stdout.write("\nPBOS WEB PREVIEW PROVIDER\n");
         playbookWebStagingProtectedEnvironmentFiles().forEach(source =>
             stdout.write(`Accepted source: ${source.path}\n`));
@@ -1157,17 +1174,20 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
             : `ECOSYSTEM EVIDENCE: BLOCKED — ${ecosystemEvidence.reason ?? ecosystemEvidence.status ?? "NOT_READY"}\n`);
         const missingTables = staging.resources.filter(resource => resource.resource.startsWith("table:") && !resource.ready);
         const migrationBootstrapReady = isAdditiveScholarMigrationEligible(staging) && migration.ready;
+        const doctorReadiness = playbookDoctorReadiness(staging.ready, migrationBootstrapReady, academic.ready);
         if (missingTables.length) {
             stdout.write(`Migration authority: ${migration.ready ? "READY" : "BLOCKED"}` +
                 `${migration.missing.length ? ` — missing ${migration.missing.join(", ")}` : ""}\n`);
         }
-        stdout.write(staging.ready
+        const doctorBlockers = [...staging.blockers,
+            ...(academic.ready ? [] : [`academic acceptance missing ${academic.missing.join(", ")}`])];
+        stdout.write(doctorReadiness === "READY"
             ? "READINESS: READY — protected values and staging resources were verified without displaying secrets.\n"
-            : migrationBootstrapReady
+            : doctorReadiness === "READY_FOR_GOVERNED_MIGRATION"
                 ? "READINESS: READY_FOR_GOVERNED_MIGRATION — the additive Scholar schema and its protected migration authority are ready for the in-terminal approval checkpoint.\n"
-                : `READINESS: BLOCKED — ${staging.blockers.join(", ") || "add the missing protected values"}` +
+                : `READINESS: BLOCKED — ${doctorBlockers.join(", ") || "add the missing protected values"}` +
                     `${missingTables.length && !migration.ready ? `; migration configuration missing ${migration.missing.join(", ")}` : ""}.\n`);
-        return staging.ready || migrationBootstrapReady ? 0 : 2;
+        return doctorReadiness === "BLOCKED" ? 2 : 0;
     }
     if (args[0] === "health") {
         profile();

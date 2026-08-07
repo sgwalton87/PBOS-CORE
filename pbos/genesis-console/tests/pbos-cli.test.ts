@@ -4,7 +4,8 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
 import { applicationDeliverySummary, durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
-    promptForEcosystemCertificationApprovals, promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
+    playbookDoctorReadiness, promptForEcosystemCertificationApprovals, promptForMissionApproval,
+    streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
@@ -20,6 +21,12 @@ class ApprovalIO {
 }
 
 describe("partner-ready CLI durable state", () => {
+    it("blocks the Playbook doctor when the active academic acceptance environment is incomplete", () => {
+        expect(playbookDoctorReadiness(true, false, false)).toBe("BLOCKED");
+        expect(playbookDoctorReadiness(true, false, true)).toBe("READY");
+        expect(playbookDoctorReadiness(false, true, true)).toBe("READY_FOR_GOVERNED_MIGRATION");
+    });
+
     it("persists the Bulletproof catalog independently of a process", () => {
         const path = join(mkdtempSync(join(tmpdir(), "pbos-cli-")), "state.json");
         const first = new GenesisStateRepository(path);

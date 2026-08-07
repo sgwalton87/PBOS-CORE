@@ -21,7 +21,9 @@ terminal.
 - [x] Refuse to mutate closed or merged pull-request branches
 - [x] Position the governed checkout on the exact default-branch merge commit before acceptance
 - [ ] Human validation of merged-revision convergence implementation
-- [ ] Exact Playbook merge commit receives an independent CI check
+- [x] Exact Playbook merge commit receives an independent CI check
+- [x] Protected doctor distinguishes Scholar readiness from academic-journey readiness
+- [ ] Add the missing `ANTHROPIC_API_KEY` to an accepted mode-0600 Playbook source
 - [ ] Academic browser acceptance passes on the exact Playbook merge commit
 - [ ] One real Playbook exact-revision preview passes functional acceptance
 - [ ] Terminal renders the real desktop web and mobile links from that same run
