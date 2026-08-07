@@ -254,6 +254,35 @@ export class ProductionRuntimeService {
     }
 
     /**
+     * Attaches a deterministic repository repair while the original bounded
+     * repair budget still has capacity. The existing mission, pull request,
+     * and evidence lineage remain authoritative.
+     */
+    registerBoundedRemediation(runId: string, remediationRunId: string, branch: string, commit: string,
+        classification: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const remediation = this.state.remediationRun(remediationRunId);
+        const budget = this.repairBudget(runId);
+        if (run.status !== "BLOCKED" || budget.remaining < 1 || run.activeRecoveryEpochId ||
+            !remediation || remediation.systemId !== run.systemId ||
+            remediation.pullRequest.repository !== run.repository || remediation.pullRequest.branch !== branch ||
+            branch !== run.currentBranch || run.evidenceIds.includes(`remediation-run:${remediationRunId}`) ||
+            !/^[a-f0-9]{7,40}$/i.test(commit) || commit === run.currentCommit || !classification.trim()) {
+            throw new Error("Bounded remediation does not match the blocked production lineage.");
+        }
+        const linked: ProductionRun = { ...run,
+            evidenceIds: [...new Set([...run.evidenceIds, `remediation-run:${remediationRunId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(linked);
+        this.event(linked, "BOUNDED_REMEDIATION_REGISTERED",
+            "A deterministic repository repair was attached to the existing production mission and pull request.", {
+                remediationRunId, branch, commit, classification,
+                repairAttempts: budget.attempts, repairAttemptLimit: budget.limit
+            });
+        return this.rebindRepositoryAfterRemediation(runId, remediationRunId, branch, commit);
+    }
+
+    /**
      * Attaches a newly prepared repository repair to an authorized recovery epoch.
      * The existing production run and mission remain authoritative; only their
      * repository position and functional plan advance to the governed repair.

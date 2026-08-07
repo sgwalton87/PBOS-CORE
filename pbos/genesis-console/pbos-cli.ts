@@ -34,7 +34,8 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
-    PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService, preparePlaybookAcademicIdempotencyRecovery,
+    isOpportunityIdentityIdempotencyDefect, PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
+    preparePlaybookAcademicIdempotencyRecovery, preparePlaybookOpportunityIdentityRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
@@ -534,6 +535,19 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     }
     const activeEpoch = refreshedRun.activeRecoveryEpochId
         ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
+    const functionalDefects = services.state.productionStages(refreshedRun.runId)
+        .map(stage => stage.error).filter((error): error is string => Boolean(error));
+    if (!activeEpoch && remediationRun.state === "READY_FOR_CERTIFICATION" &&
+        isOpportunityIdentityIdempotencyDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the deterministic opportunity identity-idempotency repair to the existing pull request.\n");
+        const prepared = await preparePlaybookOpportunityIdentityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
     if (activeEpoch && isPlaybookAcademicRecoveryDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
         if (epoch.status !== "ACTIVE") throw new Error("Academic recovery requires an active constitutional recovery epoch.");

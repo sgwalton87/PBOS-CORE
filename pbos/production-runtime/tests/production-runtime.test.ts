@@ -193,6 +193,46 @@ describe("canonical PBOS production runtime", () => {
             "agent/academic-recovery", "abcdef1", "DUPLICATE")).toThrow("active authorized production epoch");
     });
 
+    it("attaches a bounded deterministic repair without replacing the mission or pull request", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "opportunity", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing functional mission",
+            approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
+                requiredDimensions: ["ROUTE"], acceptanceCriteria: ["Opportunity route works"] } }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, { planId: "opportunity-plan", systemId: input.systemId,
+            productNodeId: "opportunity", journeyId: "opportunity-journey", repository: input.repository,
+            branch: input.branch, commit: input.commit, workingDirectory: "/tmp/playbook", prerequisites: [],
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4311", healthPath: "/",
+                startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [] });
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        fixture.runtime.recordRepairAttempt(run.runId, "FUNCTIONAL_ACCEPTANCE_FAILURE", "STARTED");
+        fixture.runtime.recordRepairAttempt(run.runId, "FUNCTIONAL_ACCEPTANCE_FAILURE", "FAILED");
+        fixture.runtime.transition(run.runId, "BLOCKED", "Identity mapping already registered");
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/61", number: 61,
+            branch: input.branch, repository: input.repository };
+        fixture.state.saveRemediationRun({ runId: "bounded-validation", systemId: input.systemId, pullRequest,
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [],
+            blockers: [], updatedAt: new Date().toISOString() });
+
+        const attached = fixture.runtime.registerBoundedRemediation(run.runId, "bounded-validation",
+            input.branch, "abcdef2", "OPPORTUNITY_IDENTITY_IDEMPOTENCY");
+
+        expect(attached).toMatchObject({ runId: run.runId, selectedMission: input.mission, status: "BLOCKED",
+            currentBranch: input.branch, currentCommit: "abcdef2", repairAttempts: 1, repairAttemptLimit: 5 });
+        expect(attached.evidenceIds).toContain("remediation-run:bounded-validation");
+        expect(attached.functionalAcceptancePlan).toMatchObject({ branch: input.branch, commit: "abcdef2" });
+        expect(fixture.runtime.events(run.runId).map(event => event.type)).toEqual(expect.arrayContaining([
+            "BOUNDED_REMEDIATION_REGISTERED", "REMEDIATION_LINEAGE_REBOUND"
+        ]));
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 1, limit: 5, remaining: 4 });
+        expect(() => fixture.runtime.registerBoundedRemediation(run.runId, "bounded-validation",
+            input.branch, "abcdef2", "DUPLICATE")).toThrow("blocked production lineage");
+    });
+
     it("rejects invalid status transitions and mission dependency cycles", () => {
         expect(() => assertProductionTransition("AUTHORIZED", "CERTIFIED")).toThrow(/Invalid PBOS production transition/);
         const queue = new GovernedMissionQueue();

@@ -69,6 +69,9 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(route).not.toContain("body.scholarId");
         expect(route).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
         expect(route).toContain("PUBLISH_LIFECYCLE_EVENT");
+        expect(route).toContain("new PlaybookConnector(client)");
+        expect(route).toContain('connector.registerIdentity(userId, "SCHOLAR")');
+        expect(route).not.toContain('client.send("REGISTER_IDENTITY"');
         const documents = generated.get("app/api/application-workspaces/documents/route.ts") ?? "";
         expect(documents).toContain("MAX_DOCUMENT_BYTES");
         expect(documents).toContain('.eq("scholar_id", user.id)');

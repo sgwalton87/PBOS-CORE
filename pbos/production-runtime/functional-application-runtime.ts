@@ -82,6 +82,18 @@ async function exists(path: string): Promise<boolean> {
     try { await stat(path); return true; } catch { return false; }
 }
 
+export function redactFunctionalRuntimeOutput(value: string, environment: NodeJS.ProcessEnv,
+    protectedNames: readonly string[]): string {
+    let safe = value;
+    for (const name of new Set(protectedNames)) {
+        const secret = environment[name];
+        if (secret) safe = safe.replaceAll(secret, "[REDACTED]");
+    }
+    return safe
+        .replace(/authorization\s*[:=]\s*bearer\s+[^\s]+/gi, "authorization: Bearer [REDACTED]")
+        .replace(/(token|secret|password)\s*[:=]\s*[^\s]+/gi, "$1=[REDACTED]");
+}
+
 function governedPath(workingDirectory: string, repositoryPath: string, label: string): string {
     const absolutePath = resolve(workingDirectory, repositoryPath);
     const relativePath = relative(workingDirectory, absolutePath);
@@ -461,6 +473,17 @@ export class FunctionalApplicationRuntime {
                     viewports: [...new Set(plan.browserJourneys.flatMap(item => item.viewports))],
                     screenshots: plan.browserJourneys.flatMap(item => item.screenshotArtifacts), generatedAt: new Date().toISOString(),
                     label: durablePreview?.label ?? "SIMULATED" } };
+        } catch (error) {
+            const protectedNames = [
+                ...prerequisites.flatMap(command => command.requiredEnvironmentVariables ?? []),
+                ...(plan.launch.requiredEnvironmentVariables ?? []),
+                ...plan.browserJourneys.flatMap(journey => journey.command.requiredEnvironmentVariables ?? []),
+                ...(plan.nativeJourneys ?? []).flatMap(journey => journey.command.requiredEnvironmentVariables ?? [])
+            ];
+            const logs = redactFunctionalRuntimeOutput(application.logs(), runtimeEnvironment, protectedNames)
+                .trim().slice(-20_000);
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`${message}${logs ? `\nRedacted application logs:\n${logs}` : ""}`, { cause: error });
         } finally {
             await application.stop();
         }

@@ -90,7 +90,7 @@ export class ApplicationSupportRequestService {
 const routeSource = `import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { ApplicationSupportRequestService, SUPPORT_CATEGORIES, type SupportCategory } from "@/lib/pbos/application-support-request";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
 
@@ -133,11 +133,11 @@ export async function POST(request: NextRequest) {
       .eq("scholar_id", user.id).eq("status", "active").maybeSingle();
     if (relationship.error) throw new Error(relationship.error.message);
     if (!relationship.data) return NextResponse.json({ error: "Authorized support relationship not found." }, { status: 403 });
-    const mapper = new PlaybookIdentityMapper();
     const client = new PlaybookPbosRuntimeClient(new SignedPlaybookPbosTransport(required("PBOS_API_URL"), {
       organizationId: required("PBOS_ORGANIZATION_ID"), connectorId: required("PBOS_CONNECTOR_ID"),
       keyId: required("PBOS_CONNECTOR_KEY_ID"), secretBase64: required("PBOS_CONNECTOR_SECRET_BASE64")
     }));
+    const connector = new PlaybookConnector(client);
     const service = new ApplicationSupportRequestService({
       async createRequest(input) {
         const saved = await supabase.from("application_support_requests").upsert({ scholar_id: input.scholarId,
@@ -153,11 +153,7 @@ export async function POST(request: NextRequest) {
         if (updated.error) throw new Error(updated.error.message);
       }
     }, {
-      async registerIdentity(userId) {
-        const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-        const response = await client.send("REGISTER_IDENTITY", identity, requestId + "-identity", requestId + "-identity");
-        if (!response.success) throw new Error(response.error.message); return identity;
-      },
+      registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
       async publishRequest(identity, input) {
         const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
           domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,

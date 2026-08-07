@@ -71,6 +71,9 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(route).toContain('.eq("scholar_id", user.id)');
         expect(route).toContain("PBOS_SUPPORT_REQUEST_APPROVAL_ID");
         expect(route).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+        expect(route).toContain("new PlaybookConnector(client)");
+        expect(route).toContain('connector.registerIdentity(userId, "SCHOLAR")');
+        expect(route).not.toContain('client.send("REGISTER_IDENTITY"');
         const service = generated.get("lib/pbos/application-support-request.ts") ?? "";
         expect(service).toContain('permissions.includes("support_tasks")');
         expect(service).toContain("authorizePlaybookFoundation");

@@ -110,7 +110,7 @@ export class ApplicationWorkspaceJourneyService {
 const workspaceRouteSource = `import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/supabase/server";
 import { ApplicationWorkspaceJourneyService, APPLICATION_TYPES, type ApplicationTaskInput, type ApplicationType } from "@/lib/pbos/application-workspace-journey";
-import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+import { PlaybookConnector } from "@/pbos/connector/playbook-connector";
 import { PlaybookPbosRuntimeClient } from "@/pbos/connector/pbos-runtime-client";
 import { SignedPlaybookPbosTransport } from "@/pbos/connector/signed-server-transport";
 
@@ -121,7 +121,7 @@ function runtime() { return new PlaybookPbosRuntimeClient(new SignedPlaybookPbos
 })); }
 
 function applicationService(supabase: Awaited<ReturnType<typeof requireUser>>["supabase"]) {
-  const client = runtime(); const mapper = new PlaybookIdentityMapper();
+  const client = runtime(); const connector = new PlaybookConnector(client);
   return new ApplicationWorkspaceJourneyService({
     async createPending(input) {
       const record = await supabase.from("application_workspaces").upsert({ scholar_id: input.ownerId,
@@ -168,11 +168,7 @@ function applicationService(supabase: Awaited<ReturnType<typeof requireUser>>["s
       if (saved.error) throw new Error(saved.error.message);
     }
   }, {
-    async registerIdentity(userId) {
-      const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
-      const response = await client.send("REGISTER_IDENTITY", identity, "application-identity-" + userId, "application-identity-" + userId);
-      if (!response.success) throw new Error(response.error.message); return identity;
-    },
+    registerIdentity: userId => connector.registerIdentity(userId, "SCHOLAR"),
     async publish(identity, input) {
       const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
         domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,

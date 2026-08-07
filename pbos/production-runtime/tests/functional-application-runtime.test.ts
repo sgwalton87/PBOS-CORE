@@ -1,6 +1,6 @@
 import { execFileSync } from "child_process";
 import { createHash } from "crypto";
-import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
@@ -144,6 +144,26 @@ describe("PBS-5000 functional application runtime", () => {
             expect(String(error)).toContain("PASSWORD=[REDACTED]");
             expect(String(error)).not.toContain("do-not-log");
         }
+    });
+
+    it("attaches redacted application logs when a browser journey exposes a server-side failure", async () => {
+        const repo = repository(); const acceptance = plan(repo.path, repo.revision);
+        const environmentPath = join(repo.path, ".acceptance.env");
+        writeFileSync(environmentPath, "PASSWORD=do-not-log\n");
+        chmodSync(environmentPath, 0o600);
+        const governed = { ...acceptance, protectedEnvironmentFiles: [{ path: environmentPath }],
+            browserJourneys: acceptance.browserJourneys.map(journey => ({ ...journey,
+                command: { ...journey.command, requiredEnvironmentVariables: ["PASSWORD"] } })) };
+        const launcher: ApplicationLauncher = { launch: async () => ({
+            logs: () => "POST /api/example 500 PASSWORD=do-not-log Authorization: Bearer another-secret",
+            stop: async () => undefined
+        }) };
+        const probes: RuntimeProbeRunner = { run: async (_plan, probe) => ({ probe, status: probe.expectedStatus,
+            responseExcerpt: "ok", durationMs: 1, passed: true }) };
+        const browser: BrowserJourneyRuntime = { run: async () => { throw new Error("browser received HTTP 500"); } };
+        await expect(new FunctionalApplicationRuntime(launcher, probes, browser, undefined,
+            async () => 2 * 1024 * 1024 * 1024).execute("run-logs", governed))
+            .rejects.toThrow("Redacted application logs:\nPOST /api/example 500 PASSWORD=[REDACTED] authorization: Bearer [REDACTED]");
     });
 
     it("accepts native claims only when both platforms produce exact-revision evidence", async () => {

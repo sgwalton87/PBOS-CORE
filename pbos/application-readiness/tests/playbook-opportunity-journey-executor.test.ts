@@ -3,7 +3,11 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
 import {
     assertOpportunityBaseline,
-    playbookOpportunityJourneyExecutor
+    isOpportunityIdentityIdempotencyDefect,
+    playbookOpportunityJourneyExecutor,
+    preparePlaybookOpportunityIdentityRecovery,
+    wireOpportunityAcceptanceApiEvidence,
+    wireOpportunityIdentityIdempotency
 } from "../playbook-opportunity-journey-executor";
 
 const legacyPage = `"use client";
@@ -13,6 +17,28 @@ export default function OpportunitiesPage() {
 }`;
 const legacyMarketplace = `const [saved, setSaved] = useState<Record<string, boolean>>({});
 const [statuses, setStatuses] = useState<Record<string, string>>({});`;
+const legacyOpportunityRoute = `import { PlaybookIdentityMapper } from "@/pbos/connector/identity-mapper";
+function runtime() {
+  const client = createClient();
+  const mapper = new PlaybookIdentityMapper();
+  return {
+    async registerIdentity(userId: string) {
+      const identity = mapper.mapSupabaseIdentity(userId, "SCHOLAR");
+      const response = await client.send("REGISTER_IDENTITY", identity, "opportunity-identity-" + userId,
+        "opportunity-identity-" + userId);
+      if (!response.success) throw new Error(response.error.message);
+      return identity;
+    },
+    async publish(identity: ReturnType<PlaybookIdentityMapper["mapSupabaseIdentity"]>, payload: Readonly<Record<string, unknown>>, correlationId: string) {
+      return { identity, payload, correlationId };
+    }
+  };
+}`;
+const legacyOpportunityAcceptance = `test("opportunity", async ({ page }) => {
+  const discovery = await page.request.post("/api/pbos/opportunities");
+  expect(discovery.status()).toBe(200);
+  const discovered = await discovery.json() as { matches?: Array<{ id: string; reasons?: string[] }> };
+});`;
 
 const session = {
     sessionId: "session-opportunity", activatedAt: new Date(),
@@ -83,6 +109,9 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(route).toContain("owner_id\", user.id");
         expect(route).not.toContain("ownerId?: unknown");
         expect(route).toContain("SignedPlaybookPbosTransport");
+        expect(route).toContain("new PlaybookConnector(client)");
+        expect(route).toContain('connector.registerIdentity(userId, "SCHOLAR")');
+        expect(route).not.toContain('client.send("REGISTER_IDENTITY"');
         const marketplace = generated.get("components/opportunity-marketplace/OpportunityMarketplace.tsx") ?? "";
         expect(marketplace).toContain('role="status"');
         expect(marketplace).toContain('aria-label="Opportunity views"');
@@ -91,6 +120,7 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(marketplace).toContain(".then(responseJson).then(body =>");
         const acceptance = generated.get("tests/acceptance/pbos-opportunity.spec.ts") ?? "";
         expect(acceptance).not.toContain('import { createClient } from "@supabase/supabase-js"');
+        expect(acceptance).toContain("Opportunity discovery failed:");
         const migration = generated.get("supabase/migrations/202608050005_pbos_opportunity_journey.sql") ?? "";
         expect(migration).toContain("enable row level security");
         expect(migration).toContain("auth.uid() = owner_id");
@@ -109,6 +139,61 @@ describe("CIP-048 opportunity journey execution adapter", () => {
     it("refuses to overwrite a changed opportunity implementation", () => {
         expect(() => assertOpportunityBaseline("changed page", legacyMarketplace)).toThrow("re-inspect");
         expect(() => assertOpportunityBaseline(legacyPage, "changed marketplace")).toThrow("re-inspect");
+    });
+
+    it("repairs only the known connector bypass and adds sanitized API failure evidence", () => {
+        const route = wireOpportunityIdentityIdempotency(legacyOpportunityRoute);
+        expect(route).toContain('import { PlaybookConnector } from "@/pbos/connector/playbook-connector";');
+        expect(route).toContain('connector.registerIdentity(userId, "SCHOLAR")');
+        expect(route).not.toContain('client.send("REGISTER_IDENTITY"');
+        expect(wireOpportunityIdentityIdempotency(route)).toBe(route);
+        expect(wireOpportunityAcceptanceApiEvidence(legacyOpportunityAcceptance))
+            .toContain("Opportunity discovery failed:");
+        expect(() => wireOpportunityIdentityIdempotency("changed route")).toThrow("re-inspect");
+    });
+
+    it("advances the existing blocked mission and pull request with one bounded repair", async () => {
+        const calls: string[] = []; const changed = new Map<string, string>();
+        const blocked = { ...run, status: "BLOCKED", selectedMission: "Complete readiness-to-opportunity journey",
+            currentBranch: "agent/pbos-playbook-system-001-048-opportunity-12345678", currentCommit: "abcdef1",
+            terminalSummary: "Functional application acceptance failed", blockers: [], evidenceIds: [] } as ProductionRun;
+        expect(isOpportunityIdentityIdempotencyDefect(blocked, [
+            "Browser journey command failed for READINESS-TO-OPPORTUNITY in pbos-opportunity.spec.ts Expected: 200 Received: 500"
+        ])).toBe(true);
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/61", number: 61,
+            branch: blocked.currentBranch!, repository: "sgwalton87/playbook-platform" };
+        const remediation = { runId: "replacement-validation", systemId: "PLAYBOOK-SYSTEM-001", pullRequest,
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS" as const,
+            evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+        const gateway = {
+            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform",
+                defaultBranch: blocked.currentBranch }, revision: blocked.currentCommit, findings: [], files: [], inspectedAt: new Date() }),
+            readFileAtRevision: async (_reference: unknown, path: string) => path.includes("route.ts")
+                ? legacyOpportunityRoute : legacyOpportunityAcceptance,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                files.forEach(file => changed.set(file.path, file.content)); calls.push("apply"); return files.map(file => file.path);
+            },
+            commit: async () => { calls.push("commit"); return "abcdef2"; },
+            push: async () => { calls.push("push"); }
+        } as unknown as GitHubRepositoryGateway;
+        const registered: unknown[][] = [];
+        const prepared = await preparePlaybookOpportunityIdentityRecovery({ gateway, session, pullRequest,
+            recoveryDefects: ["Identity mapping already registered: PLAYBOOK-IDENTITY-scholar"],
+            authorize: action => ({ decisionId: action, grantId: "grant-opportunity", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: (systemId, retained) => {
+                expect(systemId).toBe("PLAYBOOK-SYSTEM-001"); expect(retained).toBe(pullRequest); return remediation;
+            } },
+            production: { registerBoundedRemediation: (...args: unknown[]) => { registered.push(args); return blocked; } }
+        }, blocked);
+
+        expect(calls).toEqual(["apply", "commit", "push"]);
+        expect(prepared).toMatchObject({ branch: blocked.currentBranch, revision: "abcdef2",
+            remediation: { runId: "replacement-validation", pullRequest } });
+        expect(registered).toEqual([[blocked.runId, remediation.runId, blocked.currentBranch, "abcdef2",
+            "OPPORTUNITY_IDENTITY_IDEMPOTENCY"]]);
+        expect(changed.get("app/api/pbos/opportunities/route.ts")).toContain("connector.registerIdentity");
+        expect(changed.get("tests/acceptance/pbos-opportunity.spec.ts")).toContain("Opportunity discovery failed:");
     });
 
     it("fails before repository inspection when authority is denied", async () => {
