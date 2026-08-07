@@ -142,7 +142,7 @@ export default defineConfig({
  */
 export class OpportunityJourneyReactLintRemediationPack implements RemediationPack {
     readonly packId = "@pbos/remediation-opportunity-react-lint";
-    readonly version = "1.0.0";
+    readonly version = "1.1.0";
     readonly category = "QUALITY" as const;
 
     supports(context: RemediationPackContext): boolean {
@@ -159,15 +159,28 @@ export class OpportunityJourneyReactLintRemediationPack implements RemediationPa
                 {
                     path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
                     search: `  const load = useCallback(async () => {
-    setBusy("load"); setMessage("Loading your opportunity matches.");
-    try {`,
-                    replacement: `  const load = useCallback(async () => {
-    try {`
+    try {
+      const body = await responseJson(await fetch("/api/pbos/opportunities", { cache: "no-store" }));
+      setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
+    } catch (error) { setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); }
+    finally { setBusy(null); }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);`,
+                    replacement: `  useEffect(() => {
+    let active = true;
+    void fetch("/api/pbos/opportunities", { cache: "no-store" }).then(responseJson).then(body => {
+      if (!active) return;
+      setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
+    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); })
+      .finally(() => { if (active) setBusy(null); });
+    return () => { active = false; };
+  }, []);`
                 },
                 {
-                    path: "tests/acceptance/pbos-opportunity.spec.ts",
-                    search: 'import { createClient } from "@supabase/supabase-js";\n',
-                    replacement: ""
+                    path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                    search: "import { useCallback, useEffect, useMemo, useState } from \"react\";",
+                    replacement: "import { useEffect, useMemo, useState } from \"react\";"
                 }
             ]
         };

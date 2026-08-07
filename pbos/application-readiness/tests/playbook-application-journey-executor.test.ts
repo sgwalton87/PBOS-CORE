@@ -78,6 +78,8 @@ describe("CIP-048 opportunity-to-application execution adapter", () => {
         expect(dashboard).toContain("Mark application submitted");
         expect(dashboard).toContain("window.setTimeout");
         expect(dashboard).not.toContain('if (selectedName) setName(selectedName);\n    if (selectedId)');
+        expect(dashboard).not.toContain("useCallback");
+        expect(dashboard).toContain("fetchWorkspaces().then(body =>");
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("application_workspace_tasks enable row level security");
         expect(generated.get("supabase/migrations/202608050005_pbos_application_workspace_journey.sql")).toContain("public=false");
         expect(generated.get("pbos/readiness/048-application-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");

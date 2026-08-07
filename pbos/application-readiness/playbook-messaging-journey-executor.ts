@@ -208,12 +208,20 @@ export async function PATCH(request: NextRequest) {
 
 const inboxSource = `"use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { PlaybookHero, PlaybookPage, PlaybookPill } from "@/components/ui";
 
 type Message = { id: string; sender_id: string; body: string; delivery_state: string; moderation_state: string; created_at: string };
 type Conversation = { id: string; status: string; unreadCount: number; messages: Message[];
   relationship?: { id?: string; supporter_email?: string; relationship?: string }; participant?: { muted_at?: string | null; blocked_at?: string | null } };
+type ConversationResponse = { conversations?: Conversation[]; error?: string };
+
+async function fetchConversations(): Promise<ConversationResponse> {
+  const response = await fetch("/api/support-network/messages", { cache: "no-store" });
+  const result = await response.json() as ConversationResponse;
+  if (!response.ok) throw new Error(result.error ?? "Inbox could not be loaded.");
+  return result;
+}
 
 export default function InboxV2() {
   const [conversations, setConversations] = useState<Conversation[]>([]); const [activeId, setActiveId] = useState("");
@@ -221,34 +229,35 @@ export default function InboxV2() {
   const [status, setStatus] = useState("Loading governed conversations…"); const [error, setError] = useState("");
   const active = conversations.find(item => item.id === activeId) ?? conversations[0];
 
-  const load = useCallback(async () => {
-    try { const response = await fetch("/api/support-network/messages", { cache: "no-store" });
-      const result = await response.json() as { conversations?: Conversation[]; error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Inbox could not be loaded.");
+  useEffect(() => { let active = true; void fetchConversations().then(result => { if (!active) return;
       setConversations(result.conversations ?? []); setActiveId(current => current || result.conversations?.[0]?.id || "");
       setStatus(result.conversations?.length ? "Governed messages are current." : "No support conversations yet.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Inbox could not be loaded."); setStatus(""); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+    }).catch(cause => { if (active) { setError(cause instanceof Error ? cause.message : "Inbox could not be loaded."); setStatus(""); } })
+      .finally(() => { if (active) setLoading(false); }); return () => { active = false; }; }, []);
+
+  async function reload() { setLoading(true); setError(""); try { const result = await fetchConversations();
+    setConversations(result.conversations ?? []); setActiveId(current => current || result.conversations?.[0]?.id || "");
+    setStatus(result.conversations?.length ? "Governed messages are current." : "No support conversations yet.");
+  } catch (cause) { setError(cause instanceof Error ? cause.message : "Inbox could not be loaded."); setStatus(""); }
+  finally { setLoading(false); } }
 
   async function send(event: FormEvent) { event.preventDefault(); if (!active || !body.trim()) return; setSending(true); setError("");
     try { const response = await fetch("/api/support-network/messages", { method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ relationshipId: active.relationship?.id, conversationId: active.id, body, requestId: crypto.randomUUID() }) });
       const result = await response.json() as { error?: string }; if (!response.ok) throw new Error(result.error ?? "Message failed.");
-      setBody(""); setStatus("Message delivered with PBOS provenance."); await load();
+      setBody(""); setStatus("Message delivered with PBOS provenance."); await reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Message failed."); } finally { setSending(false); }
   }
   async function act(action: string, messageId?: string) { if (!active) return; setError("");
     const response = await fetch("/api/support-network/messages", { method: "PATCH", headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, conversationId: active.id, messageId }) });
     const result = await response.json() as { error?: string }; if (!response.ok) { setError(result.error ?? "Action failed."); return; }
-    setStatus(action === "READ" ? "Conversation marked read." : "Conversation safety setting updated."); await load();
+    setStatus(action === "READ" ? "Conversation marked read." : "Conversation safety setting updated."); await reload();
   }
 
   return <PlaybookPage><PlaybookHero eyebrow="Governed Messaging" title="Your governed support conversations"
     subtitle="Durable messages, unread state, mute, block, reporting, and PBOS provenance stay inside authorized support relationships." />
-    <p role="status" aria-live="polite">{loading ? "Loading…" : status}</p>{error && <p role="alert">{error} <button onClick={() => void load()}>Retry</button></p>}
+    <p role="status" aria-live="polite">{loading ? "Loading…" : status}</p>{error && <p role="alert">{error} <button onClick={() => void reload()}>Retry</button></p>}
     <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}>
       <aside aria-label="Conversations">{conversations.map(conversation => <button key={conversation.id} onClick={() => setActiveId(conversation.id)}
         aria-pressed={conversation.id === active?.id} style={{ display: "block", width: "100%", padding: 14, marginBottom: 8, textAlign: "left" }}>

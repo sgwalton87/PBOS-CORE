@@ -69,8 +69,9 @@ export const scholarMobileClient={
 
 const hookSource = `import {useCallback,useEffect,useState}from"react";
 export function useGovernedResource<T>(load:()=>Promise<T>){const[data,setData]=useState<T>();const[loading,setLoading]=useState(true);const[error,setError]=useState("");
- const refresh=useCallback(async()=>{try{setData(await load())}catch(cause){setError(cause instanceof Error?cause.message:"Unable to load")}
- finally{setLoading(false)}},[load]);useEffect(()=>{void refresh()},[refresh]);return{data,loading,error,refresh}}
+ const refresh=useCallback(async()=>{setLoading(true);setError("");try{setData(await load())}catch(cause){setError(cause instanceof Error?cause.message:"Unable to load")}
+ finally{setLoading(false)}},[load]);useEffect(()=>{let active=true;void load().then(value=>{if(active)setData(value)}).catch(cause=>{if(active)setError(cause instanceof Error?cause.message:"Unable to load")})
+ .finally(()=>{if(active)setLoading(false)});return()=>{active=false}},[load]);return{data,loading,error,refresh}}
 `;
 
 const cardSource = `import type{ReactNode}from"react";import{Pressable,StyleSheet,Text,View}from"react-native";import{applicationTheme as t}from"../theme";

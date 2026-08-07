@@ -39,6 +39,8 @@ describe("CIP-048 governed messaging execution adapter", () => {
         expect(generated.get("lib/pbos/governed-messaging.ts")).toContain("supporterRoleForRelationship");
         expect(generated.get("components/messages/InboxV2.tsx")).not.toContain("getDemoConversations");
         expect(generated.get("components/messages/InboxV2.tsx")).not.toContain('const load = useCallback(async () => { setLoading(true)');
+        expect(generated.get("components/messages/InboxV2.tsx")).not.toContain("useCallback");
+        expect(generated.get("components/messages/InboxV2.tsx")).toContain("fetchConversations().then(result =>");
         expect(generated.get("supabase/migrations/202608050008_pbos_governed_messaging.sql")).toContain("pbos_conversation_participants");
         expect(generated.get("supabase/migrations/202608050008_pbos_governed_messaging.sql")).toContain("Authorized actors join conversations");
         expect(generated.get("supabase/migrations/202608050008_pbos_governed_messaging.sql")).toContain("grant update (delivery_state,moderation_state,reported_at,provenance)");

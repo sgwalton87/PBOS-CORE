@@ -97,8 +97,10 @@ describe("universal remediation pack registry", () => {
                 "components/opportunity-marketplace/OpportunityMarketplace.tsx Calling setState synchronously within an effect react-hooks/set-state-in-effect"));
         expect(changes?.files).toEqual([]);
         expect(changes?.replacements).toEqual(expect.arrayContaining([
-            expect.objectContaining({ path: "components/opportunity-marketplace/OpportunityMarketplace.tsx" }),
-            expect.objectContaining({ path: "tests/acceptance/pbos-opportunity.spec.ts", replacement: "" })
+            expect.objectContaining({ path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                replacement: expect.stringContaining(".then(responseJson).then(body =>") }),
+            expect.objectContaining({ path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                replacement: expect.stringContaining("useEffect, useMemo, useState") })
         ]));
     });
 

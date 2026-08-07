@@ -87,7 +87,8 @@ describe("CIP-048 opportunity journey execution adapter", () => {
         expect(marketplace).toContain('role="status"');
         expect(marketplace).toContain('aria-label="Opportunity views"');
         expect(marketplace).toContain('decision: "SAVED" | "DISMISSED"');
-        expect(marketplace).not.toContain('const load = useCallback(async () => {\n    setBusy("load")');
+        expect(marketplace).not.toContain("useCallback");
+        expect(marketplace).toContain(".then(responseJson).then(body =>");
         const acceptance = generated.get("tests/acceptance/pbos-opportunity.spec.ts") ?? "";
         expect(acceptance).not.toContain('import { createClient } from "@supabase/supabase-js"');
         const migration = generated.get("supabase/migrations/202608050005_pbos_opportunity_journey.sql") ?? "";

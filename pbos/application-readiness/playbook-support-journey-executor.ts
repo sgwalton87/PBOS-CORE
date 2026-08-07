@@ -183,11 +183,18 @@ export async function POST(request: NextRequest) {
 
 const panelSource = `"use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type Workspace = { id: string; opportunity_name: string; status: string; deadline?: string | null };
 type Relationship = { id: string; supporter_name?: string | null; supporter_email: string; relationship: string };
 type SupportContext = { workspaces: Workspace[]; relationships: Relationship[]; categories: string[] };
+
+async function fetchSupportContext(): Promise<SupportContext> {
+  const response = await fetch("/api/pbos/application-support", { cache: "no-store" });
+  const result = await response.json() as SupportContext & { error?: string };
+  if (!response.ok) throw new Error(result.error ?? "Support options could not be loaded.");
+  return result;
+}
 
 export default function ApplicationSupportRequestPanel() {
   const [context, setContext] = useState<SupportContext>({ workspaces: [], relationships: [], categories: [] });
@@ -196,21 +203,23 @@ export default function ApplicationSupportRequestPanel() {
   const [loading, setLoading] = useState(true); const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState("Loading your application support options…"); const [error, setError] = useState("");
 
-  const load = useCallback(async () => {
-    try {
-      const response = await fetch("/api/pbos/application-support", { cache: "no-store" });
-      const result = await response.json() as SupportContext & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Support options could not be loaded.");
+  useEffect(() => { let active = true; void fetchSupportContext().then(result => { if (!active) return;
       setContext(result); setWorkspaceId(current => current || result.workspaces[0]?.id || "");
       setRelationshipId(current => current || result.relationships[0]?.id || "");
       setCategory(current => current || result.categories[0] || "RECOMMENDATION");
       setStatus(result.workspaces.length && result.relationships.length ? "Choose an application and authorized supporter."
         : "Create an application workspace and activate a support relationship before requesting help.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); }
-    finally { setLoading(false); }
-  }, []);
+    }).catch(cause => { if (active) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); } })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; }; }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  async function reload() { setLoading(true); setError(""); try { const result = await fetchSupportContext();
+      setContext(result); setWorkspaceId(current => current || result.workspaces[0]?.id || "");
+      setRelationshipId(current => current || result.relationships[0]?.id || ""); setCategory(current => current || result.categories[0] || "RECOMMENDATION");
+      setStatus(result.workspaces.length && result.relationships.length ? "Choose an application and authorized supporter."
+        : "Create an application workspace and activate a support relationship before requesting help.");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Support options could not be loaded."); setStatus(""); }
+    finally { setLoading(false); } }
 
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(""); setSubmitting(true); setStatus("Sending your governed support request…");
@@ -229,7 +238,7 @@ export default function ApplicationSupportRequestPanel() {
     <p style={{ color: "#B45309", fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase" }}>Authorized support</p>
     <h2 id="application-support-heading">Ask your support network for application help</h2>
     <p id="application-support-description">Only active relationships with support-task permission can receive this request.</p>
-    {error && <div role="alert" aria-live="assertive"><p>{error}</p><button type="button" onClick={() => void load()}>Try again</button></div>}
+    {error && <div role="alert" aria-live="assertive"><p>{error}</p><button type="button" onClick={() => void reload()}>Try again</button></div>}
     <p role="status" aria-live="polite">{status}</p>
     <form onSubmit={submit} aria-describedby="application-support-description" style={{ display: "grid", gap: 14, maxWidth: 720 }}>
       <label>Application workspace<select value={workspaceId} onChange={event => setWorkspaceId(event.target.value)} disabled={unavailable || submitting} required>

@@ -39,6 +39,8 @@ describe("CIP-048 reliable notification execution adapter", () => {
         expect(generated.get("app/api/notifications/route.ts")).toContain("digestQueued: true, idempotent: true");
         expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain("getDemoNotifications");
         expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain('const load=useCallback(async()=>{setLoading(true)');
+        expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain("useCallback");
+        expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).toContain("fetchNotifications().then(result=>");
         expect(generated.get("supabase/migrations/202608050009_pbos_notification_outbox.sql")).toContain("source_event_key");
         expect(generated.get("tests/acceptance/pbos-notifications.spec.ts")).toContain("EVENT-TO-ACKNOWLEDGED-NOTIFICATION");
         expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "EVENT-TO-ACKNOWLEDGED-NOTIFICATION",

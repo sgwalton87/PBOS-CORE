@@ -277,7 +277,7 @@ export async function DELETE(request: NextRequest) {
 
 const dashboardSource = `"use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { PlaybookCard, PlaybookGrid, PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage, PlaybookPill } from "@/components/ui";
 
 type Task = { id: string; title: string; due_at: string | null; status: "TODO" | "COMPLETE" };
@@ -285,6 +285,14 @@ type Document = { id: string; file_name: string; media_type: string; size_bytes:
 type Workspace = { id: string; opportunity_id: string; opportunity_name: string; opportunity_type: string; deadline: string | null;
   status: "building" | "ready" | "submitted"; delivery_state: "PENDING" | "DELIVERED";
   application_workspace_tasks: Task[]; application_workspace_documents: Document[] };
+type WorkspaceResponse = { workspaces?: Workspace[]; error?: string };
+
+async function fetchWorkspaces(): Promise<WorkspaceResponse> {
+  const response = await fetch("/api/application-workspaces", { cache: "no-store" });
+  const body = await response.json() as WorkspaceResponse;
+  if (!response.ok) throw new Error(body.error || "Unable to load application workspaces.");
+  return body;
+}
 
 export default function ApplicationWorkspaceDashboard() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]); const [busy, setBusy] = useState(false);
@@ -292,37 +300,40 @@ export default function ApplicationWorkspaceDashboard() {
   const [opportunityId, setOpportunityId] = useState(""); const [name, setName] = useState("");
   const [type, setType] = useState("scholarship"); const [deadline, setDeadline] = useState("");
 
-  const load = useCallback(async () => { const response = await fetch("/api/application-workspaces", { cache: "no-store" });
-    const body = await response.json() as { workspaces?: Workspace[]; error?: string }; if (!response.ok) throw new Error(body.error || "Unable to load application workspaces.");
-    setWorkspaces(body.workspaces ?? []); setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below."); }, []);
   useEffect(() => { const query = new URLSearchParams(window.location.search); const selectedId = query.get("opportunityId"); const selectedName = query.get("opportunityName");
     const selectedType = query.get("opportunityType"); const initialize = window.setTimeout(() => {
       if (selectedName) setName(selectedName); if (selectedId) setOpportunityId(selectedId);
       if (selectedType && ["college", "scholarship", "internship", "job", "recruiting", "nil", "mentor", "career", "summer_program", "competition", "grant", "volunteer", "research"].includes(selectedType)) setType(selectedType);
     }, 0);
-    load().catch(value => setError(value instanceof Error ? value.message : "Unable to load application workspaces."));
-    return () => window.clearTimeout(initialize); }, [load]);
+    let active = true;
+    void fetchWorkspaces().then(body => { if (!active) return; setWorkspaces(body.workspaces ?? []);
+      setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below.");
+    }).catch(value => { if (active) setError(value instanceof Error ? value.message : "Unable to load application workspaces."); });
+    return () => { active = false; window.clearTimeout(initialize); }; }, []);
+
+  async function refresh() { const body = await fetchWorkspaces(); setWorkspaces(body.workspaces ?? []);
+    setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below."); }
 
   async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(null); try {
     const response = await fetch("/api/application-workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
       opportunityId: opportunityId || "manual-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""), opportunityName: name,
       opportunityType: type, deadline: deadline || null, requestId: crypto.randomUUID() }) });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to create application workspace.");
-    setName(""); setDeadline(""); await load(); setMessage("Application workspace created and connected to PBOS.");
+    setName(""); setDeadline(""); await refresh(); setMessage("Application workspace created and connected to PBOS.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to create application workspace."); } finally { setBusy(false); } }
 
   async function transition(workspaceId: string, action: string, taskId?: string) { setBusy(true); setError(null); try {
     const response = await fetch("/api/application-workspaces", { method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ workspaceId, taskId, action, requestId: crypto.randomUUID() }) });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to update application workspace.");
-    await load(); setMessage(action === "APPLICATION_SUBMITTED" ? "Application marked submitted." : "Application task updated.");
+    await refresh(); setMessage(action === "APPLICATION_SUBMITTED" ? "Application marked submitted." : "Application task updated.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to update application workspace."); } finally { setBusy(false); } }
 
   async function upload(workspaceId: string, file?: File) { if (!file) return; setBusy(true); setError(null); try {
     const data = new FormData(); data.set("workspaceId", workspaceId); data.set("file", file);
     const response = await fetch("/api/application-workspaces/documents", { method: "POST", body: data });
     const body = await response.json() as { error?: string }; if (!response.ok) throw new Error(body.error || "Unable to upload document.");
-    await load(); setMessage("Private application document uploaded.");
+    await refresh(); setMessage("Private application document uploaded.");
   } catch (value) { setError(value instanceof Error ? value.message : "Unable to upload document."); } finally { setBusy(false); } }
 
   return <PlaybookPage>

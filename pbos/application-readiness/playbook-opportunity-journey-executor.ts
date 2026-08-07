@@ -288,7 +288,7 @@ export default function OpportunitiesPage() {
 
 const marketplaceSource = `"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type OpportunityStatus = "RECOMMENDED" | "SAVED" | "DISMISSED";
 type Match = { id: string; opportunityId: string; title: string; type: string; description: string; score: number;
@@ -306,15 +306,15 @@ export default function OpportunityMarketplace() {
   const [busy, setBusy] = useState<string | null>("load");
   const [message, setMessage] = useState("Loading your opportunity matches.");
 
-  const load = useCallback(async () => {
-    try {
-      const body = await responseJson(await fetch("/api/pbos/opportunities", { cache: "no-store" }));
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/pbos/opportunities", { cache: "no-store" }).then(responseJson).then(body => {
+      if (!active) return;
       setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");
-    } catch (error) { setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); }
-    finally { setBusy(null); }
+    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : "Opportunity loading failed."); })
+      .finally(() => { if (active) setBusy(null); });
+    return () => { active = false; };
   }, []);
-
-  useEffect(() => { void load(); }, [load]);
 
   async function discover() {
     setBusy("discover"); setMessage("PBOS is matching verified Scholar signals to opportunities.");

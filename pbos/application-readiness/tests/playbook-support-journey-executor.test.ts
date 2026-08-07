@@ -79,6 +79,8 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(panel).toContain('role="alert"');
         expect(panel).not.toContain("scholar-maya");
         expect(panel).not.toContain('const load = useCallback(async () => {\n    setLoading(true)');
+        expect(panel).not.toContain("useCallback");
+        expect(panel).toContain("fetchSupportContext().then(result =>");
         expect(generated.get("supabase/migrations/202608050007_pbos_application_support.sql")).toContain("enable row level security");
         expect(generated.get("pbos/readiness/048-support-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         const acceptance = generated.get("tests/acceptance/pbos-support.spec.ts") ?? "";
