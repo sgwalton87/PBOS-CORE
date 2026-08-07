@@ -221,7 +221,7 @@ export default function InboxV2() {
   const [status, setStatus] = useState("Loading governed conversations…"); const [error, setError] = useState("");
   const active = conversations.find(item => item.id === activeId) ?? conversations[0];
 
-  const load = useCallback(async () => { setLoading(true); setError("");
+  const load = useCallback(async () => {
     try { const response = await fetch("/api/support-network/messages", { cache: "no-store" });
       const result = await response.json() as { conversations?: Conversation[]; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Inbox could not be loaded.");

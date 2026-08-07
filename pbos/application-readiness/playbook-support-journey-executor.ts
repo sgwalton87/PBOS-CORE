@@ -197,7 +197,6 @@ export default function ApplicationSupportRequestPanel() {
   const [status, setStatus] = useState("Loading your application support options…"); const [error, setError] = useState("");
 
   const load = useCallback(async () => {
-    setLoading(true); setError(""); setStatus("Loading your application support options…");
     try {
       const response = await fetch("/api/pbos/application-support", { cache: "no-store" });
       const result = await response.json() as SupportContext & { error?: string };

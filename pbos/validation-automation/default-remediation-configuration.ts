@@ -2,13 +2,15 @@ import { GitHubRepositoryGateway } from "../platform";
 import { createBulletproofBlueprint, createPlaybookBlueprint } from "../reference-systems";
 import { ProjectRemediationProfileRegistry, RemediationPackRegistry } from "./remediation-pack-registry";
 import { EducationRemediationPack, LegacyPlanningRemediationPack, NextJsRemediationPack, NodeDependencyRemediationPack,
-    PlaywrightAcceptanceIsolationRemediationPack, SupabaseRemediationPack } from "./standard-remediation-packs";
+    OpportunityJourneyReactLintRemediationPack, PlaywrightAcceptanceIsolationRemediationPack,
+    SupabaseRemediationPack } from "./standard-remediation-packs";
 import { UniversalRemediationHandler } from "./universal-remediation-handler";
 
 export function createDefaultRemediationHandler(gateway: GitHubRepositoryGateway): UniversalRemediationHandler {
     const packs = new RemediationPackRegistry();
     [new NodeDependencyRemediationPack(), new NextJsRemediationPack(), new SupabaseRemediationPack(),
-        new LegacyPlanningRemediationPack(), new EducationRemediationPack(), new PlaywrightAcceptanceIsolationRemediationPack()]
+        new LegacyPlanningRemediationPack(), new EducationRemediationPack(), new PlaywrightAcceptanceIsolationRemediationPack(),
+        new OpportunityJourneyReactLintRemediationPack()]
         .forEach(pack => packs.register(pack));
     const projects = new ProjectRemediationProfileRegistry();
     projects.register({
@@ -30,7 +32,8 @@ export function createDefaultRemediationHandler(gateway: GitHubRepositoryGateway
             "@pbos/remediation-nextjs",
             "@pbos/remediation-supabase",
             "@pbos/remediation-education",
-            "@pbos/remediation-playwright-acceptance-isolation"
+            "@pbos/remediation-playwright-acceptance-isolation",
+            "@pbos/remediation-opportunity-react-lint"
         ],
         createBlueprint: createPlaybookBlueprint
     });

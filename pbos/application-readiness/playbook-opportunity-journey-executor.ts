@@ -307,7 +307,6 @@ export default function OpportunityMarketplace() {
   const [message, setMessage] = useState("Loading your opportunity matches.");
 
   const load = useCallback(async () => {
-    setBusy("load"); setMessage("Loading your opportunity matches.");
     try {
       const body = await responseJson(await fetch("/api/pbos/opportunities", { cache: "no-store" }));
       setMatches(body.matches ?? []); setMessage((body.matches ?? []).length ? "Opportunity matches loaded." : "No saved matches yet. Find matches to begin.");

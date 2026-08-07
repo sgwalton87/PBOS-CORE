@@ -177,9 +177,11 @@ function environment(definition: JourneyDefinition): readonly string[] {
 }
 
 function specification(definition: JourneyDefinition): string {
+    const supabaseAdminImport = definition.action.includes("createClient(")
+        ? 'import { createClient } from "@supabase/supabase-js";\n'
+        : "";
     return `import AxeBuilder from "@axe-core/playwright";
-import { createClient } from "@supabase/supabase-js";
-import { mkdir, writeFile } from "node:fs/promises";
+${supabaseAdminImport}import { mkdir, writeFile } from "node:fs/promises";
 import { test, expect } from "@playwright/test";
 
 const required = (name: string): string => {

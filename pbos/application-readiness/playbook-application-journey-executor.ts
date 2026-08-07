@@ -296,10 +296,12 @@ export default function ApplicationWorkspaceDashboard() {
     const body = await response.json() as { workspaces?: Workspace[]; error?: string }; if (!response.ok) throw new Error(body.error || "Unable to load application workspaces.");
     setWorkspaces(body.workspaces ?? []); setMessage((body.workspaces ?? []).length ? "Application workspaces loaded." : "No application workspace yet. Start with an opportunity below."); }, []);
   useEffect(() => { const query = new URLSearchParams(window.location.search); const selectedId = query.get("opportunityId"); const selectedName = query.get("opportunityName");
-    const selectedType = query.get("opportunityType"); if (selectedName) setName(selectedName);
-    if (selectedId) setOpportunityId(selectedId);
-    if (selectedType && ["college", "scholarship", "internship", "job", "recruiting", "nil", "mentor", "career", "summer_program", "competition", "grant", "volunteer", "research"].includes(selectedType)) setType(selectedType);
-    load().catch(value => setError(value instanceof Error ? value.message : "Unable to load application workspaces.")); }, [load]);
+    const selectedType = query.get("opportunityType"); const initialize = window.setTimeout(() => {
+      if (selectedName) setName(selectedName); if (selectedId) setOpportunityId(selectedId);
+      if (selectedType && ["college", "scholarship", "internship", "job", "recruiting", "nil", "mentor", "career", "summer_program", "competition", "grant", "volunteer", "research"].includes(selectedType)) setType(selectedType);
+    }, 0);
+    load().catch(value => setError(value instanceof Error ? value.message : "Unable to load application workspaces."));
+    return () => window.clearTimeout(initialize); }, [load]);
 
   async function create(event: FormEvent) { event.preventDefault(); setBusy(true); setError(null); try {
     const response = await fetch("/api/application-workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({

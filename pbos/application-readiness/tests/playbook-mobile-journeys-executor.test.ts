@@ -42,6 +42,7 @@ describe("CIP-049 native journey adapter", () => {
         expect(lockPrepared).toBe(true);
         expect(generated.get("apps/mobile/src/platform/auth.ts")).toContain("signInWithPassword");
         expect(generated.get("apps/mobile/src/features/offline-queue.ts")).toContain("class NativeMutationQueue");
+        expect(generated.get("apps/mobile/src/features/use-governed-resource.ts")).not.toContain("async()=>{setLoading(true)");
         expect(generated.get("apps/mobile/app/dashboard.tsx")).toContain("scholarMobileClient.dashboard");
         expect(generated.get("app/api/pbos/mobile/scholar/route.ts")).toContain("scholar_dashboard_projections");
         expect(generated.get("apps/mobile/scripts/native-acceptance.mjs")).toContain('"--platform", "ios"');

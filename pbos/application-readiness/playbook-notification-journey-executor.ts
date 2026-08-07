@@ -192,7 +192,7 @@ export default function NotificationCenter() {
   const [notifications,setNotifications]=useState<Notification[]>([]); const [preferences,setPreferences]=useState<Preference[]>([]);
   const [failures,setFailures]=useState<Failure[]>([]); const [filter,setFilter]=useState<Filter>("all");
   const [loading,setLoading]=useState(true); const [status,setStatus]=useState("Loading notifications…"); const [error,setError]=useState("");
-  const load=useCallback(async()=>{setLoading(true);setError("");try{const response=await fetch("/api/notifications",{cache:"no-store"});
+  const load=useCallback(async()=>{try{const response=await fetch("/api/notifications",{cache:"no-store"});
     const result=await response.json() as {notifications?:Notification[];preferences?:Preference[];failures?:Failure[];error?:string};
     if(!response.ok)throw new Error(result.error??"Notifications could not be loaded.");setNotifications(result.notifications??[]);
     setPreferences(result.preferences??[]);setFailures(result.failures??[]);setStatus("Notification state is current.");}

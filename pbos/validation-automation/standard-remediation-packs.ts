@@ -133,3 +133,43 @@ export default defineConfig({
         ] };
     }
 }
+
+/**
+ * Repairs the first opportunity-journey revision generated before the
+ * execution adapter became React 19 lint-safe. The pack is deliberately
+ * fingerprinted to the exact diagnostic and source path so it cannot rewrite
+ * unrelated effects. Future revisions are emitted correctly by the adapter.
+ */
+export class OpportunityJourneyReactLintRemediationPack implements RemediationPack {
+    readonly packId = "@pbos/remediation-opportunity-react-lint";
+    readonly version = "1.0.0";
+    readonly category = "QUALITY" as const;
+
+    supports(context: RemediationPackContext): boolean {
+        return context.failureText.includes("components/opportunity-marketplace/opportunitymarketplace.tsx") &&
+            context.failureText.includes("calling setstate synchronously within an effect") &&
+            context.failureText.includes("react-hooks/set-state-in-effect");
+    }
+
+    async remediate(): Promise<RemediationPackResult> {
+        return {
+            summary: `Apply ${this.packId}@${this.version}`,
+            files: [],
+            replacements: [
+                {
+                    path: "components/opportunity-marketplace/OpportunityMarketplace.tsx",
+                    search: `  const load = useCallback(async () => {
+    setBusy("load"); setMessage("Loading your opportunity matches.");
+    try {`,
+                    replacement: `  const load = useCallback(async () => {
+    try {`
+                },
+                {
+                    path: "tests/acceptance/pbos-opportunity.spec.ts",
+                    search: 'import { createClient } from "@supabase/supabase-js";\n',
+                    replacement: ""
+                }
+            ]
+        };
+    }
+}
