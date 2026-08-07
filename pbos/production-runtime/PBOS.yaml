@@ -15,4 +15,5 @@ contracts:
   - ExecutionLease
   - MissionQueueItem
   - PreviewManifest
+  - MissionControlApplicationPreview
 status: READY_FOR_VALIDATION

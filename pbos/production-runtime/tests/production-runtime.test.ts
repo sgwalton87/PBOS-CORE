@@ -242,6 +242,34 @@ describe("canonical PBOS production runtime", () => {
         expect(() => new GovernedPreviewPipeline().compile({ ...preview, experienceChanging: true, commit: "latest" })).toThrow(/exact/);
     });
 
+    it("projects separate exact-revision application previews and excludes simulated or stale lineage", () => {
+        const fixture = runtime();
+        fixture.state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001",
+            name: "The Playbook", domain: "Education", repository: "sgwalton87/playbook-platform",
+            defaultBranch: "main", status: "READY", capabilities: [] });
+        fixture.state.saveSystem({ systemId: "BULLETPROOF-SYSTEM-001", operatingSystemId: "BULLETPROOF-OS-001",
+            name: "Bulletproof Beneficiary", domain: "Legacy Planning",
+            repository: "vycoywalton/bulletproof-beneficiary-registry", defaultBranch: "main",
+            status: "READY", capabilities: [] });
+        const playbook = fixture.runtime.begin({ ...input, runId: "playbook-preview-run", commit: "aaaaaaa" });
+        const bulletproof = fixture.runtime.begin({ ...input, runId: "bulletproof-preview-run",
+            systemId: "BULLETPROOF-SYSTEM-001", repository: "vycoywalton/bulletproof-beneficiary-registry",
+            commit: "bbbbbbb" });
+        const manifest = (runId: string, repository: string, commit: string, previewId: string) => ({
+            previewId, runId, repository, branch: "agent/preview", commit, status: "READY" as const,
+            webUrl: `https://${previewId}.example.com`, mobileUrl: `https://expo.dev/${previewId}`,
+            routes: ["/"], personas: ["MEMBER"], viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
+            screenshots: [], generatedAt: "2026-08-06T00:00:00.000Z", label: "LIVE" as const });
+        fixture.runtime.recordPreview(manifest(playbook.runId, playbook.repository, playbook.currentCommit, "playbook"));
+        fixture.runtime.recordPreview(manifest(bulletproof.runId, bulletproof.repository, bulletproof.currentCommit, "bulletproof"));
+        fixture.runtime.recordPreview({ ...manifest(playbook.runId, playbook.repository, "ccccccc", "stale"), label: "SIMULATED" });
+
+        expect(fixture.runtime.snapshot().applicationPreviews).toMatchObject([
+            { systemId: "BULLETPROOF-SYSTEM-001", systemName: "Bulletproof Beneficiary", commit: "bbbbbbb" },
+            { systemId: "PLAYBOOK-SYSTEM-001", systemName: "The Playbook", commit: "aaaaaaa" }
+        ]);
+    });
+
     it("executes an eligible automated mission and stops before the next human approval boundary", async () => {
         const fixture = runtime();
         fixture.runtime.reconcileQueue(input.systemId, [

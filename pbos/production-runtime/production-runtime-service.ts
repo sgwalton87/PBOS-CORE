@@ -1,7 +1,7 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlSnapshot, MissionQueueItem,
+import { ApplicationAcceptanceEvidence, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
     PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
     RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
@@ -697,9 +697,28 @@ export class ProductionRuntimeService {
             activeStage: activeRun?.activeStageId ? this.state.productionStages(activeRun.runId).find(stage => stage.stageId === activeRun.activeStageId) : undefined,
             activeLease: activeRun ? this.activeLease(activeRun.runId) : undefined,
             lastRun: history.find(run => run.runId !== activeRun?.runId), history: history.slice(0, 20),
-            latestPreview: this.state.previewManifests(activeRun?.runId).at(-1) ?? this.state.previewManifests().at(-1), nextMission: queue.next(items),
+            latestPreview: this.state.previewManifests(activeRun?.runId).at(-1) ?? this.state.previewManifests().at(-1),
+            applicationPreviews: this.applicationPreviews(), nextMission: queue.next(items),
             recentEvents: this.state.productionEvents(activeRun?.runId).slice(-100), health: this.health(), metrics: this.metrics(),
             generatedAt: this.now().toISOString(), sourceVersion: "PBOS-PRODUCTION-RUNTIME-1" };
+    }
+
+    applicationPreviews(): readonly MissionControlApplicationPreview[] {
+        const runs = new Map(this.state.productionRuns().map(run => [run.runId, run]));
+        const systems = new Map(this.state.systems().map(system => [system.systemId, system]));
+        const latest = new Map<string, MissionControlApplicationPreview>();
+        this.state.previewManifests().forEach(preview => {
+            const run = runs.get(preview.runId);
+            if (!run || preview.status !== "READY" || !["LIVE", "SEEDED"].includes(preview.label) ||
+                preview.repository !== run.repository || preview.commit !== run.currentCommit ||
+                (!preview.webUrl && !preview.mobileUrl)) return;
+            const system = systems.get(run.systemId);
+            latest.set(run.systemId, { systemId: run.systemId, systemName: system?.name ?? run.systemId,
+                repository: run.repository, runId: run.runId, commit: run.currentCommit, status: "READY",
+                label: preview.label as "LIVE" | "SEEDED", webUrl: preview.webUrl, mobileUrl: preview.mobileUrl,
+                generatedAt: preview.generatedAt });
+        });
+        return [...latest.values()].sort((left, right) => left.systemName.localeCompare(right.systemName));
     }
 
     private acquireLease(run: ProductionRun): ExecutionLease {

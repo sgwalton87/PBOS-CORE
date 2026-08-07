@@ -39,7 +39,10 @@ import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlay
 import { RepositoryInspection } from "../platform";
 import { MissionQueueItem, ProductionRun } from "../production-runtime";
 import { ConstitutionalAuthorityLoader } from "../boot";
-import { ecosystemIsolationExecutor, ecosystemPlatformEvidenceExecutor, inspectEcosystemEvidenceReadiness } from "../ecosystem-certification";
+import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
+    ecosystemIsolationExecutor, ecosystemPlatformCertificationResource, ecosystemPlatformEvidenceExecutor,
+    ecosystemSystemCertificationResource, inspectEcosystemEvidenceReadiness,
+    inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
 
 interface LocalProfile { readonly operatorId: string; readonly credential: string; readonly organizationId: string; readonly githubLogin: string; }
 const stateRoot = process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos");
@@ -276,6 +279,55 @@ export async function promptForInlinePlatformCertification(io: TerminalIO,
     runner.certify(run.runId, approval.approvalId);
     io.write(`[CERTIFIED] ${mission.title}`);
     io.write("PBOS CONTINUES: no pull request or application merge was invented for this platform-owned proof.");
+    return true;
+}
+
+function durableEcosystemApproval(services: MissionApprovalServices, action: string,
+    resource: string): VerifiableApproval | undefined {
+    for (const event of [...services.state.audit()].reverse()) {
+        const approval = event.evidence.approval as VerifiableApproval | undefined;
+        if (event.type === "VERIFIABLE_APPROVAL" && event.resource === resource &&
+            event.evidence.purpose === action && approval &&
+            services.identities.verify(approval, action, resource)) return approval;
+    }
+    return undefined;
+}
+
+export async function promptForEcosystemCertificationApprovals(io: TerminalIO,
+    services: MissionApprovalServices): Promise<boolean> {
+    const scopes = REFERENCE_SYSTEMS.flatMap(system => [
+        { action: "CERTIFY_ECOSYSTEM_SYSTEM", resource: ecosystemSystemCertificationResource(system.systemId),
+            label: `${system.name} system certification` },
+        ...ECOSYSTEM_CERTIFICATION_PLATFORMS.map(platform => ({ action: "CERTIFY_ECOSYSTEM_PLATFORM",
+            resource: ecosystemPlatformCertificationResource(system.systemId, platform),
+            label: `${system.name} ${platform} release authority` }))
+    ]);
+    const missing = scopes.filter(scope => !durableEcosystemApproval(services, scope.action, scope.resource));
+    if (!missing.length) {
+        io.write("Independent ecosystem approvals are already signed and verifiable.");
+        return true;
+    }
+    io.write("");
+    io.write("PBOS INDEPENDENT ECOSYSTEM APPROVAL CHECKPOINT");
+    io.write("This creates a separate signed decision for each application and each web, iOS, and Android release boundary:");
+    missing.forEach(scope => io.write(`- ${scope.label}`));
+    io.write("These approvals do not merge code, submit public releases, modify secrets, or deploy production.");
+    const answer = (await io.prompt(`Authorize these ${missing.length} independent certification decisions now? [y/N] `))
+        .trim().toLowerCase();
+    if (answer !== "y" && answer !== "yes") {
+        io.write("No ecosystem certification approval was issued. The final mission remains queued.");
+        return false;
+    }
+    missing.forEach(scope => {
+        const approval = services.identities.approve(services.operator, scope.action, scope.resource, 30);
+        if (!services.identities.verify(approval, scope.action, scope.resource)) {
+            throw new Error(`Ecosystem approval signature verification failed for ${scope.label}.`);
+        }
+        services.state.appendAudit({ eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL",
+            actorId: services.operator.operatorId, resource: scope.resource, occurredAt: approval.issuedAt,
+            evidence: { approval, purpose: scope.action, label: scope.label } });
+        io.write(`[APPROVED] ${scope.label} — ${approval.approvalId}`);
+    });
     return true;
 }
 
@@ -621,6 +673,22 @@ async function runNextProductionMission(target?: string): Promise<number> {
         }
         stdout.write(`[PREREQUISITE] CIP-050 two-system platform evidence ready (${readiness.status}); exact repository lineage will now be verified.\n`);
     }
+    if (next.missionId === "050-certification") {
+        const readiness = inspectEcosystemFinalCertificationReadiness({ state: services.state,
+            verifyApproval: (historical, action, resource) =>
+                services.identities.verify(historical, action, resource, new Date(historical.issuedAt)) });
+        if (!readiness.ready) {
+            stdout.write("[PREREQUISITE] CIP-050 final ecosystem certification cannot start.\n");
+            readiness.missing.forEach(item => stdout.write(`- ${item}\n`));
+            stdout.write("No final approval was consumed and no repository was changed.\n");
+            stdout.write("NEXT PBOS STEP: complete the named exact-revision preview or certified-isolation evidence, then rerun the same command.\n");
+            return 2;
+        }
+        const io = new NodeTerminalIO();
+        try {
+            if (!await promptForEcosystemCertificationApprovals(io, services)) return 0;
+        } finally { io.close(); }
+    }
     let missionApproval = durableMissionApproval(services, next);
     if (next.approvalRequired && !missionApproval) {
         const io = new NodeTerminalIO();
@@ -721,7 +789,11 @@ async function runNextProductionMission(target?: string): Promise<number> {
         .register("PLAYBOOK-SYSTEM-001", "050-platform-evidence", () => ecosystemPlatformEvidenceExecutor({
             gateway: services.gateway, state: services.state }))
         .register("PLAYBOOK-SYSTEM-001", "050-isolation", () => ecosystemIsolationExecutor({
-            gateway: services.gateway, state: services.state }));
+            gateway: services.gateway, state: services.state }))
+        .register("PLAYBOOK-SYSTEM-001", "050-certification", () => ecosystemFinalCertificationExecutor({
+            gateway: services.gateway, state: services.state,
+            verifyApproval: (historical, action, resource) =>
+                services.identities.verify(historical, action, resource, new Date(historical.issuedAt)) }));
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,

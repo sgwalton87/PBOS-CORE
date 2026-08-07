@@ -2,7 +2,7 @@
 
 ## Status
 
-FRAMEWORK READY — APPLICATION EVIDENCE AND HUMAN CERTIFICATION PENDING
+FINAL CERTIFICATION ADAPTER READY — EXACT-REVISION APPLICATION PREVIEWS AND HUMAN CERTIFICATION PENDING
 
 ## Purpose
 
@@ -59,8 +59,26 @@ application, repository, brand, data-ownership, and release-authority
 boundaries. Passing automation stops at a distinct human platform-evidence
 certification checkpoint; it does not create a synthetic pull request.
 
+The final `050-certification` mission remains PBOS-owned and fail-closed. Mission
+Control now projects the latest valid preview independently for every registered
+system by joining the preview manifest to its production run and exact commit.
+Simulated, nonvisual, stale-commit, and cross-repository manifests cannot become
+application launch actions. Both The Playbook and Bulletproof must expose their
+own desktop web and mobile URLs before final certification can start.
+
+At the final checkpoint, PBOS creates eight distinct signed decisions: one
+system certification and separate web, iOS, and Android release-boundary
+approvals for each application. The final adapter verifies those signatures,
+the previously certified isolation run, the unchanged candidate digest, both
+governed repository revisions, and both application preview surfaces. Only then
+can it write `CIP_050_ECOSYSTEM_CERTIFIED` to the durable audit ledger. These
+decisions do not merge code, submit an app store release, or deploy production.
+
 The command may produce `NOT_READY`, `READY_FOR_HUMAN_CERTIFICATION`, or `CERTIFIED`. The automated platform-evidence mission can complete only for the latter two states. The final state is possible only when both independent human certification identifiers are present and every earlier evidence gate is satisfied.
 
 ## Current decision
 
-CIP-050 is not yet certified. The framework and tests are prepared for human validation. Application implementation, web deployment, device builds, testing-channel results, platform approvals, and separate final certification decisions remain outstanding.
+CIP-050 is not yet certified. The final adapter and tests are prepared for human
+validation. Real exact-revision preview URLs for both independent applications,
+their signed application/platform decisions, and the distinct final mission
+certification remain required.

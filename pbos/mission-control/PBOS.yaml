@@ -6,4 +6,5 @@ owner: pbos/mission-control
 source: PBOS-PRODUCTION-RUNTIME-001
 transport: authenticated-local-polling
 bind: 127.0.0.1
+application-preview-authority: exact-revision-live-or-seeded-manifests
 status: READY_FOR_VALIDATION

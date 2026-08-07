@@ -4,7 +4,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
 import { durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
-    promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
+    promptForEcosystemCertificationApprovals, promptForMissionApproval, streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
@@ -200,6 +200,25 @@ describe("partner-ready CLI durable state", () => {
         expect(state.missionQueue(mission.systemId).find(item => item.missionId === mission.missionId)?.status).toBe("COMPLETE");
         expect(state.audit().at(-1)?.evidence).toMatchObject({ purpose: "CERTIFY_PRODUCTION_MISSION" });
         expect(io.output.join("\n")).toContain("no pull request or application merge was invented");
+    });
+
+    it("issues distinct signed application and platform decisions for final ecosystem certification", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-cli-ecosystem-approvals-"));
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const identities = new OperatorIdentityService(join(root, "operators.json"));
+        const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+        const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+        const io = new ApprovalIO("yes");
+
+        expect(await promptForEcosystemCertificationApprovals(io, { state, identities, operator })).toBe(true);
+
+        const approvals = state.audit().filter(item => item.type === "VERIFIABLE_APPROVAL");
+        expect(approvals).toHaveLength(8);
+        expect(new Set(approvals.map(item => item.eventId)).size).toBe(8);
+        expect(approvals.filter(item => item.evidence.purpose === "CERTIFY_ECOSYSTEM_SYSTEM")).toHaveLength(2);
+        expect(approvals.filter(item => item.evidence.purpose === "CERTIFY_ECOSYSTEM_PLATFORM")).toHaveLength(6);
+        expect(io.output.join("\n")).toContain("The Playbook WEB release authority");
+        expect(io.output.join("\n")).toContain("Bulletproof Beneficiary ANDROID release authority");
     });
 
     it("keeps same-terminal telemetry attached until validation reaches human approval", async () => {

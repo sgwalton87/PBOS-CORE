@@ -382,6 +382,19 @@ export interface PreviewManifest {
     readonly label: "LIVE" | "SEEDED" | "SIMULATED" | "NONVISUAL";
 }
 
+export interface MissionControlApplicationPreview {
+    readonly systemId: string;
+    readonly systemName: string;
+    readonly repository: string;
+    readonly runId: string;
+    readonly commit: string;
+    readonly status: "READY";
+    readonly label: "LIVE" | "SEEDED";
+    readonly webUrl?: string;
+    readonly mobileUrl?: string;
+    readonly generatedAt: string;
+}
+
 export interface RuntimeHealthReport {
     readonly health: RuntimeHealth;
     readonly checkedAt: string;
@@ -412,6 +425,7 @@ export interface MissionControlSnapshot {
     readonly lastRun?: ProductionRun;
     readonly history: readonly ProductionRun[];
     readonly latestPreview?: PreviewManifest;
+    readonly applicationPreviews: readonly MissionControlApplicationPreview[];
     readonly nextMission?: MissionQueueItem;
     readonly recentEvents: readonly ProductionEvent[];
     readonly health: RuntimeHealthReport;
