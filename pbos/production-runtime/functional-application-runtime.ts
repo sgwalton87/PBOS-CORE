@@ -146,6 +146,18 @@ function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
         (executable === "corepack" && ["pnpm", "yarn"].includes(action) && command.args[1] === "install");
 }
 
+const DEPENDENCY_BOOTSTRAP_TIMEOUT_MS = 900_000;
+
+function normalizeDependencyBootstrap(command: FunctionalRuntimeCommand): FunctionalRuntimeCommand {
+    if (!isDependencyBootstrap(command)) return command;
+    const executable = command.command.split("/").at(-1);
+    const npmCleanInstall = executable === "npm" && command.args[0] === "ci";
+    const args = npmCleanInstall
+        ? [...command.args, ...["--no-audit", "--no-fund"].filter(flag => !command.args.includes(flag))]
+        : command.args;
+    return { ...command, args, timeoutMs: Math.max(command.timeoutMs ?? 0, DEPENDENCY_BOOTSTRAP_TIMEOUT_MS) };
+}
+
 /**
  * Restores reproducible dependency preparation for durable plans created by an
  * older PBOS revision. A Node application may never advance to launch merely
@@ -153,16 +165,16 @@ function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
  */
 export async function resolveFunctionalPrerequisites(
     plan: FunctionalAcceptancePlan): Promise<readonly FunctionalRuntimeCommand[]> {
-    const configured = [...(plan.prerequisites ?? [])];
+    const configured = [...(plan.prerequisites ?? [])].map(normalizeDependencyBootstrap);
     if (configured.some(isDependencyBootstrap)) return configured;
     if (!await exists(join(plan.workingDirectory, "package.json")) ||
         !["npm", "npx", "pnpm", "yarn", "bun"].includes(plan.launch.command.split("/").at(-1) ?? "")) {
         return configured;
     }
-    const timeoutMs = 300_000;
+    const timeoutMs = DEPENDENCY_BOOTSTRAP_TIMEOUT_MS;
     if (await exists(join(plan.workingDirectory, "package-lock.json")) ||
         await exists(join(plan.workingDirectory, "npm-shrinkwrap.json"))) {
-        return [{ command: "npm", args: ["ci"], timeoutMs }, ...configured];
+        return [{ command: "npm", args: ["ci", "--no-audit", "--no-fund"], timeoutMs }, ...configured];
     }
     if (await exists(join(plan.workingDirectory, "pnpm-lock.yaml"))) {
         return [{ command: "corepack", args: ["pnpm", "install", "--frozen-lockfile"], timeoutMs }, ...configured];
@@ -417,16 +429,25 @@ export class FunctionalApplicationRuntime {
                 ...(plan.nativeJourneys ?? []).map(journey => journey.command)],
             plan.protectedEnvironmentFiles);
         for (const prerequisite of prerequisites) {
+            const prerequisiteStartedAt = Date.now();
+            const timeoutMs = prerequisite.timeoutMs ?? 300_000;
             try {
                 await promisify(execFile)(prerequisite.command, [...prerequisite.args], {
                     cwd: plan.workingDirectory, env: runtimeEnvironment,
-                    timeout: prerequisite.timeoutMs ?? 300_000, maxBuffer: 10 * 1024 * 1024
+                    timeout: timeoutMs, maxBuffer: 10 * 1024 * 1024
                 });
             } catch (error) {
-                const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number };
-                const output = `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`.trim().slice(-8_000);
+                const failure = error as Error & { stdout?: string; stderr?: string; code?: string | number;
+                    killed?: boolean; signal?: NodeJS.Signals };
+                const protectedNames = prerequisite.requiredEnvironmentVariables ?? [];
+                const output = redactFunctionalRuntimeOutput(
+                    `${failure.stdout ?? ""}\n${failure.stderr ?? ""}`.trim().slice(-8_000),
+                    runtimeEnvironment, protectedNames);
+                const elapsedMs = Date.now() - prerequisiteStartedAt;
+                const timedOut = failure.killed === true || failure.signal === "SIGTERM" || elapsedMs >= timeoutMs - 1_000;
                 throw new Error(`Functional prerequisite failed: ${prerequisite.command} ${prerequisite.args.join(" ")}` +
-                    `${failure.code === undefined ? "" : ` (exit ${failure.code})`}${output ? `\n${output}` : ""}`);
+                    `${timedOut ? ` (timed out after ${timeoutMs}ms)` : failure.code === undefined ? "" : ` (exit ${failure.code})`}` +
+                    `${output ? `\n${output}` : ""}`);
             }
         }
         await assertLocalLaunchExecutable(plan);

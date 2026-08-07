@@ -258,7 +258,7 @@ export async function playbookConnectedJourneyAcceptancePlan(gateway: GitHubRepo
         journeyId: definition.journeyId, repository: "sgwalton87/playbook-platform", branch, commit: revision,
         workingDirectory, protectedEnvironmentFiles: playbookScholarProtectedEnvironmentFiles(workingDirectory),
         prerequisites: [
-            { command: "npm", args: ["ci"], timeoutMs: 300_000 },
+            { command: "npm", args: ["ci", "--no-audit", "--no-fund"], timeoutMs: 900_000 },
             { command: "npm", args: ["run", "pbos:acceptance:prepare"], timeoutMs: 300_000 }
         ],
         minimumFreeBytes: 1024 * 1024 * 1024,
