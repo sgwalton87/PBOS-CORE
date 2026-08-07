@@ -254,6 +254,36 @@ export class ProductionRuntimeService {
     }
 
     /**
+     * Attaches a newly prepared repository repair to an authorized recovery epoch.
+     * The existing production run and mission remain authoritative; only their
+     * repository position and functional plan advance to the governed repair.
+     */
+    registerRecoveryRemediation(runId: string, remediationRunId: string, branch: string, commit: string,
+        classification: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const remediation = this.state.remediationRun(remediationRunId);
+        const epoch = run.activeRecoveryEpochId
+            ? this.state.productionRecoveryEpoch(run.activeRecoveryEpochId) : undefined;
+        const budget = this.repairBudget(runId);
+        if (run.status !== "BLOCKED" || !epoch || epoch.status !== "ACTIVE" || epoch.runId !== runId ||
+            budget.remaining < 1 || !remediation || remediation.systemId !== run.systemId ||
+            remediation.pullRequest.repository !== run.repository || remediation.pullRequest.branch !== branch ||
+            run.evidenceIds.includes(`remediation-run:${remediationRunId}`) ||
+            !/^[a-f0-9]{7,40}$/i.test(commit) || !classification.trim()) {
+            throw new Error("Recovery remediation does not match an active authorized production epoch.");
+        }
+        const linked: ProductionRun = { ...run,
+            evidenceIds: [...new Set([...run.evidenceIds, `remediation-run:${remediationRunId}`])],
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(linked);
+        this.event(linked, "RECOVERY_REMEDIATION_REGISTERED",
+            "A governed repository repair was attached to the existing production mission.", {
+                recoveryEpochId: epoch.recoveryEpochId, remediationRunId, branch, commit, classification
+            });
+        return this.rebindRepositoryAfterRemediation(runId, remediationRunId, branch, commit);
+    }
+
+    /**
      * Repairs nested acceptance lineage in durable plans written by older PBOS
      * revisions. This does not authorize a new revision: it may only make the
      * plan agree with the already-governed current repository position.

@@ -1,8 +1,8 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookAcademicAcceptanceFiles, playbookAcademicAcceptancePlan } from "./playbook-academic-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -42,7 +42,13 @@ export interface PlaybookAcademicJourneyExecutorDependencies {
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
 }
 
-const academicServiceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
+export interface PlaybookAcademicJourneyRecoveryDependencies extends PlaybookAcademicJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerRecoveryRemediation">;
+    readonly recoveryDefects?: readonly string[];
+}
+
+const academicServiceSource = `import { createHash } from "crypto";
+import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
 import { authorizePlaybookFoundation } from "./foundation";
 
 export const TRANSCRIPT_MEDIA_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"] as const;
@@ -64,6 +70,13 @@ export interface AcademicJourneyRuntime {
   publish(identity: PlaybookIdentityMapping, evidenceId: string, readinessScore: number, correlationId: string): Promise<readonly string[]>;
 }
 
+export function academicPublicationIdempotencyKey(identityMappingId: string, evidenceId: string, readinessScore: number): string {
+  const payload = { operation: "PUBLISH_LIFECYCLE_EVENT", connectorId: "PLAYBOOK-CONNECTOR-001",
+    domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", purpose: "Publish approved academic readiness evidence.",
+    identityMappingId, evidenceId, eventType: "ACADEMIC_READINESS_UPDATED", schemaVersion: "1.0.0", readinessScore };
+  return "academic-publish-" + createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
+}
+
 export class AcademicTranscriptJourneyService {
   constructor(private readonly repository: AcademicJourneyRepository, private readonly runtime: AcademicJourneyRuntime) {}
 
@@ -75,7 +88,8 @@ export class AcademicTranscriptJourneyService {
     const baseProvenance = [...authority.provenance, identity.pbosIdentity.provenance];
     const evidence = await this.repository.saveEvidence({ ownerId: input.ownerId, readinessScore: input.readinessScore,
       agUpdates: input.agUpdates, idempotencyKey: input.idempotencyKey, provenance: baseProvenance });
-    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, input.idempotencyKey);
+    const publicationIdempotencyKey = academicPublicationIdempotencyKey(identity.mappingId, evidence.evidenceId, input.readinessScore);
+    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, publicationIdempotencyKey);
     const provenance = [...baseProvenance, ...runtimeProvenance, input.approvalId];
     await this.repository.completeEvidence({ ownerId: input.ownerId, evidenceId: evidence.evidenceId, provenance });
     return { evidenceId: evidence.evidenceId, readinessScore: input.readinessScore, provenance };
@@ -185,17 +199,19 @@ import { AcademicTranscriptJourneyService, validateTranscriptInput } from "../..
 describe("authenticated transcript-to-readiness journey", () => {
   it("persists owner-scoped evidence and PBOS provenance", async () => {
     const calls: string[] = [];
-    const service = new AcademicTranscriptJourneyService({ saveEvidence: async input => { calls.push(input.ownerId); return { evidenceId: "evidence-1" }; },
+    const service = new AcademicTranscriptJourneyService({ saveEvidence: async input => { calls.push(input.ownerId, "save:" + input.idempotencyKey); return { evidenceId: "evidence-1" }; },
       completeEvidence: async input => { calls.push("complete:" + input.evidenceId); } }, {
       registerIdentity: async userId => ({ mappingId: "mapping", externalIdentity: { externalIdentityId: userId,
         externalSystemId: "PLAYBOOK-SYSTEM-001", role: "SCHOLAR", authorityReferences: [], active: true },
         pbosIdentity: { actorId: "PLAYBOOK-ACTOR-" + userId, systemId: "PLAYBOOK-OS-001", role: "SCHOLAR",
           authorityContext: [], provenance: "identity:" + userId, active: true }, mappedAt: new Date() }),
-      publish: async () => ["pbos:academic"]
+      publish: async (_identity, _evidenceId, _score, correlationId) => { calls.push("publish:" + correlationId); return ["pbos:academic"]; }
     });
     const result = await service.complete({ actorId: "scholar-1", ownerId: "scholar-1", approvalId: "approval-1",
       readinessScore: 82, agUpdates: 7, idempotencyKey: "transcript-1" });
-    expect(calls).toEqual(["scholar-1", "complete:evidence-1"]);
+    expect(calls.slice(0, 2)).toEqual(["scholar-1", "save:transcript-1"]);
+    expect(calls[2]).toMatch(/^publish:academic-publish-[a-f0-9]{24}$/);
+    expect(calls[3]).toBe("complete:evidence-1");
     expect(result.provenance).toEqual(expect.arrayContaining(["approval-1", "pbos:academic"]));
   });
 
@@ -226,7 +242,7 @@ const guide = `# Transcript-to-Academic-Readiness Journey
 
 This journey replaces browser-supplied identity and service-role mutation with authenticated, owner-scoped Supabase access. It validates transcript size and media type, extracts A-G evidence, persists seven owner-scoped readiness records, computes academic intelligence, records durable evidence, and publishes a server-signed PBOS lifecycle event.
 
-The browser never supplies the record owner. Connector credentials and the academic journey approval remain server-only. Missing identity, authority, configuration, supported media, durable persistence, or PBOS acceptance fails closed.
+The browser never supplies the record owner. Connector credentials and the academic journey approval remain server-only. Durable transcript storage uses a transcript-content idempotency key; PBOS lifecycle publication uses a separate key bound to the exact derived readiness payload. Missing identity, authority, configuration, supported media, durable persistence, or PBOS acceptance fails closed.
 
 Completion requires independent typecheck, tests, lint, production build, accessible transcript loading/error/recovery states, and human certification of the exact pull-request revision.
 `;
@@ -252,6 +268,103 @@ export function wireTranscriptUploadCard(source: string): string {
         .replace("    setBusy(true);", `    if (file.size > 12 * 1024 * 1024) { setStatus("Transcript must be 12 MB or smaller."); return; }\n\n    setBusy(true);`)
         .replace(body, 'body: JSON.stringify({ base64, mediaType: file.type || "application/pdf" }),')
         .replace(status, '<p role="status" aria-live="polite" style={statusStyle}>{status}</p>');
+}
+
+const academicServiceImport = 'import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";';
+const academicServiceClass = "export class AcademicTranscriptJourneyService {";
+const academicPublicationCall = "    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, input.idempotencyKey);";
+const academicPublicationHelper = `export function academicPublicationIdempotencyKey(identityMappingId: string, evidenceId: string, readinessScore: number): string {
+  const payload = { operation: "PUBLISH_LIFECYCLE_EVENT", connectorId: "PLAYBOOK-CONNECTOR-001",
+    domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", purpose: "Publish approved academic readiness evidence.",
+    identityMappingId, evidenceId, eventType: "ACADEMIC_READINESS_UPDATED", schemaVersion: "1.0.0", readinessScore };
+  return "academic-publish-" + createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 24);
+}
+
+`;
+
+/** Preserves the inspected application service while routing PBOS publication through its own exact-payload key. */
+export function wireAcademicServicePublicationIdempotency(source: string): string {
+    if (source.includes("academicPublicationIdempotencyKey")) return source;
+    if (!source.includes(academicServiceImport) || !source.includes(academicServiceClass) ||
+        !source.includes(academicPublicationCall)) {
+        throw new Error("Playbook academic service changed; re-inspect before repairing publication idempotency.");
+    }
+    return source
+        .replace(academicServiceImport, `import { createHash } from "crypto";\n${academicServiceImport}`)
+        .replace(academicServiceClass, `${academicPublicationHelper}${academicServiceClass}`)
+        .replace(academicPublicationCall,
+            "    const publicationIdempotencyKey = academicPublicationIdempotencyKey(identity.mappingId, evidence.evidenceId, input.readinessScore);\n" +
+            "    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, publicationIdempotencyKey);");
+}
+
+export function wireAcademicTestPublicationIdempotency(source: string): string {
+    if (source.includes("publish:academic-publish-")) return source;
+    if (!source.includes('publish: async () => ["pbos:academic"]') ||
+        !source.includes('expect(calls).toEqual(["scholar-1", "complete:evidence-1"]);')) {
+        throw new Error("Playbook academic test changed; re-inspect before repairing publication idempotency.");
+    }
+    return source
+        .replace('calls.push(input.ownerId); return { evidenceId: "evidence-1" };',
+            'calls.push(input.ownerId, "save:" + input.idempotencyKey); return { evidenceId: "evidence-1" };')
+        .replace('publish: async () => ["pbos:academic"]',
+            'publish: async (_identity, _evidenceId, _score, correlationId) => { calls.push("publish:" + correlationId); return ["pbos:academic"]; }')
+        .replace('expect(calls).toEqual(["scholar-1", "complete:evidence-1"]);',
+            'expect(calls.slice(0, 2)).toEqual(["scholar-1", "save:transcript-1"]);\n' +
+            '    expect(calls[2]).toMatch(/^publish:academic-publish-[a-f0-9]{24}$/);\n' +
+            '    expect(calls[3]).toBe("complete:evidence-1");');
+}
+
+export function isAcademicPublicationIdempotencyDefect(run: ProductionRun, recoveryDefects: readonly string[] = []): boolean {
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete transcript-to-academic-readiness journey" &&
+        [run.terminalSummary, ...run.blockers, ...recoveryDefects]
+            .some(value => value?.includes("Idempotency key reused with a different request."));
+}
+
+/**
+ * Creates a new governed recovery PR while preserving the original production
+ * run, mission, repair history, recovery epoch, and exact repository lineage.
+ */
+export async function preparePlaybookAcademicIdempotencyRecovery(dependencies: PlaybookAcademicJourneyRecoveryDependencies,
+    run: ProductionRun): Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (!isAcademicPublicationIdempotencyDefect(run, dependencies.recoveryDefects) ||
+        run.status !== "BLOCKED" || !run.activeRecoveryEpochId) {
+        throw new Error("The production run is not eligible for the Playbook academic idempotency recovery adapter.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) {
+        throw new Error("The active Genesis session does not authorize Playbook academic recovery.");
+    }
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, "main");
+    const branch = `agent/pbos-playbook-system-001-048-academic-recovery-${run.activeRecoveryEpochId.slice(0, 8)}`;
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"], ["OPEN_DRAFT_PR", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Academic recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const [service, tests] = await Promise.all([
+        dependencies.gateway.readFileAtRevision(reference, "lib/pbos/academic-transcript-journey.ts", inspection.revision),
+        dependencies.gateway.readFileAtRevision(reference, "tests/unit/pbos/academic-transcript-journey.test.ts", inspection.revision)
+    ]);
+    const files: readonly RepositoryFileChange[] = [
+        { path: "lib/pbos/academic-transcript-journey.ts", content: wireAcademicServicePublicationIdempotency(service) },
+        { path: "tests/unit/pbos/academic-transcript-journey.test.ts", content: wireAcademicTestPublicationIdempotency(tests) }
+    ];
+    await dependencies.gateway.createBranch(reference, branch, inspection.revision);
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: separate academic publication idempotency", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const pullRequest = await dependencies.gateway.openDraftPullRequest(reference, branch,
+        "fix: separate academic publication idempotency",
+        `PBOS Recovery Authority preserves transcript persistence idempotency while binding lifecycle publication to the exact derived payload.\n\nExisting mission: \`048-academic-journey\`\nRecovery epoch: \`${run.activeRecoveryEpochId}\`\nBase revision: \`${inspection.revision}\`\nRepair revision: \`${revision}\`\n\nCertification and merge remain human-controlled.`);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
+    dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
+        "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
+    return { branch, revision, remediation };
 }
 
 function changes(revision: string, runId: string, uploadCard: string, packageSource: string): readonly RepositoryFileChange[] {

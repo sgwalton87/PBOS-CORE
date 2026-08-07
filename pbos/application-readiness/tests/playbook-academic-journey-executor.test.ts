@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { playbookAcademicJourneyExecutor, wireTranscriptUploadCard } from "../playbook-academic-journey-executor";
+import { playbookAcademicJourneyExecutor, preparePlaybookAcademicIdempotencyRecovery,
+    wireAcademicServicePublicationIdempotency,
+    wireAcademicTestPublicationIdempotency, wireTranscriptUploadCard } from "../playbook-academic-journey-executor";
 
 const uploadCard = `import { supabase } from "@/lib/supabaseClient";
 async function handleFile(file?: File) {
@@ -89,6 +91,68 @@ describe("CIP-048 academic journey execution adapter", () => {
 
     it("fails closed when the governed transcript UI no longer matches the inspected source", () => {
         expect(() => wireTranscriptUploadCard("changed component")).toThrow("re-inspect");
+    });
+
+    it("separates transcript persistence from exact-payload PBOS publication inside the domain service", () => {
+        const service = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";\n` +
+            `export class AcademicTranscriptJourneyService {\n` +
+            `async complete(input: { actorId: string; ownerId: string; approvalId: string; readinessScore: number; agUpdates: number; idempotencyKey: string }) {\n` +
+            `    if (!input.idempotencyKey.trim()) throw new Error("Academic journey idempotency key required.");\n` +
+            `    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, input.idempotencyKey);\n}`;
+        const tests = `publish: async () => ["pbos:academic"]\n` +
+            `readinessScore: 82, agUpdates: 7, idempotencyKey: "transcript-1" });\n` +
+            `expect(calls).toEqual(["scholar-1", "complete:evidence-1"]);\n` +
+            `agUpdates: 7, idempotencyKey: "key" })).rejects.toThrow("Access denied");`;
+        const repairedService = wireAcademicServicePublicationIdempotency(service);
+        expect(repairedService).toContain('import { createHash } from "crypto"');
+        expect(repairedService).toContain("academicPublicationIdempotencyKey(identity.mappingId, evidence.evidenceId");
+        expect(repairedService).toContain('eventType: "ACADEMIC_READINESS_UPDATED"');
+        expect(wireAcademicTestPublicationIdempotency(tests)).toContain("publish:academic-publish-");
+        expect(wireAcademicServicePublicationIdempotency(repairedService)).toBe(repairedService);
+    });
+
+    it("prepares one recovery PR on the existing mission and authorized recovery epoch", async () => {
+        const generated = new Map<string, string>();
+        const calls: string[] = [];
+        const recoveryRun = { ...run, status: "BLOCKED", currentBranch: "main", currentCommit: "abcdef1",
+            selectedMission: "Complete transcript-to-academic-readiness journey",
+            activeRecoveryEpochId: "epoch1234-aaaa-bbbb-cccc", blockers: [] } as ProductionRun;
+        const serviceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";\n` +
+            `export class AcademicTranscriptJourneyService {\n` +
+            `async complete(input: { actorId: string; ownerId: string; approvalId: string; readinessScore: number; agUpdates: number; idempotencyKey: string }) {\n` +
+            `    if (!input.idempotencyKey.trim()) throw new Error("Academic journey idempotency key required.");\n` +
+            `    const runtimeProvenance = await this.runtime.publish(identity, evidence.evidenceId, input.readinessScore, input.idempotencyKey);\n}`;
+        const testSource = `publish: async () => ["pbos:academic"]\n` +
+            `readinessScore: 82, agUpdates: 7, idempotencyKey: "transcript-1" });\n` +
+            `expect(calls).toEqual(["scholar-1", "complete:evidence-1"]);\n` +
+            `agUpdates: 7, idempotencyKey: "key" })).rejects.toThrow("Access denied");`;
+        const gateway = {
+            inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
+                revision: "abcdef1", findings: [], files: [], inspectedAt: new Date() }),
+            readFileAtRevision: async (_reference: unknown, path: string) => path.includes("tests/unit") ? testSource : serviceSource,
+            createBranch: async (_reference: unknown, branch: string) => { calls.push(`branch:${branch}`); return branch; },
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                files.forEach(file => generated.set(file.path, file.content)); return files.map(file => file.path);
+            },
+            commit: async () => "fedcba2", push: async () => undefined,
+            openDraftPullRequest: async (_reference: unknown, branch: string) => ({ url: "https://github.com/sgwalton87/playbook-platform/pull/57",
+                number: 57, branch, repository: "sgwalton87/playbook-platform" })
+        } as unknown as GitHubRepositoryGateway;
+        const remediation = { runId: "recovery-validation", systemId: "PLAYBOOK-SYSTEM-001",
+            pullRequest: { url: "https://github.com/sgwalton87/playbook-platform/pull/57", number: 57,
+                branch: "agent/pbos-playbook-system-001-048-academic-recovery-epoch123", repository: "sgwalton87/playbook-platform" },
+            headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [],
+            updatedAt: new Date().toISOString() } as const;
+        const result = await preparePlaybookAcademicIdempotencyRecovery({ gateway, session,
+            remediation: { start: () => remediation }, production: { registerRecoveryRemediation: (...args) => {
+                calls.push(`register:${args[0]}:${args[1]}:${args[3]}`); return recoveryRun;
+            } }, recoveryDefects: ["Idempotency key reused with a different request."],
+            authorize: action => ({ decisionId: action, grantId: "grant-academic", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }) }, recoveryRun);
+        expect(result).toMatchObject({ revision: "fedcba2", remediation: { runId: "recovery-validation" } });
+        expect(generated.has("app/api/parse-transcript/route.ts")).toBe(false);
+        expect(generated.get("lib/pbos/academic-transcript-journey.ts")).toContain("academicPublicationIdempotencyKey");
+        expect(calls).toContain("register:12345678-aaaa-bbbb-cccc-123456789012:recovery-validation:fedcba2");
     });
 
     it("fails before repository inspection when authority is denied", async () => {

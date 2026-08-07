@@ -23,7 +23,7 @@ import { AutonomousBatchService, BackgroundMonitor, BackgroundProcessLauncher, O
 import { ProductionRecoveryAuthority, ProductionRuntimeService, ProtectedEnvironmentResolver } from "../production-runtime";
 import { GovernedMissionQueue, ProductionMissionAdapterRegistry, ProductionMissionRunner } from "../production-runtime";
 import { startMissionControl } from "../mission-control";
-import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
+import { isAcademicPublicationIdempotencyDefect, playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, playbookFoundationExecutor,
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
     playbookMobileCertificationExecutor, playbookMobileFoundationExecutor, playbookMobileJourneysExecutor,
     playbookMobileStoreReadinessExecutor,
@@ -33,7 +33,8 @@ import { playbookAcademicJourneyExecutor, playbookApplicationJourneyExecutor, pl
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
-    PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService, repositoryGapAnalysisExecutor } from "../application-readiness";
+    PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService, preparePlaybookAcademicIdempotencyRecovery,
+    repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
     PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST } from "../reference-systems";
 import { RepositoryInspection } from "../platform";
@@ -491,11 +492,11 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         ["VALIDATING", "BLOCKED", "PAUSED", "RECOVERING"].includes(item.status) &&
         item.evidenceIds.some(evidenceId => evidenceId.startsWith("remediation-run:")));
     if (!productionRun) return undefined;
-    const remediationId = productionRun.evidenceIds.find(item => item.startsWith("remediation-run:"))!
+    const remediationId = productionRun.evidenceIds.filter(item => item.startsWith("remediation-run:")).at(-1)!
         .slice("remediation-run:".length);
     let remediationRun = services.state.remediationRun(remediationId);
     if (!remediationRun) throw new Error(`Production run ${productionRun.runId} references missing remediation state ${remediationId}.`);
-    if (remediationRun.state === "BLOCKED") {
+    if (remediationRun.state === "BLOCKED" && productionRun.status !== "BLOCKED") {
         stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
         return 1;
     }
@@ -513,6 +514,30 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
         item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
     if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
+    const refreshedRun = services.production.run(productionRun.runId)!;
+    const activeEpoch = refreshedRun.activeRecoveryEpochId
+        ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
+    if (activeEpoch && isAcademicPublicationIdempotencyDefect(refreshedRun, activeEpoch.remainingDefects)) {
+        const epoch = activeEpoch;
+        if (epoch.status !== "ACTIVE") throw new Error("Academic recovery requires an active constitutional recovery epoch.");
+        const linkedIds = refreshedRun.evidenceIds.filter(item => item.startsWith("remediation-run:"))
+            .map(item => item.slice("remediation-run:".length));
+        const recoveryRemediationId = linkedIds.find(id => !epoch.repositoryState.remediationRunIds.includes(id));
+        if (recoveryRemediationId) {
+            const existingRecovery = services.state.remediationRun(recoveryRemediationId);
+            if (!existingRecovery) throw new Error(`Recovery remediation state is missing: ${recoveryRemediationId}.`);
+            remediationRun = existingRecovery;
+        } else {
+            stdout.write("[RECOVERY] Preparing a governed academic idempotency repair on a new agent branch.\n");
+            const prepared = await preparePlaybookAcademicIdempotencyRecovery({
+                gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+                recoveryDefects: epoch.remainingDefects,
+                authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+            }, refreshedRun);
+            remediationRun = prepared.remediation;
+            stdout.write(`[RECOVERY] Existing mission preserved; repair revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+        }
+    }
     remediationRun = await services.remediation.resume(remediationRun.runId,
         run => services.workflows.authorizeRemediation(session, run.pullRequest.branch));
     if (remediationRun.state === "BLOCKED") {

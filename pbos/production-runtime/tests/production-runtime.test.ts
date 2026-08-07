@@ -149,6 +149,50 @@ describe("canonical PBOS production runtime", () => {
             inputs: { recoveryCheckpoint: "VALIDATION" } });
     });
 
+    it("attaches a governed recovery PR to the same functional run while preserving its authorized acceptance attempt", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "academic", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing functional mission",
+            approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
+                requiredDimensions: ["ROUTE"], acceptanceCriteria: ["Academic route works"] } }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, { planId: "academic-plan", systemId: input.systemId,
+            productNodeId: "academic", journeyId: "academic-journey", repository: input.repository,
+            branch: input.branch, commit: input.commit, workingDirectory: "/tmp/playbook", prerequisites: [],
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4311", healthPath: "/",
+                startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [] });
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.transition(run.runId, "VALIDATING", "Validating");
+        fixture.runtime.recordValidation(run.runId, "Original validation", true, 0, "remediation-run:original");
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "STARTED");
+            fixture.runtime.recordRepairAttempt(run.runId, "BROWSER_ACCEPTANCE_FAILURE", "FAILED");
+        }
+        fixture.runtime.transition(run.runId, "BLOCKED", "Idempotency key reused with a different request.");
+        const authority = new ProductionRecoveryAuthority(fixture.state, fixture.runtime);
+        const epoch = authority.request(run.runId);
+        authority.authorize(epoch.recoveryEpochId, "recovery-approval", input.actorId, () => true);
+        fixture.state.saveRemediationRun({ runId: "recovery-validation", systemId: input.systemId,
+            pullRequest: { url: "https://github.com/sgwalton87/playbook-platform/pull/57", number: 57,
+                branch: "agent/academic-recovery", repository: input.repository }, headSha: "UNKNOWN", attempt: 0,
+            maximumAttempts: 5, state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() });
+
+        const attached = fixture.runtime.registerRecoveryRemediation(run.runId, "recovery-validation",
+            "agent/academic-recovery", "abcdef1", "ACADEMIC_PUBLICATION_IDEMPOTENCY_CONTRACT");
+
+        expect(attached).toMatchObject({ runId: run.runId, status: "BLOCKED", currentBranch: "agent/academic-recovery",
+            currentCommit: "abcdef1", repairAttempts: 5, repairAttemptLimit: 6,
+            activeRecoveryEpochId: epoch.recoveryEpochId });
+        expect(fixture.runtime.repairBudget(run.runId)).toEqual({ attempts: 5, limit: 6, remaining: 1 });
+        expect(attached.evidenceIds).toContain("remediation-run:recovery-validation");
+        expect(attached.functionalAcceptancePlan).toMatchObject({ branch: "agent/academic-recovery", commit: "abcdef1" });
+        expect(fixture.runtime.events(run.runId).map(event => event.type)).toContain("RECOVERY_REMEDIATION_REGISTERED");
+        expect(() => fixture.runtime.registerRecoveryRemediation(run.runId, "recovery-validation",
+            "agent/academic-recovery", "abcdef1", "DUPLICATE")).toThrow("active authorized production epoch");
+    });
+
     it("rejects invalid status transitions and mission dependency cycles", () => {
         expect(() => assertProductionTransition("AUTHORIZED", "CERTIFIED")).toThrow(/Invalid PBOS production transition/);
         const queue = new GovernedMissionQueue();
