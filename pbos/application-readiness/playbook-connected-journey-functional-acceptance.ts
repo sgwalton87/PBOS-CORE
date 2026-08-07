@@ -27,7 +27,12 @@ const definitions: Readonly<Record<PlaybookConnectedJourneyMission, JourneyDefin
         approvalEnvironment: "PBOS_OPPORTUNITY_JOURNEY_APPROVAL_ID", port: 4312,
         script: "test:acceptance:pbos:opportunity", specificationPath: "tests/acceptance/pbos-opportunity.spec.ts",
         artifactPrefix: "opportunity", behavior: "A Scholar converts verified readiness into explainable, durable opportunity decisions.",
-        action: `const discovery = await page.request.post("/api/pbos/opportunities");
+        action: `const onboarding = await page.request.post("/api/pbos/scholar/onboarding", { data: {
+    displayName: "PBOS Acceptance Scholar", goalTitle: "Public Health"
+  } });
+  const onboardingBody = await onboarding.text();
+  expect(onboarding.ok(), onboardingBody).toBe(true);
+  const discovery = await page.request.post("/api/pbos/opportunities");
   const discovered = await discovery.json() as { error?: string; matches?: Array<{ id: string; reasons?: string[] }> };
   expect(discovery.status(), "Opportunity discovery failed: " + (discovered.error ?? "unknown API error")).toBe(200);
   expect(discovered.matches?.length ?? 0).toBeGreaterThan(0);

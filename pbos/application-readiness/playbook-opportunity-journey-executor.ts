@@ -28,6 +28,12 @@ export interface PlaybookOpportunityJourneyRecoveryDependencies extends Playbook
     readonly pullRequest: PullRequestReference;
 }
 
+export interface PlaybookOpportunityJourneyContextRecoveryDependencies extends PlaybookOpportunityJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerRecoveryRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
+}
+
 const serviceSource = `import { createHash } from "crypto";
 import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
 import { matchOpportunitiesFromSignals } from "../opportunity-graph/matching/OpportunityMatcher";
@@ -554,6 +560,28 @@ export function wireOpportunityAcceptanceApiEvidence(source: string): string {
     return source.replace(legacy, governed);
 }
 
+/**
+ * Proves the upstream Scholar-to-opportunity handoff with a real governed user
+ * action. The matcher still fails closed when the Scholar supplies no
+ * explainable signals; acceptance no longer relies on hidden database seeding.
+ */
+export function wireOpportunityAcceptanceJourneyContext(source: string): string {
+    if (source.includes('goalTitle: "Public Health"')) return source;
+    const boundary = `  await page.waitForURL(/\\/dashboard/);
+  const discovery = await page.request.post("/api/pbos/opportunities");`;
+    const governed = `  await page.waitForURL(/\\/dashboard/);
+  const onboarding = await page.request.post("/api/pbos/scholar/onboarding", { data: {
+    displayName: "PBOS Acceptance Scholar", goalTitle: "Public Health"
+  } });
+  const onboardingBody = await onboarding.text();
+  expect(onboarding.ok(), onboardingBody).toBe(true);
+  const discovery = await page.request.post("/api/pbos/opportunities");`;
+    if (!source.includes(boundary)) {
+        throw new Error("Playbook opportunity acceptance changed; re-inspect before wiring journey context.");
+    }
+    return source.replace(boundary, governed);
+}
+
 export function isOpportunityIdentityIdempotencyDefect(run: ProductionRun,
     recoveryDefects: readonly string[] = []): boolean {
     const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
@@ -562,6 +590,14 @@ export function isOpportunityIdentityIdempotencyDefect(run: ProductionRun,
         evidence.includes("pbos-opportunity.spec.ts") && evidence.includes("Expected: 200") && evidence.includes("Received: 500");
     return run.systemId === SYSTEM_ID && run.selectedMission === "Complete readiness-to-opportunity journey" &&
         (exactLegacyResponse || hiddenLegacyResponse);
+}
+
+export function isOpportunityJourneyContextDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...run.blockers, ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete readiness-to-opportunity journey" &&
+        evidence.includes("Browser journey command failed for READINESS-TO-OPPORTUNITY") &&
+        evidence.includes("toBeGreaterThan") && evidence.includes("Received:   0");
 }
 
 /**
@@ -606,6 +642,49 @@ export async function preparePlaybookOpportunityIdentityRecovery(
     const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
     dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
         "OPPORTUNITY_IDENTITY_IDEMPOTENCY");
+    return { branch, revision, remediation };
+}
+
+/**
+ * Uses an explicitly authorized Recovery Epoch to repair only the missing
+ * journey-context action on the existing opportunity PR. Mission, branch, PR,
+ * evidence, and prior repair history remain authoritative.
+ */
+export async function preparePlaybookOpportunityJourneyContextRecovery(
+    dependencies: PlaybookOpportunityJourneyContextRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || !run.activeRecoveryEpochId ||
+        !isOpportunityJourneyContextDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for opportunity journey-context recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize opportunity context recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Opportunity recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const acceptancePath = "tests/acceptance/pbos-opportunity.spec.ts";
+    const acceptance = await dependencies.gateway.readFileAtRevision(reference, acceptancePath, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [
+        { path: acceptancePath, content: wireOpportunityAcceptanceJourneyContext(acceptance) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: prove opportunity journey context", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerRecoveryRemediation(run.runId, remediation.runId, branch, revision,
+        "OPPORTUNITY_JOURNEY_CONTEXT");
     return { branch, revision, remediation };
 }
 
