@@ -45,6 +45,19 @@ class MovingHeadCommands implements CommandRunner {
     }
 }
 
+class ProviderFailureCommands implements CommandRunner {
+    async run(_command: string, args: readonly string[]) {
+        if (args[0] === "pr") return { stdout: JSON.stringify({ headRefOid: "abcdef1", state: "OPEN",
+            baseRefName: "main", mergeCommit: null }), stderr: "" };
+        return { stdout: JSON.stringify({ check_runs: [
+            { name: "validate", status: "completed", conclusion: "success",
+                details_url: "https://github.com/acme/app/actions/runs/15" },
+            { name: "Vercel", status: "completed", conclusion: "failure",
+                details_url: "https://vercel.com/teams/invite?commitId=abcdef1" }
+        ] }), stderr: "" };
+    }
+}
+
 class InfrastructureCancelledCommands implements CommandRunner {
     reruns = 0;
     async run(_command: string, args: readonly string[]) {
@@ -95,6 +108,30 @@ class ClosedPullRequestCommands implements CommandRunner {
 }
 
 describe("resumable validation remediation", () => {
+    it("separates green repository CI from preview-provider checks", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(new ProviderFailureCommands()),
+            new RepairHandler());
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1,
+            branch: "agent/build", url: "https://github.com/acme/app/pull/1" });
+        const ready = await engine.resume(started.runId);
+        expect(ready.state).toBe("READY_FOR_CERTIFICATION");
+        expect(ready.evidence.map(item => item.name)).toEqual(["validate"]);
+    });
+
+    it("recollects a historical provider failure that was misclassified as application remediation", async () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json"));
+        const engine = new ResumableRemediationEngine(state, new GitHubCheckCollector(new ProviderFailureCommands()),
+            new RepairHandler());
+        const started = engine.start("SYSTEM-001", { repository: "acme/app", number: 1,
+            branch: "agent/build", url: "https://github.com/acme/app/pull/1" });
+        state.saveRemediationRun({ ...started, headSha: "abcdef1", state: "BLOCKED",
+            evidence: [{ evidenceId: "provider", name: "Vercel", state: "FAILED",
+                detailsUrl: "https://vercel.com/teams/invite?commitId=abcdef1", collectedAt: new Date().toISOString() }],
+            blockers: ["No deterministic remediation is registered for the collected failure evidence."] });
+        expect((await engine.resume(started.runId)).state).toBe("READY_FOR_CERTIFICATION");
+    });
+
     it("persists failed evidence, applies remediation, and resumes to certification readiness", async () => {
         const statePath = join(mkdtempSync(join(tmpdir(), "pbos-remediation-")), "state.json");
         const state = new GenesisStateRepository(statePath);

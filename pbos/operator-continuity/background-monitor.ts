@@ -187,9 +187,13 @@ export class BackgroundMonitor {
                 };
                 if (mission?.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
                     const plan = run.functionalAcceptancePlan;
-                    if (remediation.pullRequestState === "MERGED") {
-                        if (!plan) throw new Error("Merged functional recovery requires an executable acceptance plan.");
-                        await this.mergedRevisionPositioner.position(plan.workingDirectory, run.startingBranch, run.currentCommit);
+                    const lineageRebound = production.events(run.runId).some(event =>
+                        event.type === "REMEDIATION_LINEAGE_REBOUND" && event.payload.commit === run.currentCommit);
+                    if (remediation.pullRequestState === "MERGED" || lineageRebound) {
+                        if (!plan) throw new Error("Functional recovery requires an executable acceptance plan.");
+                        await this.mergedRevisionPositioner.position(plan.workingDirectory,
+                            remediation.pullRequestState === "MERGED" ? run.startingBranch : run.currentBranch,
+                            run.currentCommit);
                     }
                     if (mission.completionPolicy.requiredDimensions.includes("PREVIEW") && plan?.previewDeployment && !plan.durablePreview) {
                         const deploymentApproval = this.state.audit().some(event => event.eventId === plan.previewDeployment!.approvalId &&

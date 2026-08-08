@@ -6,6 +6,7 @@ import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun
 import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookAcademicAcceptanceFiles } from "./playbook-academic-functional-acceptance";
 import { playbookProductAcceptancePlan } from "./playbook-product-functional-acceptance";
+import { PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler } from "./playbook-canon-product-graph";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -171,6 +172,14 @@ export function playbookProductJourneysExecutor(
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan before aggregation.`);
         }
         const packageSource = await dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision);
+        const canonSources = await Promise.all(PLAYBOOK_CANON_SOURCES.map(async path => ({ path,
+            content: await dependencies.gateway.readFileAtRevision(reference, path, inspection.revision) })));
+        const canonGraph = new PlaybookCanonProductGraphCompiler().compile(inspection.revision, inspection.files ?? [], canonSources);
+        if (!canonGraph.certificationReady) {
+            const displayed = canonGraph.blockers.slice(0, 20).join(", ");
+            const remainder = canonGraph.blockers.length > 20 ? ` (+${canonGraph.blockers.length - 20} more)` : "";
+            throw new Error(`Playbook canon-to-product convergence is incomplete (${canonGraph.blockers.length} blockers): ${displayed}${remainder}`);
+        }
         const sources = await Promise.all(journeyContracts.map(async ([path]) => ({ path,
             content: await dependencies.gateway.readFileAtRevision(reference, path, inspection.revision) })));
         assertContracts(sources);

@@ -12,6 +12,7 @@ import { createPlaybookBlueprint } from "../../reference-systems";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition } from "../functional-acceptance-authority";
+import { PLAYBOOK_CANON_SOURCES } from "../../application-readiness";
 
 class ApprovalIO {
     readonly output: string[] = [];
@@ -96,20 +97,30 @@ describe("partner-ready CLI durable state", () => {
         state.saveSystem({ systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook",
             domain: "Education", repository: "sgwalton87/playbook-platform", defaultBranch: "main", status: "READY", capabilities: [] });
         const inspection = { repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
-            revision: "5dda9e7", inspectedAt: new Date(), files: [],
+            revision: "5dda9e7", inspectedAt: new Date(), files: ["app/dashboard/page.tsx"],
             findings: createPlaybookBlueprint().capabilities.map(capability => `CAPABILITY:${capability}:PRESENT`) };
         let inspections = 0;
-        const gateway = { inspectRepository: async () => { inspections += 1; return inspection; } } as unknown as GitHubRepositoryGateway;
+        const phaseChecklist = Array.from({ length: 15 }, (_, index) =>
+            `# Phase ${index + 1} — Phase ${index + 1}\n**Completion:** ${index === 0 ? 41 : 100}%${index === 0 ? "\n- 🟦 unfinished" : ""}`).join("\n");
+        const sources = new Map<string, string>(PLAYBOOK_CANON_SOURCES.map(source => [source, source === "docs/MASTER_CHECKLIST.md"
+            ? phaseChecklist : source === "docs/USER_JOURNEYS.md" ? "# User Journeys\n"
+            : source === "docs/INTELLIGENCE/PLAYBOOK_TRACEABILITY_MATRIX.md"
+                ? "| CMP-01 | Compass consumes Scholar data | Existing | code | none |"
+                : source === "docs/design/CANONICAL_ROUTE_MAP.md"
+                    ? "| Dashboard | `/dashboard` | `app/dashboard/page.tsx` | shell | PGSL-007 implemented | none | dashboard | none |"
+                    : "Canonical authority."]));
+        const gateway = { inspectRepository: async () => { inspections += 1; return inspection; },
+            readFileAtRevision: async (_reference: unknown, source: string) => sources.get(source) ?? "" } as unknown as GitHubRepositoryGateway;
         const batches = new AutonomousBatchService(state);
 
         await ensureReadinessQueue({ state, batches, gateway });
         await ensureReadinessQueue({ state, batches, gateway });
 
-        expect(inspections).toBe(1);
-        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-repository-gap-analysis")?.status)
+        expect(inspections).toBe(2);
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-canon-journeys")?.status)
             .toBe("ELIGIBLE");
-        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-academic-journey")?.dependencies)
-            .toEqual(["048-scholar-slice"]);
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-phase-01")?.dependencies)
+            .toEqual(expect.arrayContaining(["048-canon-journeys", "048-canon-design"]));
         expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "048-product-journeys")?.status)
             .toBe("BLOCKED");
     });

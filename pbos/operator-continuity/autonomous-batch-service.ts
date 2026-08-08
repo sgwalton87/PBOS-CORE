@@ -7,6 +7,7 @@ import { RemediationState } from "../validation-automation";
 import { AutonomousBuildBatch, AutonomousBatchState, BatchTelemetryEvent, BatchTelemetryReporter, BatchTelemetryType } from "./contracts";
 import { ApplicationAcceptanceDimension, FunctionalAcceptanceVerifier, MissionCompletionPolicy, ProductionRuntimeService } from "../production-runtime";
 import { PLAYBOOK_LAUNCH_TASKS } from "../launch-readiness/playbook-launch-plan";
+import { PlaybookCanonMissionPlanner, PlaybookCanonProductGraph } from "../application-readiness";
 
 const FUNCTIONAL_DIMENSIONS: readonly ApplicationAcceptanceDimension[] = [
     "ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "ACCEPTANCE_TEST",
@@ -161,8 +162,17 @@ export class AutonomousBatchService implements BatchTelemetryReporter {
         this.production.transition(batchId, "CERTIFIED", "Human certification granted and governed merge evidence confirmed.", { approvalId });
     }
 
-    prepareReadinessQueue(systemId: string, governedRevision: string): import("../production-runtime").MissionQueueItem | undefined {
+    prepareReadinessQueue(systemId: string, governedRevision: string,
+        canonGraph?: PlaybookCanonProductGraph): import("../production-runtime").MissionQueueItem | undefined {
         if (systemId !== "PLAYBOOK-SYSTEM-001") return undefined;
+        if (canonGraph) {
+            if (canonGraph.revision !== governedRevision) {
+                throw new Error(`Playbook canon graph revision ${canonGraph.revision} does not match governed revision ${governedRevision}.`);
+            }
+            const items = new PlaybookCanonMissionPlanner().compile(canonGraph, this.state.missionQueue(systemId));
+            this.production.reconcileQueue(systemId, items);
+            return this.production.snapshot().nextMission;
+        }
         const readinessTasks = PLAYBOOK_LAUNCH_TASKS.filter(task => ["CIP-048", "CIP-049", "CIP-050"].includes(task.cip));
         const ids = new Set(readinessTasks.map(task => task.taskId));
         const existing = new Map(this.state.missionQueue(systemId).map(item => [item.missionId, item]));

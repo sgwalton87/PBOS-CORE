@@ -38,11 +38,15 @@ export class ResumableRemediationEngine {
     async resume(runId: string, beforeApply?: (run: RemediationRun) => void): Promise<RemediationRun> {
         const persisted = this.state.remediationRun(runId);
         if (!persisted) throw new Error(`Remediation run not found: ${runId}`);
+        const providerFailureMisclassified = persisted.state === "BLOCKED" &&
+            persisted.blockers.includes("No deterministic remediation is registered for the collected failure evidence.") &&
+            persisted.evidence.some(item => item.state === "FAILED" && item.detailsUrl &&
+                !/^https:\/\/github\.com\/[^/]+\/[^/]+\/actions\/runs\/\d+/.test(item.detailsUrl));
         // Legacy runs without lifecycle metadata are recollected once so PBOS can discover an out-of-band
         // merge. A failed repository application is the sole durable BLOCKED state eligible for another
         // authorized application attempt; all other known open/closed PR blockers remain fail-closed.
         if (persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED" &&
-            !isRetryableRemediationApplicationFailure(persisted)) {
+            !isRetryableRemediationApplicationFailure(persisted) && !providerFailureMisclassified) {
             return persisted;
         }
         const falselyReady = persisted.state === "READY_FOR_CERTIFICATION" &&

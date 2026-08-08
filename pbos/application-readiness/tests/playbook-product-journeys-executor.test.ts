@@ -3,6 +3,7 @@ import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
 import { isProductScholarDashboardContrastDefect, playbookProductJourneysExecutor,
     preparePlaybookProductScholarContrastRecovery, wireProductScholarDashboardContrast } from "../playbook-product-journeys-executor";
+import { PLAYBOOK_CANON_SOURCES } from "../playbook-canon-product-graph";
 
 const session = { sessionId: "session-product", activatedAt: new Date(),
     system: { systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook", domain: "Education",
@@ -23,6 +24,16 @@ const contractByPath: Readonly<Record<string, string>> = {
     "tests/acceptance/pbos-messaging.spec.ts": "AUTHORIZED-SUPPORT-MESSAGING",
     "tests/acceptance/pbos-notifications.spec.ts": "EVENT-TO-ACKNOWLEDGED-NOTIFICATION"
 };
+
+const canonByPath: Readonly<Record<string, string>> = Object.fromEntries(PLAYBOOK_CANON_SOURCES.map(path => [path,
+    path === "docs/MASTER_CHECKLIST.md" ? Array.from({ length: 15 }, (_, index) =>
+        `# Phase ${index + 1} — Phase ${index + 1}\n**Completion:** 100%`).join("\n") :
+    path === "docs/USER_JOURNEYS.md" ? "# User Journeys\n## Scholar\nScholar reaches the dashboard." :
+    path === "docs/INTELLIGENCE/PLAYBOOK_TRACEABILITY_MATRIX.md"
+        ? "| CMP-01 | Compass consumes Scholar data | Existing | implementation | none |" :
+    path === "docs/design/CANONICAL_ROUTE_MAP.md"
+        ? "| Dashboard | `/dashboard` | `app/dashboard/page.tsx` | shell | PGSL-007 implemented | none | dashboard | none |" :
+    "Canonical authority."]));
 
 describe("CIP-048 connected product execution adapter", () => {
     it("recovers the exact Scholar dashboard contrast defect on the existing product pull request", async () => {
@@ -60,9 +71,9 @@ describe("CIP-048 connected product execution adapter", () => {
     it("composes seven exact-revision journeys into one runtime and one pull request", async () => {
         const generated = new Map<string, string>();
         const gateway = { inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
-            revision: "cdef123", findings: [], files: [], inspectedAt: new Date() }),
+            revision: "cdef123", findings: [], files: ["app/dashboard/page.tsx"], inspectedAt: new Date() }),
         readFileAtRevision: async (_reference: unknown, path: string) => path === "package.json"
-            ? '{"scripts":{"pbos:acceptance:prepare":"node prepare.mjs"}}' : contractByPath[path] ?? "",
+            ? '{"scripts":{"pbos:acceptance:prepare":"node prepare.mjs"}}' : canonByPath[path] ?? contractByPath[path] ?? "",
         workingDirectory: async () => "/tmp/playbook-product", createBranch: async () => undefined,
         applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
             files.forEach(file => generated.set(file.path, file.content)); return files.map(file => file.path); },
@@ -83,8 +94,8 @@ describe("CIP-048 connected product execution adapter", () => {
     });
 
     it("fails closed when a journey contract is missing", async () => {
-        const gateway = { inspectRepository: async () => ({ revision: "cdef123" }),
-            readFileAtRevision: async (_reference: unknown, path: string) => path === "package.json" ? "{}" : "",
+        const gateway = { inspectRepository: async () => ({ revision: "cdef123", files: ["app/dashboard/page.tsx"] }),
+            readFileAtRevision: async (_reference: unknown, path: string) => path === "package.json" ? "{}" : canonByPath[path] ?? "",
         } as unknown as GitHubRepositoryGateway;
         const executor = playbookProductJourneysExecutor({ gateway, session, authorize: action => ({ decisionId: action, grantId: "grant",
             action, allowed: true, reason: "authorized", decidedAt: new Date() }), remediation: { start: () => { throw new Error("not reached"); } } });
