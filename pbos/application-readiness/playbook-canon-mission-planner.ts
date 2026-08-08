@@ -76,15 +76,15 @@ export class PlaybookCanonMissionPlanner {
                 completion: 0, incompleteItems: ["Canonical phase definition is missing."] };
             const missionId = `048-phase-${phase.phaseId.slice(-2)}`;
             const complete = phase.completion === 100 && phase.incompleteItems.length === 0;
-            items.push({ missionId, systemId: SYSTEM_ID, title: `Complete ${phase.title} from Playbook canon`,
+            items.push({ missionId, systemId: SYSTEM_ID, title: `${complete ? "Complete" : "Advance"} ${phase.title} from Playbook canon`,
                 dependencies: [...new Set(["048-canon-journeys", ...(phaseDependencies[phase.phaseId] ?? ["048-canon-authority"])])],
                 status: complete ? "COMPLETE" : "QUEUED",
                 rationale: complete ? `${phase.title} is proven complete at ${graph.revision}.`
                     : `${phase.title} is ${phase.completion}% complete with ${phase.incompleteItems.length} unfinished items.`,
                 approvalRequired: true, evidenceIds: complete ? priorEvidence(prior.get(missionId)) : [],
-                completionPolicy: functionalPolicy([
-                    `${phase.title} satisfies every canonical checklist item.`,
-                    `${phase.title} passes exact-revision desktop, mobile, accessibility, security, authority, and durable-data acceptance.`
+                completionPolicy: functionalPolicy(complete ? [`${phase.title} satisfies every canonical checklist item.`] : [
+                    `One cohesive ${phase.title} work package moves only proven checklist items to complete.`,
+                    `The increment passes exact-revision desktop, mobile, accessibility, security, authority, and durable-data acceptance before merge.`
                 ]) });
         });
 

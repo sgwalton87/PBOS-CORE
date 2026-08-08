@@ -49,6 +49,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler,
     playbookCanonJourneysExecutor,
     playbookCanonDesignExecutor,
+    playbookCanonPhaseExecutor,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
@@ -1166,6 +1167,13 @@ async function runNextProductionMission(target?: string): Promise<number> {
             gateway: services.gateway, state: services.state,
             verifyApproval: (historical, action, resource) =>
                 services.identities.verify(historical, action, resource, new Date(historical.issuedAt)) }));
+    for (let phase = 1; phase <= 15; phase += 1) {
+        const missionId = `048-phase-${String(phase).padStart(2, "0")}`;
+        adapters.register("PLAYBOOK-SYSTEM-001", missionId, () => playbookCanonPhaseExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+        { producesFunctionalAcceptancePlan: true });
+    }
     const coverage = adapters.coverage(candidates.filter(item => item.status !== "COMPLETE"));
     stdout.write(`[EXECUTION_ADAPTERS] ${coverage.registered.length} ready${coverage.missing.length ? ` | future missions pending adapters: ${coverage.missing.join(", ")}` : " | complete coverage"}\n`);
     const sequence = await runner.run({ systemId: next.systemId, actorId: services.operator.operatorId,

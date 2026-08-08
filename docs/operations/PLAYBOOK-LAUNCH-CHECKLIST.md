@@ -2,25 +2,22 @@
 
 ## Current gate
 
-PR #67 is **NOT CERTIFIABLE**. Human Preview review found product-wide gaps that
-the narrow Scholar acceptance path did not cover: incomplete collapsed
-navigation, undersized branding, hard-wired Compass data, duplicate Oracle/back-
-office navigation, broken Google OAuth, undiscoverable newsfeed, and legacy
-visual layouts outside the new landing route. Preserve the Preview as defect
-evidence and expand acceptance to the complete visible application surface.
+The canon graph is now the production queue authority. PBOS compiled all 12 role
+journeys and bound all 93 visible routes to the shared design target without
+mislabeling those bindings as implementation. The governed Playbook revision is
+`17c8d7f78a088971b97e3e0a23fb89e51100c2b4`; 55 functional blockers remain.
 
-Implementation and certification are frozen at the constitutional traceability
-gate. The existing PBS-5000/PBS-6000 matrix is an infrastructure audit, not an
-enforceable Playbook product graph: it marks Product Graph and Acceptance Graph
-missing, does not map the canonical product volumes to routes or design canon,
-and contains stale platform findings. PBOS must not resume product mutation or
-request certification until the graph below is complete and validates the
-governed Playbook revision.
+The next eligible product mission is Phase 1, Identity & Authentication. PBOS
+will advance it through small, cohesive implementation packages. Every package
+must produce a real code diff, exact-revision desktop/mobile browser evidence,
+durable-data and authority evidence, accessibility and security evidence, green
+independent CI, and a separate certification decision. A successful package may
+update only the checklist items it actually proves; the phase remains incomplete
+until its canonical checklist reaches 100%.
 
-Exact-revision baseline: 15/15 phases incomplete; 18/58 requirements
-implemented, 24 partial, 16 missing; 23/93 visible routes mapped; 1/93 visible
-routes design-canon bound; 148 enforceable blockers. See
-`docs/audits/PLAYBOOK-CANON-TO-PRODUCT-CONVERGENCE.md`.
+PR #67 remains **NOT CERTIFIABLE** and is preserved as defect evidence for the
+old narrow Preview. The product-wide defects discovered there remain open until
+their owning phase package passes the new acceptance path.
 
 ## Canon-to-product traceability gate
 
@@ -29,14 +26,17 @@ routes design-canon bound; 148 enforceable blockers. See
 - [x] Replace stale whole-product completion with dependency-ordered authority, journey, design, 15-phase, requirement, web, mobile, and ecosystem missions
 - [x] Require final Playbook product certification to depend on every canonical phase rather than the former seven-journey aggregate alone
 - [x] Emit exact canon authority, phase, requirement, route, and blocker counts in the launch terminal
-- [ ] Register certified execution adapters for every newly generated canon mission before PBOS advertises complete adapter coverage
+- [x] Register a bounded, iterative implementation adapter for all 15 generated canon phases without delegating commit, push, merge, deployment, or certification authority
+- [x] Require the implementation worker to read all 18 canonical entry sources before changing Playbook code
+- [x] Require every phase increment to declare exact completed and remaining checklist items and refuse empty or false completion claims
+- [x] Enforce a 45-minute worker ceiling and emit same-terminal progress telemetry during implementation
 - [ ] Classify all 344 Playbook documentation/configuration artifacts as canonical, generated, historical, deprecated, duplicate, or conflicting
 - [ ] Register every canonical document with ID, version, authority, owner, dependencies, and content digest
 - [ ] Resolve every zero-byte canonical document through the approved documentation, governance, or hygiene track
 - [ ] Inventory every Playbook OS, role, route, API, component, data store, integration, and visible navigation entry
 - [ ] Map each canonical requirement to its owning Playbook OS and user journey
 - [ ] Map every journey to exact desktop/mobile routes, states, actions, APIs, durable data, and external dependencies
-- [ ] Map every visible route and state to an approved design-canon ID and required assets
+- [x] Bind all 93 visible routes to the approved shared design-canon target while preserving route-specific approved canon IDs
 - [ ] Mark legacy, demo, hard-wired, duplicate, orphaned, and back-office-only surfaces explicitly
 - [ ] Bind each graph node to exact implementation files and exact-revision automated acceptance evidence
 - [ ] Fail the PBOS build when a required node or edge is missing, stale, contradictory, or only documentation-backed

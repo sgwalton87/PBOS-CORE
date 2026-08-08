@@ -10,11 +10,14 @@ import {
 } from "./repository-connector";
 
 export interface CommandResult { readonly stdout: string; readonly stderr: string; }
-export interface CommandRunner { run(command: string, args: readonly string[], cwd?: string): Promise<CommandResult>; }
+export interface CommandRunnerOptions { readonly timeoutMs?: number; }
+export interface CommandRunner { run(command: string, args: readonly string[], cwd?: string,
+    options?: CommandRunnerOptions): Promise<CommandResult>; }
 export interface GitCommitIdentity { readonly name: string; readonly email: string; }
 export class NodeCommandRunner implements CommandRunner {
-    async run(command: string, args: readonly string[], cwd?: string): Promise<CommandResult> {
-        const result = await promisify(execFile)(command, [...args], { cwd, maxBuffer: 10 * 1024 * 1024 });
+    async run(command: string, args: readonly string[], cwd?: string, options?: CommandRunnerOptions): Promise<CommandResult> {
+        const result = await promisify(execFile)(command, [...args], { cwd, maxBuffer: 10 * 1024 * 1024,
+            timeout: options?.timeoutMs });
         return { stdout: result.stdout, stderr: result.stderr };
     }
 }
