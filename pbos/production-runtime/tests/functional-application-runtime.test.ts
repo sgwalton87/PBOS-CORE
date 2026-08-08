@@ -86,6 +86,33 @@ describe("PBS-5000 functional application runtime", () => {
         expect(telemetry).toEqual(["PREREQUISITES_VERIFIED", "APPLICATION_HEALTHY", "RUNTIME_PROBES_VERIFIED", "BROWSER_JOURNEYS_VERIFIED"]);
     });
 
+    it("executes deployed-preview acceptance without launching a competing local application", async () => {
+        const repo = repository(); let launched = false; let browserBaseUrl = "";
+        const previewUrl = "https://the-playbook-preview.example.com";
+        const acceptance: FunctionalAcceptancePlan = { ...plan(repo.path, repo.revision),
+            launch: { ...plan(repo.path, repo.revision).launch, baseUrl: previewUrl },
+            previewDeployment: { provider: "VERCEL", repository: "sgwalton87/playbook-platform",
+                branch: "agent/acceptance", commit: repo.revision, environment: "preview", approvalId: "approval",
+                tokenEnvironmentVariable: "VERCEL_TOKEN", projectEnvironmentVariable: "VERCEL_PROJECT_ID",
+                requiredProjectEnvironmentVariables: [], previewOnlyEnvironmentVariables: [],
+                browserTarget: "DEPLOYED_PREVIEW" },
+            durablePreview: { webUrl: previewUrl, mobileUrl: previewUrl, healthPath: "/login", label: "LIVE" } };
+        const runtime = new FunctionalApplicationRuntime({ launch: async () => {
+            launched = true; throw new Error("local launch must not run");
+        } }, { run: async (_plan, probe) => ({ probe, status: probe.expectedStatus, responseExcerpt: "ok",
+            durationMs: 1, passed: true }) }, { run: async (actual, journey) => {
+            browserBaseUrl = actual.launch.baseUrl;
+            return { journey, durationMs: 1, artifacts: [], verifiedDimensions: journey.verifiedDimensions, passed: true };
+        } }, undefined, async () => 2 * 1024 * 1024 * 1024);
+        (runtime as unknown as { verifyDurablePreview: () => Promise<FunctionalAcceptancePlan["durablePreview"]> })
+            .verifyDurablePreview = async () => acceptance.durablePreview;
+
+        await runtime.execute("preview-run", acceptance);
+
+        expect(launched).toBe(false);
+        expect(browserBaseUrl).toBe(previewUrl);
+    });
+
     it("refuses to launch when the checked-out application revision differs from the plan", async () => {
         const repo = repository();
         const runtime = new FunctionalApplicationRuntime({ launch: async () => { throw new Error("must not launch"); } },

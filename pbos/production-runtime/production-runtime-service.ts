@@ -502,7 +502,10 @@ export class ProductionRuntimeService {
                 publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: preview.webUrl,
                     PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }))
             : current.browserJourneys;
-        const plan: FunctionalAcceptancePlan = { ...current, durablePreview: preview, browserJourneys };
+        const launch = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
+            ? { ...current.launch, baseUrl: preview.webUrl }
+            : current.launch;
+        const plan: FunctionalAcceptancePlan = { ...current, launch, durablePreview: preview, browserJourneys };
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan, lastHeartbeatAt: this.now().toISOString() };
         this.state.saveProductionRun(updated);
         this.event(updated, "PREVIEW_DEPLOYMENT_READY", "Exact-revision durable preview deployment is ready.", {
