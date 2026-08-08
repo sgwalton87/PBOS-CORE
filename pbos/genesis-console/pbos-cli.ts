@@ -6,7 +6,7 @@ import { promisify } from "util";
 import { BuildAuthorityDecision, BuildAuthorityService } from "../autonomous-authority";
 import { AuthenticatedOperator, GenesisStateRepository, OperatorIdentityService, PersistentAuthorityLedger,
     PersistentBuildGrantRegistry, VerifiableApproval } from "../genesis-state";
-import { GitHubRepositoryGateway } from "../platform";
+import { GitHubRepositoryGateway, governedBuildReference } from "../platform";
 import { GenesisPbosBuildChannel } from "../platform";
 import { REFERENCE_SYSTEMS } from "./system-definition";
 import { GenesisBuildSession, GenesisControlPlane } from "./genesis-control-plane";
@@ -30,7 +30,8 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     playbookMobileStoreReadinessExecutor,
     isProductScholarDashboardContrastDefect, playbookProductJourneysExecutor, playbookScholarSliceExecutor,
     playbookSupportJourneyExecutor,
-    inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
+    inspectPlaybookWebStagingReadiness, playbookWebStagingAcceptanceEvidence, playbookWebStagingAcceptancePlan,
+    playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
@@ -879,6 +880,34 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     return promoted ? runNextProductionMission(target) : 0;
 }
 
+async function reconcileFailedWebStagingEvidence(services: ReturnType<typeof runtime>, systemId: string): Promise<void> {
+    const failed = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
+        item.status === "FAILED" && item.selectedMission === "Deploy and accept Playbook web staging");
+    if (!failed) return;
+    const failedStage = [...services.state.productionStages(failed.runId)].reverse()
+        .find(stage => stage.status === "FAILED");
+    if (!failedStage?.error?.includes("missing implementation acceptance evidence: PREVIEW")) return;
+    const remediation = [...services.state.remediationRuns()].reverse().find(item => item.systemId === systemId &&
+        item.pullRequest.repository === failed.repository && item.pullRequest.branch === failed.currentBranch);
+    if (!remediation) throw new Error("Failed web-staging evidence recovery cannot resolve its existing pull request.");
+    const mission = services.state.missionQueue(systemId).find(item => item.title === failed.selectedMission);
+    if (!mission) throw new Error("Failed web-staging evidence recovery cannot resolve its existing mission.");
+    const approval = durableMissionApproval(services, mission);
+    if (!approval) throw new Error("Failed web-staging evidence recovery requires the original durable mission approval.");
+    const [owner, name] = failed.repository.split("/");
+    if (!owner || !name) throw new Error(`Invalid repository identity: ${failed.repository}`);
+    const reference = governedBuildReference({ owner, name, defaultBranch: failed.startingBranch }, failed.currentBranch);
+    const inspection = await services.gateway.inspectRepository(reference);
+    if (inspection.revision !== failed.currentCommit) {
+        throw new Error(`Web-staging recovery lineage moved from ${failed.currentCommit} to ${inspection.revision}.`);
+    }
+    const plan = await playbookWebStagingAcceptancePlan(services.gateway, reference, failed.currentBranch,
+        failed.currentCommit, approval.approvalId);
+    services.production.recoverFailedFunctionalImplementationValidation(failed.runId, remediation.runId,
+        playbookWebStagingAcceptanceEvidence(failed.currentCommit), plan);
+    stdout.write(`[RECOVERY] Restored the exact web-staging evidence checkpoint on existing PR ${remediation.pullRequest.url}.\n`);
+}
+
 async function runNextProductionMission(target?: string): Promise<number> {
     const services = runtime();
     await ensureGitHubAuthentication(profile());
@@ -886,6 +915,7 @@ async function runNextProductionMission(target?: string): Promise<number> {
     if (target && !requestedSystemId) throw new Error("Production run target must be playbook or bulletproof.");
     const selectedSystemId = requestedSystemId ?? services.state.missionQueue().find(item => item.status === "ELIGIBLE")?.systemId
         ?? "PLAYBOOK-SYSTEM-001";
+    await reconcileFailedWebStagingEvidence(services, selectedSystemId);
     const resumed = await resumeExistingProductionValidation(services, selectedSystemId, target);
     if (resumed !== undefined) return resumed;
     const bootstrappedInspection = await ensureReadinessQueue(services, selectedSystemId,
