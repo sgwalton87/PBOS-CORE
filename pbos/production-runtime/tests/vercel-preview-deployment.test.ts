@@ -39,7 +39,9 @@ describe("Vercel exact-revision preview deployment", () => {
         expect(preview).toEqual({ webUrl: "https://the-playbook-preview.vercel.app",
             mobileUrl: "https://the-playbook-preview.vercel.app", healthPath: "/login", label: "SEEDED" });
         expect(calls[2].url).toContain("/v13/deployments?teamId=team_1&forceNew=1");
-        expect(JSON.parse(calls[2].body ?? "{}").gitSource).toMatchObject({ repoId: 77, sha: "abcdef1" });
+        const deploymentRequest = JSON.parse(calls[2].body ?? "{}");
+        expect(deploymentRequest.gitSource).toMatchObject({ repoId: 77, sha: "abcdef1" });
+        expect(deploymentRequest).not.toHaveProperty("target");
         expect(calls.map(call => call.body ?? "").join(" ")).not.toContain("secret");
     });
 
