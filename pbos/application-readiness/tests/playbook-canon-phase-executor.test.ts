@@ -8,14 +8,17 @@ import { CanonPhaseImplementationAgent, CodexCanonPhaseImplementationAgent,
 
 const dimensions: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY",
     "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
+const checklistBefore = `# Phase 1 — Identity & Authentication\n\n**Completion:** 41%\n\n- 🟦 Google Login\n- 🟨 Hostinger Email\n\n# Phase 2 — Onboarding\n`;
 
 async function workspace(completionClaim = true): Promise<{ directory: string; agent: CanonPhaseImplementationAgent }> {
     const directory = await mkdtemp(join(tmpdir(), "pbos-phase-test-"));
     const agent: CanonPhaseImplementationAgent = { execute: async request => {
         await mkdir(join(directory, "pbos/readiness"), { recursive: true });
         await mkdir(join(directory, "tests/acceptance"), { recursive: true });
+        await mkdir(join(directory, "docs"), { recursive: true });
         await writeFile(join(directory, "evidence.txt"), "executed evidence\n", "utf8");
         await writeFile(join(directory, "tests/acceptance/phase.spec.ts"), "// executable browser acceptance\n", "utf8");
+        await writeFile(join(directory, "docs/MASTER_CHECKLIST.md"), checklistBefore.replace("🟦 Google Login", "🟩 Google Login"), "utf8");
         await writeFile(join(directory, request.manifestPath), `${JSON.stringify({ schemaVersion: 1,
             missionId: request.missionId, completionClaim, completedItems: completionClaim ? ["Google Login"] : [],
             remainingItems: ["Hostinger Email"], routes: ["/login"], browserSpec: "tests/acceptance/phase.spec.ts",
@@ -30,12 +33,13 @@ async function workspace(completionClaim = true): Promise<{ directory: string; a
 function dependencies(directory: string, agent: CanonPhaseImplementationAgent) {
     const actions: string[] = [];
     const gateway = {
-        inspectRepository: async () => ({ revision: "abcdef1" }), createBranch: async () => undefined,
+        inspectRepository: async () => ({ revision: "abcdef1" }), readFileAtRevision: async () => checklistBefore,
+        createBranch: async () => undefined,
         workingDirectory: async () => directory, commit: async () => "bcdef12", push: async () => undefined,
         openDraftPullRequest: async () => ({ url: "https://example.test/pr/8", number: 8,
             branch: "agent/phase", repository: "sgwalton87/playbook-platform" })
     };
-    const commands = { run: async () => ({ stdout: " M evidence.txt\n?? tests/acceptance/phase.spec.ts\n?? pbos/readiness/048-phase-01.json\n",
+    const commands = { run: async () => ({ stdout: " M docs/MASTER_CHECKLIST.md\n M evidence.txt\n M next-env.d.ts\n?? .vercel/project.json\n?? artifacts/playwright/local.json\n?? tests/acceptance/phase.spec.ts\n?? pbos/readiness/048-phase-01.json\n",
         stderr: "" }) };
     return { actions, dependencies: { gateway: gateway as never, commands, agent,
         remediation: { start: () => ({ runId: "validation-1" }) } as never,
@@ -55,6 +59,8 @@ describe("Playbook canon phase execution adapter", () => {
         const result = await playbookCanonPhaseExecutor(setup.dependencies as never)(context as never);
         expect(setup.actions).toEqual(expect.arrayContaining(["MODIFY_APPLICATION_CODE", "CREATE_TESTS", "CREATE_COMMIT", "PUSH_BRANCH"]));
         expect(result.outputs).toMatchObject({ revision: "bcdef12" });
+        expect(result.files?.modified).not.toEqual(expect.arrayContaining(["next-env.d.ts", ".vercel/project.json",
+            "artifacts/playwright/local.json"]));
         expect(result.acceptanceEvidence).toHaveLength(8);
         expect(result.functionalAcceptancePlan).toMatchObject({ commit: "bcdef12",
             browserJourneys: [{ engine: "PLAYWRIGHT", viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
