@@ -62,6 +62,8 @@ describe("CIP-048 protected web-staging adapter", () => {
         expect(result.functionalAcceptancePlan?.previewDeployment).toMatchObject({ provider: "VERCEL", commit: "abc1234",
             environment: "preview", approvalId: "staging-approval" });
         expect(result.functionalAcceptancePlan?.durablePreview).toBeUndefined();
+        expect(result.acceptanceEvidence).toContainEqual(expect.objectContaining({ dimension: "PREVIEW", passed: true,
+            commit: "abc1234" }));
         expect(generated.get("pbos/readiness/048-web-staging.json")).toContain("AUTHORIZED_PENDING_EXACT_REVISION_CI_AND_DEPLOYMENT");
     });
 

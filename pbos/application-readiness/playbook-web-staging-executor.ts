@@ -89,7 +89,8 @@ function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvi
         item("PBOS_INTEGRATION", "The preview requires the isolated Playbook staging connector configuration."),
         item("ACCEPTANCE_TEST", "Seven remote browser journeys remain executable after deployment.", "APPLICATION_TEST"),
         item("ACCESSIBILITY", "Every remote journey retains its blocking accessibility audit.", "APPLICATION_TEST"),
-        item("SECURITY", "Provider binding, configuration scope, and production exclusion fail closed.", "SECURITY_TEST")
+        item("SECURITY", "Provider binding, configuration scope, and production exclusion fail closed.", "SECURITY_TEST"),
+        item("PREVIEW", "An approval-bound exact-revision Vercel preview is prepared for provider deployment.")
     ];
 }
 
