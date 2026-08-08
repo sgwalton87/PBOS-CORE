@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { isMessagingLeastPrivilegeDefect, playbookMessagingJourneyExecutor,
-    preparePlaybookMessagingLeastPrivilegeRecovery, repairMessagingLeastPrivilegeBoundary } from "../playbook-messaging-journey-executor";
+import { isMessagingAccessibilityContrastDefect, isMessagingLeastPrivilegeDefect, playbookMessagingJourneyExecutor,
+    preparePlaybookMessagingAccessibilityRecovery, preparePlaybookMessagingLeastPrivilegeRecovery,
+    repairMessagingLeastPrivilegeBoundary, wireMessagingAccessibilityContrast } from "../playbook-messaging-journey-executor";
 
 const session = { sessionId: "session-messaging", activatedAt: new Date(),
     system: { systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook", domain: "Education",
@@ -49,6 +50,10 @@ describe("CIP-048 governed messaging execution adapter", () => {
             .toContain("grant select, insert on public.pbos_messages");
         expect(generated.get("app/api/support-network/messages/route.ts")).toContain("ignoreDuplicates: true");
         expect(generated.get("app/api/support-network/messages/route.ts")).toContain("stagedMessage");
+        expect(generated.get("components/messages/InboxV2.tsx")).toContain('color: "#0F172A"');
+        expect(generated.get("components/messages/InboxV2.tsx")).toContain('label htmlFor="message-body" style={{ color: "#0F172A" }}');
+        expect(generated.get("components/messages/InboxV2.tsx")).toContain('article key={message.id} style={{ padding: 12, borderBottom: "1px solid #E2E8F0", color: "#0F172A" }}');
+        expect(generated.get("components/messages/InboxV2.tsx")).toContain('small style={{ color: "#0F172A" }}>{message.delivery_state} · {new Date');
         expect(generated.get("tests/acceptance/pbos-messaging.spec.ts")).toContain("AUTHORIZED-SUPPORT-MESSAGING");
         expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "AUTHORIZED-SUPPORT-MESSAGING",
             workingDirectory: "/tmp/playbook-messaging", commit: "message123" });
@@ -95,5 +100,43 @@ describe("CIP-048 governed messaging execution adapter", () => {
         expect(result.revision).toBe("messagefix");
         expect(generated.get("app/api/support-network/messages/route.ts")).toContain("ignoreDuplicates: true");
         expect(isMessagingLeastPrivilegeDefect(blockedRun)).toBe(true);
+    });
+
+    it("repairs only the axe-proven inherited messaging contrast on the existing pull request", async () => {
+        const inbox = `<p role="status" aria-live="polite">Ready</p>
+<section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 16 }}><article>{!loading && !active && <p>No authorized conversation exists yet. Start from an active support relationship.</p>}<label htmlFor="message-body">Message</label>
+<div aria-label="Message history">{active.messages.map(message => <article key={message.id} style={{ padding: 12, borderBottom: "1px solid #E2E8F0" }}>
+            <p>{message.body}</p><small>{message.delivery_state} · {new Date(message.created_at).toLocaleString()}</small>
+            <button onClick={() => void act("REPORT", message.id)}>Report</button></article>)}</div></section>`;
+        const accessible = wireMessagingAccessibilityContrast(inbox);
+        expect(accessible).toContain('aria-live="polite" style={{ color: "#0F172A" }}');
+        expect(accessible).toContain('gap: 16, color: "#0F172A"');
+        expect(accessible).toContain('No authorized conversation exists yet. Start from an active support relationship.</p>');
+        expect(accessible).toContain('label htmlFor="message-body" style={{ color: "#0F172A" }}');
+        expect(accessible).toContain('article key={message.id} style={{ padding: 12, borderBottom: "1px solid #E2E8F0", color: "#0F172A" }}');
+        expect(wireMessagingAccessibilityContrast(accessible)).toBe(accessible);
+
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/64", number: 64,
+            branch: "agent/pbos-playbook-system-001-048-messaging-f043cf27", repository: "sgwalton87/playbook-platform" };
+        const defect = 'Browser journey command failed for AUTHORIZED-SUPPORT-MESSAGING "id": "color-contrast" Governed messages are current #ffffff #f8f7f4';
+        const blockedRun = { ...run, status: "BLOCKED", currentBranch: pullRequest.branch, currentCommit: "4ecbb7a",
+            selectedMission: "Complete governed support messaging journey", blockers: [defect], evidenceIds: [],
+            terminalSummary: defect } as ProductionRun;
+        let written = "";
+        const gateway = { inspectRepository: async () => ({ revision: "4ecbb7a" }),
+            readFileAtRevision: async () => inbox,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                written = files[0]!.content; return files.map(file => file.path);
+            }, commit: async () => "messagea11y", push: async () => undefined } as unknown as GitHubRepositoryGateway;
+        const result = await preparePlaybookMessagingAccessibilityRecovery({ gateway, session, pullRequest,
+            recoveryDefects: [defect], authorize: action => ({ decisionId: action, grantId: "grant", action,
+                allowed: true, reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-message-a11y", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: () => blockedRun } }, blockedRun);
+        expect(result.revision).toBe("messagea11y");
+        expect(written).toContain('color: "#0F172A"');
+        expect(isMessagingAccessibilityContrastDefect(blockedRun, [defect])).toBe(true);
     });
 });

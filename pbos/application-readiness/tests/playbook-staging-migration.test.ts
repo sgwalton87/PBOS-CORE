@@ -155,7 +155,7 @@ describe("governed Playbook staging migration", () => {
         });
         expect(PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-notification-journey"]).toMatchObject({
             migrationPaths: ["supabase/migrations/202608050009_pbos_notification_outbox.sql"],
-            tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "notifications"]
+            tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "pbos_notifications"]
         });
     });
 
