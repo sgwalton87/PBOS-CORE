@@ -178,7 +178,8 @@ function runtime() {
         return { operatorId: operator.operatorId, approvalId: approval.approvalId };
     } };
     const commands = new NodeCommandRunner();
-    const gateway = new GitHubRepositoryGateway(join(stateRoot, "repositories"), commands);
+    const gateway = new GitHubRepositoryGateway(join(stateRoot, "repositories"), commands,
+        { name: local.githubLogin, email: `${local.githubLogin}@users.noreply.github.com` });
     const batches = new AutonomousBatchService(state, production);
     const workflows = new GenesisWorkflowService(
         gateway, undefined, undefined,
