@@ -11,6 +11,7 @@ import { PLAYBOOK_CANON_SOURCES } from "./playbook-canon-product-graph";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
+const MASTER_CHECKLIST = "docs/MASTER_CHECKLIST.md";
 const requiredDimensions: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY",
     "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
 const browserVerifiedDimensions = ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "SECURITY"] as const;
@@ -67,6 +68,35 @@ function assertSafePaths(paths: readonly string[]): void {
     if (forbidden) throw new Error(`Canon phase worker changed a protected path: ${forbidden}.`);
 }
 
+function publishablePath(path: string): boolean {
+    return path !== "next-env.d.ts" && !/^(artifacts\/|\.next\/|\.vercel\/|playwright-report\/|test-results\/)/.test(path);
+}
+
+function phaseItems(source: string, missionId: string): ReadonlyMap<string, string> {
+    const phaseNumber = Number.parseInt(missionId.slice(-2), 10);
+    const start = source.search(new RegExp(`^# Phase ${phaseNumber} — `, "m"));
+    if (start < 0) throw new Error(`Canon phase ${phaseNumber} is missing from ${MASTER_CHECKLIST}.`);
+    const rest = source.slice(start);
+    const next = rest.slice(1).search(/^# Phase \d+ — /m);
+    const section = next < 0 ? rest : rest.slice(0, next + 1);
+    return new Map([...section.matchAll(/^- ([⬜🟨🟦🟥🟩])\s+(.+)$/gmu)].map(match => [match[2].trim(), match[1]]));
+}
+
+function assertChecklistTransition(before: string, after: string, missionId: string, manifest: PhaseManifest): void {
+    const prior = phaseItems(before, missionId); const current = phaseItems(after, missionId);
+    const declared = new Set(manifest.completedItems);
+    const newlyComplete = [...current].filter(([item, status]) => status === "🟩" && prior.get(item) !== "🟩").map(([item]) => item);
+    const invalid = manifest.completedItems.find(item => !prior.has(item) || prior.get(item) === "🟩" || current.get(item) !== "🟩");
+    if (invalid || newlyComplete.length !== declared.size || newlyComplete.some(item => !declared.has(item))) {
+        throw new Error(`Canon phase checklist transition does not match completedItems${invalid ? `: ${invalid}` : ""}.`);
+    }
+    const actualRemaining = [...current].filter(([, status]) => status !== "🟩").map(([item]) => item).sort();
+    const declaredRemaining = [...manifest.remainingItems].sort();
+    if (JSON.stringify(actualRemaining) !== JSON.stringify(declaredRemaining)) {
+        throw new Error("Canon phase remainingItems do not match the governed checklist.");
+    }
+}
+
 function safeArtifactPath(workingDirectory: string, path: string): string {
     if (!path.trim() || isAbsolute(path)) throw new Error(`Canon phase evidence path is invalid: ${path || "EMPTY"}.`);
     const target = resolve(workingDirectory, path);
@@ -98,6 +128,7 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         }
         const inspection = await dependencies.gateway.inspectRepository(reference);
         if (inspection.revision !== context.run.startingCommit) throw new Error("Governed Playbook revision advanced; re-plan phase execution.");
+        const checklistBefore = await dependencies.gateway.readFileAtRevision(reference, MASTER_CHECKLIST, inspection.revision);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         const workingDirectory = await dependencies.gateway.workingDirectory(reference);
         const manifestPath = `pbos/readiness/${context.mission.missionId}.json`;
@@ -113,7 +144,8 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         const commands = dependencies.commands ?? new NodeCommandRunner();
         const paths = changedPaths((await commands.run("git", ["status", "--porcelain"], workingDirectory)).stdout);
         assertSafePaths(paths);
-        if (!paths.includes(manifestPath)) throw new Error(`Implementation worker did not produce ${manifestPath}.`);
+        const publishablePaths = paths.filter(publishablePath);
+        if (!publishablePaths.includes(manifestPath)) throw new Error(`Implementation worker did not produce ${manifestPath}.`);
         const manifest = JSON.parse(await readFile(join(workingDirectory, manifestPath), "utf8")) as PhaseManifest;
         if (manifest.schemaVersion !== 1 || manifest.missionId !== context.mission.missionId || !manifest.completionClaim) {
             throw new Error(`Canon phase remains incomplete: ${(manifest.blockers ?? ["completion claim withheld"]).join(", ")}.`);
@@ -126,7 +158,11 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
             throw new Error(`Canon phase evidence contract incomplete: ${missing.join(", ")}.`);
         }
         await assertManifestArtifacts(manifest, workingDirectory);
-        const revision = await dependencies.gateway.commit(reference, `feat: advance ${context.mission.title}`, paths);
+        const checklistAfter = await readFile(join(workingDirectory, MASTER_CHECKLIST), "utf8");
+        assertChecklistTransition(checklistBefore, checklistAfter, context.mission.missionId, manifest);
+        const substantive = publishablePaths.filter(path => path !== manifestPath && path !== MASTER_CHECKLIST);
+        if (!substantive.length) throw new Error("Canon phase worker produced no substantive implementation or acceptance-test change.");
+        const revision = await dependencies.gateway.commit(reference, `feat: advance ${context.mission.title}`, publishablePaths);
         await dependencies.gateway.push(reference, branch);
         const pullRequest: PullRequestReference = await dependencies.gateway.openDraftPullRequest(reference, branch,
             `feat: advance ${context.mission.title}`, `PBOS canon phase \`${context.mission.missionId}\` advanced one bounded package at \`${inspection.revision}\`: ${manifest.completedItems.join(", ")}. ${manifest.remainingItems.length} checklist item(s) remain. PBOS owns independent validation and certification.\n\nGenerated revision: \`${revision}\`.`);
@@ -156,7 +192,7 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
                 acceptanceArtifact: `artifacts/pbos-acceptance/${context.mission.missionId}.json`,
                 verifiedDimensions: browserVerifiedDimensions }] };
         return { outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId }, evidenceIds: [`commit:${revision}`, `pull-request:${pullRequest.number}`],
-            files: { modified: paths }, commands: [{ command: "bounded PBOS implementation worker", exitCode: 0, durationMs: 0, output: agentResult.summary }],
+            files: { modified: publishablePaths }, commands: [{ command: "bounded PBOS implementation worker", exitCode: 0, durationMs: 0, output: agentResult.summary }],
             validations: [{ name: "Bounded canon phase increment published for independent validation", passed: true, durationMs: 0, evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url }, acceptanceEvidence, functionalAcceptancePlan };
     };
