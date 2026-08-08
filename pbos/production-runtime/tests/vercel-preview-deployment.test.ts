@@ -27,7 +27,7 @@ describe("Vercel exact-revision preview deployment", () => {
             { id: "prj_1", name: "the-playbook", link: { type: "github", org: "sgwalton87", repo: "playbook-platform", repoId: 77 } },
             { envs: [{ key: "PBOS_ENVIRONMENT", target: ["preview"] }] },
             { id: "dpl_1", url: "the-playbook-preview.vercel.app", readyState: "BUILDING" },
-            { id: "dpl_1", url: "the-playbook-preview.vercel.app", readyState: "READY", target: "preview",
+            { id: "dpl_1", url: "the-playbook-preview.vercel.app", readyState: "READY", target: null,
                 meta: { githubCommitSha: "abcdef1" } }
         ];
         const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -41,7 +41,7 @@ describe("Vercel exact-revision preview deployment", () => {
         expect(calls[2].url).toContain("/v13/deployments?teamId=team_1&forceNew=1");
         const deploymentRequest = JSON.parse(calls[2].body ?? "{}");
         expect(deploymentRequest.gitSource).toMatchObject({ repoId: 77, sha: "abcdef1" });
-        expect(deploymentRequest.target).toBe("preview");
+        expect(deploymentRequest).not.toHaveProperty("target");
         expect(calls.map(call => call.body ?? "").join(" ")).not.toContain("secret");
     });
 
