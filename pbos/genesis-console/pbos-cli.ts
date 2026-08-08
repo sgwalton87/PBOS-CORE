@@ -48,6 +48,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
     PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler,
     playbookCanonJourneysExecutor,
+    playbookCanonDesignExecutor,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
@@ -1090,6 +1091,9 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`[REPOSITORY] ${channel.repository}@${inspection.revision} | branch boundary agent/*\n`);
     const adapters = new ProductionMissionAdapterRegistry()
         .register("PLAYBOOK-SYSTEM-001", "048-canon-journeys", () => playbookCanonJourneysExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
+        .register("PLAYBOOK-SYSTEM-001", "048-canon-design", () => playbookCanonDesignExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
         .register("PLAYBOOK-SYSTEM-001", "048-repository-gap-analysis", () => repositoryGapAnalysisExecutor(services.gateway, repository, inspection))

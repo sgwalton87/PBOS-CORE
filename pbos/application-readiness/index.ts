@@ -19,6 +19,7 @@ export * from "./playbook-product-journeys-executor";
 export * from "./playbook-canon-product-graph";
 export * from "./playbook-canon-mission-planner";
 export * from "./playbook-canon-journeys-executor";
+export * from "./playbook-canon-design-executor";
 export * from "./playbook-web-staging-executor";
 export * from "./playbook-mobile-foundation-executor";
 export * from "./playbook-mobile-functional-acceptance";

@@ -67,7 +67,7 @@ export class PlaybookCanonMissionPlanner {
             dependencies: ["048-canon-authority"], status: unmappedRoutes || undesignedRoutes ? "QUEUED" : "COMPLETE",
             rationale: `${unmappedRoutes} visible routes are unmapped and ${undesignedRoutes} mapped routes lack design-canon IDs.`,
             approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-design")),
-            completionPolicy: functionalPolicy(["Every human-facing route and state is mapped to an approved responsive design canon."])
+            completionPolicy: artifactPolicy(["Every human-facing route and state is mapped to an approved responsive design target without inferring implementation."])
         }];
 
         const phaseById = new Map(graph.phases.map(phase => [phase.phaseId, phase]));

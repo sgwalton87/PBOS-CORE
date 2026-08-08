@@ -104,7 +104,7 @@ function parseRouteMap(source: string): ReadonlyMap<string, Readonly<{ feature: 
         const route = cells[1].match(/`(\/[^`]*)`/)?.[1];
         const path = cells[2].match(/`([^`]+)`/)?.[1];
         if (!route || !path) continue;
-        const designCanonIds = [...line.matchAll(/\b(PG[A-Z]+-\d{3})\b/g)].map(match => match[1]);
+        const designCanonIds = [...line.matchAll(/\b(P[A-Z]{3}-\d{3})\b/g)].map(match => match[1]);
         routes.set(route, { feature: cells[0], path, designCanonIds });
     }
     return routes;
