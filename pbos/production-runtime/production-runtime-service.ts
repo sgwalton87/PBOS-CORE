@@ -499,6 +499,8 @@ export class ProductionRuntimeService {
         }
         const browserJourneys = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
             ? current.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                requiredEnvironmentVariables: [...new Set([...(journey.command.requiredEnvironmentVariables ?? []),
+                    ...(current.previewDeployment?.provider === "VERCEL" ? ["VERCEL_AUTOMATION_BYPASS_SECRET"] : [])])],
                 publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: preview.webUrl,
                     PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }))
             : current.browserJourneys;

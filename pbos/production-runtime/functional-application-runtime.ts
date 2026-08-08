@@ -469,6 +469,8 @@ export class FunctionalApplicationRuntime {
             const previewUrl = plan.durablePreview!.webUrl;
             plan = { ...plan, launch: { ...plan.launch, baseUrl: previewUrl },
                 browserJourneys: plan.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                    requiredEnvironmentVariables: [...new Set([...(journey.command.requiredEnvironmentVariables ?? []),
+                        ...(plan.previewDeployment?.provider === "VERCEL" ? ["VERCEL_AUTOMATION_BYPASS_SECRET"] : [])])],
                     publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: previewUrl,
                         PBOS_ACCEPTANCE_COMMIT: plan.commit } } })) };
         }

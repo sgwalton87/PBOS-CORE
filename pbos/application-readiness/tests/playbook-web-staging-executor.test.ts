@@ -25,7 +25,7 @@ describe("CIP-048 protected web-staging adapter", () => {
         const readiness = await inspectPlaybookWebStagingReadiness({}, stateHome);
 
         expect(readiness).toMatchObject({ ready: false, available: [],
-            missing: ["VERCEL_PROJECT_ID", "VERCEL_TEAM_ID", "VERCEL_TOKEN"] });
+            missing: ["VERCEL_AUTOMATION_BYPASS_SECRET", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID", "VERCEL_TOKEN"] });
     });
 
     it("diagnoses provider configuration by name without exposing values", async () => {
@@ -37,7 +37,8 @@ describe("CIP-048 protected web-staging adapter", () => {
         const readiness = await inspectPlaybookWebStagingReadiness({}, stateHome);
 
         expect(readiness).toMatchObject({ ready: false,
-            available: ["VERCEL_PROJECT_ID", "VERCEL_TOKEN"], missing: ["VERCEL_TEAM_ID"] });
+            available: ["VERCEL_PROJECT_ID", "VERCEL_TOKEN"],
+            missing: ["VERCEL_AUTOMATION_BYPASS_SECRET", "VERCEL_TEAM_ID"] });
         expect(JSON.stringify(readiness)).not.toContain("protected-token");
     });
 

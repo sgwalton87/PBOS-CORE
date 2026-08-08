@@ -102,8 +102,10 @@ describe("PBS-5000 functional application runtime", () => {
             durationMs: 1, passed: true }) }, { run: async (actual, journey) => {
             browserBaseUrl = actual.launch.baseUrl;
             expect(journey.command.publicEnvironment?.PLAYWRIGHT_BASE_URL).toBe(previewUrl);
+            expect(journey.command.requiredEnvironmentVariables).toContain("VERCEL_AUTOMATION_BYPASS_SECRET");
             return { journey, durationMs: 1, artifacts: [], verifiedDimensions: journey.verifiedDimensions, passed: true };
-        } }, undefined, async () => 2 * 1024 * 1024 * 1024);
+        } }, { resolve: async () => ({ ...process.env, VERCEL_AUTOMATION_BYPASS_SECRET: "test-bypass" }) } as never,
+        async () => 2 * 1024 * 1024 * 1024);
         (runtime as unknown as { verifyDurablePreview: () => Promise<FunctionalAcceptancePlan["durablePreview"]> })
             .verifyDurablePreview = async () => acceptance.durablePreview;
 

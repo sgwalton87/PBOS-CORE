@@ -15,7 +15,7 @@ const STAGING_MANIFEST = "pbos/readiness/048-web-staging.json";
 const STAGING_MEMO = "docs/acceptance/PBOS-WEB-STAGING.md";
 
 export const PLAYBOOK_WEB_STAGING_PROVIDER_ENVIRONMENT = [
-    "VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID"
+    "VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID", "VERCEL_AUTOMATION_BYPASS_SECRET"
 ] as const;
 
 export function playbookWebStagingProtectedEnvironmentFiles(
