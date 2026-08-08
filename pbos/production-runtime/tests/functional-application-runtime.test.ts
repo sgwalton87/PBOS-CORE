@@ -90,7 +90,6 @@ describe("PBS-5000 functional application runtime", () => {
         const repo = repository(); let launched = false; let browserBaseUrl = "";
         const previewUrl = "https://the-playbook-preview.example.com";
         const acceptance: FunctionalAcceptancePlan = { ...plan(repo.path, repo.revision),
-            launch: { ...plan(repo.path, repo.revision).launch, baseUrl: previewUrl },
             previewDeployment: { provider: "VERCEL", repository: "sgwalton87/playbook-platform",
                 branch: "agent/acceptance", commit: repo.revision, environment: "preview", approvalId: "approval",
                 tokenEnvironmentVariable: "VERCEL_TOKEN", projectEnvironmentVariable: "VERCEL_PROJECT_ID",
@@ -102,6 +101,7 @@ describe("PBS-5000 functional application runtime", () => {
         } }, { run: async (_plan, probe) => ({ probe, status: probe.expectedStatus, responseExcerpt: "ok",
             durationMs: 1, passed: true }) }, { run: async (actual, journey) => {
             browserBaseUrl = actual.launch.baseUrl;
+            expect(journey.command.publicEnvironment?.PLAYWRIGHT_BASE_URL).toBe(previewUrl);
             return { journey, durationMs: 1, artifacts: [], verifiedDimensions: journey.verifiedDimensions, passed: true };
         } }, undefined, async () => 2 * 1024 * 1024 * 1024);
         (runtime as unknown as { verifyDurablePreview: () => Promise<FunctionalAcceptancePlan["durablePreview"]> })
