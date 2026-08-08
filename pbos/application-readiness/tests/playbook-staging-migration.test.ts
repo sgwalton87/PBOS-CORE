@@ -121,7 +121,34 @@ describe("governed Playbook staging migration", () => {
             commit: "abcdef2", migrationPaths: ["supabase/migrations/202608050005_pbos_opportunity_journey.sql"] });
     });
 
+    it("orders the canonical support relationship prerequisite before support requests", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-support-staging-"));
+        const migrations = join(root, "supabase", "migrations");
+        mkdirSync(migrations, { recursive: true });
+        writeFileSync(join(migrations, "20260704_support_relationships.sql"),
+            "create table if not exists support_relationships (id uuid primary key);\n");
+        writeFileSync(join(migrations, "202608050007_pbos_application_support.sql"),
+            "create table if not exists application_support_requests (id uuid primary key);\n");
+        const definition = PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-support-journey"];
+        const state = new GenesisStateRepository(join(root, "state.json"));
+        const plan = await new PlaybookStagingMigrationService(state, { execute: async () => undefined })
+            .plan(root, "abcdefghijklmnopqrst", definition);
+        expect(plan.migrationPaths).toEqual([
+            "supabase/migrations/20260704_support_relationships.sql",
+            "supabase/migrations/202608050007_pbos_application_support.sql"
+        ]);
+        expect(plan.query.indexOf("20260704_support_relationships.sql"))
+            .toBeLessThan(plan.query.indexOf("202608050007_pbos_application_support.sql"));
+        expect(plan.query).toContain("to_regclass('public.support_relationships')");
+        expect(plan.query).toContain("to_regclass('public.application_support_requests')");
+    });
+
     it("registers isolated messaging and notification staging boundaries", () => {
+        expect(PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-support-journey"]).toMatchObject({
+            migrationPaths: ["supabase/migrations/20260704_support_relationships.sql",
+                "supabase/migrations/202608050007_pbos_application_support.sql"],
+            tableNames: ["support_relationships", "application_support_requests"]
+        });
         expect(PLAYBOOK_STAGING_MIGRATION_DEFINITIONS["048-messaging-journey"]).toMatchObject({
             migrationPaths: ["supabase/migrations/202608050008_pbos_governed_messaging.sql"],
             tableNames: ["pbos_conversations", "pbos_conversation_participants", "pbos_messages"]

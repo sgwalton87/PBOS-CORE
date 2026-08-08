@@ -1,8 +1,8 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -13,6 +13,7 @@ const SUPPORT_ROUTE = "app/api/pbos/application-support/route.ts";
 const SUPPORT_PANEL = "components/application-workspace/ApplicationSupportRequestPanel.tsx";
 const SUPPORT_SERVICE = "lib/pbos/application-support-request.ts";
 const SUPPORT_TEST = "tests/unit/pbos/application-support-request.test.ts";
+const SUPPORT_RELATIONSHIP_MIGRATION = "supabase/migrations/20260704_support_relationships.sql";
 const SUPPORT_MIGRATION = "supabase/migrations/202608050007_pbos_application_support.sql";
 
 export interface PlaybookSupportJourneyExecutorDependencies {
@@ -20,6 +21,42 @@ export interface PlaybookSupportJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookSupportJourneyRecoveryDependencies extends PlaybookSupportJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
+}
+
+const supportRelationshipPolicies = [
+    "Scholars can view their support relationships",
+    "Supporters can view their scholar relationships",
+    "Scholars can create support relationships"
+] as const;
+
+/** Makes the canonical relationship migration safe to replay in an atomic staging bootstrap. */
+export function makeSupportRelationshipMigrationIdempotent(source: string): string {
+    if (!source.includes("create table if not exists public.support_relationships") ||
+        !source.includes("permissions jsonb")) {
+        throw new Error("Playbook support-relationship migration changed; re-inspect before repairing staging prerequisites.");
+    }
+    return supportRelationshipPolicies.reduce((result, policy) => {
+        const create = `create policy "${policy}" on public.support_relationships`;
+        const drop = `drop policy if exists "${policy}" on public.support_relationships;`;
+        if (result.includes(drop)) return result;
+        if (!result.includes(create)) {
+            throw new Error(`Playbook support-relationship policy changed: ${policy}; re-inspect before mutation.`);
+        }
+        return result.replace(create, `${drop}\n${create}`);
+    }, source);
+}
+
+export function isSupportRelationshipMigrationFoundationDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete application-to-support journey" &&
+        evidence.includes("Supabase staging migration failed with HTTP 400");
 }
 
 const serviceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -351,13 +388,15 @@ function wireEnvironmentExample(source: string): string {
     return `${source.trimEnd()}\nPBOS_SUPPORT_REQUEST_APPROVAL_ID=\n`;
 }
 
-function changes(revision: string, runId: string, dashboard: string, environment: string): readonly RepositoryFileChange[] {
+function changes(revision: string, runId: string, dashboard: string, environment: string,
+    supportRelationships: string): readonly RepositoryFileChange[] {
     return [
         { path: SUPPORT_SERVICE, content: serviceSource },
         { path: SUPPORT_ROUTE, content: routeSource },
         { path: SUPPORT_PANEL, content: panelSource },
         { path: APPLICATION_DASHBOARD, content: dashboard },
         { path: SUPPORT_TEST, content: testSource },
+        { path: SUPPORT_RELATIONSHIP_MIGRATION, content: supportRelationships },
         { path: SUPPORT_MIGRATION, content: migrationSource },
         { path: ".env.example", content: environment },
         { path: "docs/integrations/PBOS-APPLICATION-SUPPORT.md", content: guideSource },
@@ -413,12 +452,13 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
         }
         await dependencies.gateway.readFileAtRevision(reference, APPLICATION_ROUTE, inspection.revision);
         const dashboardSource = await dependencies.gateway.readFileAtRevision(reference, APPLICATION_DASHBOARD, inspection.revision);
-        const [environmentSource, packageSource] = await Promise.all([
+        const [environmentSource, packageSource, supportRelationshipSource] = await Promise.all([
             dependencies.gateway.readFileAtRevision(reference, ".env.example", inspection.revision),
-            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision)
+            dependencies.gateway.readFileAtRevision(reference, "package.json", inspection.revision),
+            dependencies.gateway.readFileAtRevision(reference, SUPPORT_RELATIONSHIP_MIGRATION, inspection.revision)
         ]);
         const files = [...changes(inspection.revision, context.run.runId, wireApplicationSupportPanel(dashboardSource),
-            wireEnvironmentExample(environmentSource)),
+            wireEnvironmentExample(environmentSource), makeSupportRelationshipMigrationIdempotent(supportRelationshipSource)),
             ...playbookConnectedJourneyAcceptanceFiles(packageSource, "048-support-journey")];
         context.report("BUILDING", `Wiring the application-to-authorized-support journey on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
@@ -446,4 +486,41 @@ export function playbookSupportJourneyExecutor(dependencies: PlaybookSupportJour
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
             acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan };
     };
+}
+
+/** Advances the existing support mission and PR with its missing canonical staging prerequisite. */
+export async function preparePlaybookSupportMigrationRecovery(
+    dependencies: PlaybookSupportJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isSupportRelationshipMigrationFoundationDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for support migration recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize support migration recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Support migration recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, SUPPORT_RELATIONSHIP_MIGRATION, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [{ path: SUPPORT_RELATIONSHIP_MIGRATION,
+        content: makeSupportRelationshipMigrationIdempotent(source) }];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: include support relationship staging prerequisite", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "SUPPORT_RELATIONSHIP_MIGRATION_FOUNDATION");
+    return { branch, revision, remediation };
 }
