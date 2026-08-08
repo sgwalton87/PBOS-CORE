@@ -1,8 +1,9 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun,
+    ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookAcademicAcceptanceFiles } from "./playbook-academic-functional-acceptance";
 import { playbookProductAcceptancePlan } from "./playbook-product-functional-acceptance";
 
@@ -10,6 +11,7 @@ const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
 const MANIFEST = "pbos/readiness/048-product-journeys.json";
 const MEMO = "docs/acceptance/PBOS-CONNECTED-PRODUCT.md";
+const ACADEMIC_TRACKER = "components/ag/AGTracker.tsx";
 
 const journeyContracts = [
     ["tests/acceptance/pbos-scholar.spec.ts", "SCHOLAR-ONBOARDING-TO-DASHBOARD"],
@@ -26,6 +28,73 @@ export interface PlaybookProductJourneysExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookProductJourneysRecoveryDependencies extends PlaybookProductJourneysExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
+}
+
+export function isProductScholarDashboardContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidenceText = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Certify connected Playbook product journeys" &&
+        evidenceText.includes("Browser journey command failed for SCHOLAR-ONBOARDING-TO-DASHBOARD") &&
+        evidenceText.includes('"id": "color-contrast"') && evidenceText.includes("Action needed") &&
+        evidenceText.includes("#94a3b8") && evidenceText.includes("#ffffff") &&
+        evidenceText.includes("continue-learning-title");
+}
+
+export function wireProductScholarDashboardContrast(source: string): string {
+    const inaccessible = `: COLORS.faint,\n                    }}`;
+    const accessible = `: COLORS.muted,\n                    }}`;
+    if (!source.includes(inaccessible)) {
+        throw new Error("The A-G tracker no longer contains the exact inaccessible action-state color contract.");
+    }
+    const updated = source.replace(inaccessible, accessible);
+    if (updated === source || updated.includes(inaccessible)) {
+        throw new Error("The A-G tracker action-state contrast repair was not deterministic.");
+    }
+    return updated;
+}
+
+/** Advances the existing product mission and PR with the exact axe-proven Scholar dashboard repair. */
+export async function preparePlaybookProductScholarContrastRecovery(
+    dependencies: PlaybookProductJourneysRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isProductScholarDashboardContrastDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for product Scholar contrast recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize product Scholar contrast recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Product acceptance lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, ACADEMIC_TRACKER, inspection.revision);
+    const changes: readonly RepositoryFileChange[] = [
+        { path: ACADEMIC_TRACKER, content: wireProductScholarDashboardContrast(source) }
+    ];
+    await dependencies.gateway.applyChange(reference, changes);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: meet Scholar dashboard contrast acceptance", changes.map(change => change.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "PRODUCT_SCHOLAR_DASHBOARD_CONTRAST");
+    return { branch, revision, remediation };
 }
 
 function evidence(revision: string): readonly ApplicationAcceptanceEvidence[] {

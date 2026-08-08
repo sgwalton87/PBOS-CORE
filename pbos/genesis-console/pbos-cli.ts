@@ -28,7 +28,8 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
     playbookMobileCertificationExecutor, playbookMobileFoundationExecutor, playbookMobileJourneysExecutor,
     playbookMobileStoreReadinessExecutor,
-    playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
+    isProductScholarDashboardContrastDefect, playbookProductJourneysExecutor, playbookScholarSliceExecutor,
+    playbookSupportJourneyExecutor,
     inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
@@ -52,6 +53,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     preparePlaybookMessagingLeastPrivilegeRecovery,
     preparePlaybookNotificationAccessibilityRecovery,
     preparePlaybookNotificationSchemaRecovery,
+    preparePlaybookProductScholarContrastRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
@@ -559,6 +561,21 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         blockedMission?.executionBlocker
     ].filter((error): error is string => Boolean(error));
     const currentRemediationRunId = remediationRun.runId;
+    const productScholarContrastRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === currentRemediationRunId &&
+        event.payload.classification === "PRODUCT_SCHOLAR_DASHBOARD_CONTRAST");
+    if (!activeEpoch && !productScholarContrastRepairAlreadyRegistered &&
+        isProductScholarDashboardContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the exact WCAG Scholar dashboard contrast repair to the existing product pull request.\n");
+        const prepared = await preparePlaybookProductScholarContrastRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing product mission and PR preserved; Scholar contrast revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
     const identityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
         event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
         event.payload.remediationRunId === currentRemediationRunId &&

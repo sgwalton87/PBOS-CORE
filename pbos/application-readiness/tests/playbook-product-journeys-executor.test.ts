@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { playbookProductJourneysExecutor } from "../playbook-product-journeys-executor";
+import { isProductScholarDashboardContrastDefect, playbookProductJourneysExecutor,
+    preparePlaybookProductScholarContrastRecovery, wireProductScholarDashboardContrast } from "../playbook-product-journeys-executor";
 
 const session = { sessionId: "session-product", activatedAt: new Date(),
     system: { systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook", domain: "Education",
@@ -24,6 +25,38 @@ const contractByPath: Readonly<Record<string, string>> = {
 };
 
 describe("CIP-048 connected product execution adapter", () => {
+    it("recovers the exact Scholar dashboard contrast defect on the existing product pull request", async () => {
+        const branch = "agent/pbos-playbook-system-001-048-product-12345678";
+        const blockedRun = { ...run, status: "BLOCKED" as const, currentBranch: branch, currentCommit: "abcde12",
+            selectedMission: "Certify connected Playbook product journeys",
+            terminalSummary: "Browser journey command failed for SCHOLAR-ONBOARDING-TO-DASHBOARD: " +
+                '"id": "color-contrast" Action needed #94a3b8 #ffffff continue-learning-title' } as ProductionRun;
+        const source = `color: item.met\n                        ? COLORS.green\n                        : item.inProgress\n                        ? COLORS.amber\n                        : COLORS.faint,\n                    }}`;
+        const generated = new Map<string, string>();
+        const registered: string[] = [];
+        const gateway = { inspectRepository: async () => ({ revision: "abcde12" }),
+            readFileAtRevision: async () => source,
+            applyChange: async (_reference: unknown, changes: readonly { path: string; content: string }[]) => {
+                changes.forEach(change => generated.set(change.path, change.content)); return changes.map(change => change.path); },
+            commit: async () => "bcdef23", push: async () => undefined } as unknown as GitHubRepositoryGateway;
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/66", number: 66,
+            branch, repository: "sgwalton87/playbook-platform" };
+        const result = await preparePlaybookProductScholarContrastRecovery({ gateway, session,
+            authorize: action => ({ decisionId: action, grantId: "grant", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }), pullRequest,
+            remediation: { start: () => ({ runId: "validation-product-repair", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: (_runId, _remediationId, _branch, _revision, classification) => {
+                registered.push(classification); return blockedRun;
+            } } }, blockedRun);
+        expect(isProductScholarDashboardContrastDefect(blockedRun)).toBe(true);
+        expect(wireProductScholarDashboardContrast(source)).toContain(": COLORS.muted");
+        expect(generated.get("components/ag/AGTracker.tsx")).toContain(": COLORS.muted");
+        expect(result).toMatchObject({ branch, revision: "bcdef23" });
+        expect(registered).toEqual(["PRODUCT_SCHOLAR_DASHBOARD_CONTRAST"]);
+    });
+
     it("composes seven exact-revision journeys into one runtime and one pull request", async () => {
         const generated = new Map<string, string>();
         const gateway = { inspectRepository: async () => ({ repository: { owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" },
