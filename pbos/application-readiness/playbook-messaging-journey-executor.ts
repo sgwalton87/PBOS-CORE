@@ -1,8 +1,8 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -18,6 +18,12 @@ export interface PlaybookMessagingJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookMessagingJourneyRecoveryDependencies extends PlaybookMessagingJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
 }
 
 const serviceSource = `import { authorizePlaybookFoundation } from "./foundation";
@@ -160,8 +166,16 @@ export async function POST(request: NextRequest) {
     const idempotencyKey = user.id + ":" + requestId;
     const staged = await supabase.from("pbos_messages").upsert({ conversation_id: conversationId, scholar_id: authority.scholarId,
       sender_id: user.id, body: normalized, idempotency_key: idempotencyKey, delivery_state: "PENDING",
-      moderation_state: "VISIBLE", provenance: authority.provenance }, { onConflict: "idempotency_key" }).select("id,conversation_id,sender_id,body,created_at").single();
-    if (staged.error || !staged.data) throw new Error(staged.error?.message ?? "Message persistence failed.");
+      moderation_state: "VISIBLE", provenance: authority.provenance }, { onConflict: "idempotency_key", ignoreDuplicates: true })
+      .select("id,conversation_id,sender_id,body,created_at").maybeSingle();
+    if (staged.error) throw new Error(staged.error.message);
+    let stagedMessage = staged.data;
+    if (!stagedMessage) {
+      const existingMessage = await supabase.from("pbos_messages").select("id,conversation_id,sender_id,body,created_at")
+        .eq("idempotency_key", idempotencyKey).eq("sender_id", user.id).maybeSingle();
+      if (existingMessage.error || !existingMessage.data) throw new Error(existingMessage.error?.message ?? "Message persistence failed.");
+      stagedMessage = existingMessage.data;
+    }
     const mapper = new PlaybookIdentityMapper(); const identity = mapper.mapSupabaseIdentity(user.id, authority.pbosRole);
     const client = new PlaybookPbosRuntimeClient(new SignedPlaybookPbosTransport(required("PBOS_API_URL"), {
       organizationId: required("PBOS_ORGANIZATION_ID"), connectorId: required("PBOS_CONNECTOR_ID"),
@@ -169,12 +183,12 @@ export async function POST(request: NextRequest) {
     const response = await client.send("PUBLISH_LIFECYCLE_EVENT", { connectorId: "PLAYBOOK-CONNECTOR-001",
       domainRegistrationId: "PLAYBOOK-SCHOLAR-REGISTRATION-001", identityMappingId: identity.mappingId,
       correlationId: idempotencyKey, purpose: "Publish an approved support message.", payload: {
-        eventType: "SUPPORT_MESSAGE_SENT", schemaVersion: "1.0.0", messageId: staged.data.id, conversationId
+        eventType: "SUPPORT_MESSAGE_SENT", schemaVersion: "1.0.0", messageId: stagedMessage.id, conversationId
       } }, idempotencyKey, idempotencyKey);
     if (!response.success) throw new Error(response.error.message);
     const provenance = [...authority.provenance, identity.pbosIdentity.provenance, ...response.provenance];
     const delivered = await supabase.from("pbos_messages").update({ delivery_state: "DELIVERED", provenance })
-      .eq("id", staged.data.id).eq("sender_id", user.id).select("id,conversation_id,sender_id,body,delivery_state,created_at").single();
+      .eq("id", stagedMessage.id).eq("sender_id", user.id).select("id,conversation_id,sender_id,body,delivery_state,created_at").single();
     if (delivered.error || !delivered.data) throw new Error(delivered.error?.message ?? "Message delivery finalization failed.");
     return NextResponse.json({ conversation, message: delivered.data }, { status: 201 });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "Message delivery failed." }, { status: 500 }); }
@@ -325,6 +339,10 @@ drop policy if exists "Governed participants update messages" on public.pbos_mes
 create policy "Governed participants update messages" on public.pbos_messages for update to authenticated using (
   sender_id=auth.uid() or exists (select 1 from public.pbos_conversation_participants p where p.conversation_id=pbos_messages.conversation_id and p.user_id=auth.uid()))
   with check (sender_id=auth.uid() or exists (select 1 from public.pbos_conversation_participants p where p.conversation_id=pbos_messages.conversation_id and p.user_id=auth.uid()));
+grant select, insert on public.pbos_conversations to authenticated;
+grant select, insert on public.pbos_conversation_participants to authenticated;
+grant update (muted_at,blocked_at,last_read_at) on public.pbos_conversation_participants to authenticated;
+grant select, insert on public.pbos_messages to authenticated;
 revoke update on public.pbos_messages from authenticated;
 grant update (delivery_state,moderation_state,reported_at,provenance) on public.pbos_messages to authenticated;
 `;
@@ -433,4 +451,78 @@ export function playbookMessagingJourneyExecutor(dependencies: PlaybookMessaging
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
             acceptanceEvidence: evidence(revision), functionalAcceptancePlan };
     };
+}
+
+export function isMessagingLeastPrivilegeDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete governed support messaging journey" &&
+        evidence.includes("Expected: 201") && evidence.includes("Received: 500") &&
+        evidence.includes("pbos-messaging.spec.ts");
+}
+
+export function repairMessagingLeastPrivilegeBoundary(route: string, migration: string):
+    Readonly<{ route: string; migration: string }> {
+    if (!route.includes('{ onConflict: "idempotency_key" })')) {
+        if (route.includes("ignoreDuplicates: true") && migration.includes("grant select, insert on public.pbos_messages")) {
+            return { route, migration };
+        }
+        throw new Error("Playbook messaging route changed; re-inspect before repairing idempotent persistence.");
+    }
+    const fixedRoute = route
+        .replace('{ onConflict: "idempotency_key" }).select("id,conversation_id,sender_id,body,created_at").single();\n    if (staged.error || !staged.data) throw new Error(staged.error?.message ?? "Message persistence failed.");',
+            '{ onConflict: "idempotency_key", ignoreDuplicates: true })\n      .select("id,conversation_id,sender_id,body,created_at").maybeSingle();\n    if (staged.error) throw new Error(staged.error.message);\n    let stagedMessage = staged.data;\n    if (!stagedMessage) {\n      const existingMessage = await supabase.from("pbos_messages").select("id,conversation_id,sender_id,body,created_at")\n        .eq("idempotency_key", idempotencyKey).eq("sender_id", user.id).maybeSingle();\n      if (existingMessage.error || !existingMessage.data) throw new Error(existingMessage.error?.message ?? "Message persistence failed.");\n      stagedMessage = existingMessage.data;\n    }')
+        .replaceAll("staged.data.id", "stagedMessage.id");
+    if (!fixedRoute.includes("stagedMessage") || fixedRoute === route) {
+        throw new Error("Playbook messaging persistence boundary was only partially recognized; re-inspect before mutation.");
+    }
+    const grantBoundary = "revoke update on public.pbos_messages from authenticated;";
+    if (!migration.includes(grantBoundary)) throw new Error("Playbook messaging grant boundary changed; re-inspect before mutation.");
+    const grants = `grant select, insert on public.pbos_conversations to authenticated;
+grant select, insert on public.pbos_conversation_participants to authenticated;
+grant update (muted_at,blocked_at,last_read_at) on public.pbos_conversation_participants to authenticated;
+grant select, insert on public.pbos_messages to authenticated;`;
+    const fixedMigration = migration.includes("grant select, insert on public.pbos_messages")
+        ? migration : migration.replace(grantBoundary, `${grants}\n${grantBoundary}`);
+    return { route: fixedRoute, migration: fixedMigration };
+}
+
+export async function preparePlaybookMessagingLeastPrivilegeRecovery(
+    dependencies: PlaybookMessagingJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isMessagingLeastPrivilegeDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for messaging least-privilege recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize messaging recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Messaging recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const [route, migration] = await Promise.all([
+        dependencies.gateway.readFileAtRevision(reference, ROUTE, inspection.revision),
+        dependencies.gateway.readFileAtRevision(reference, MIGRATION, inspection.revision)
+    ]);
+    const repaired = repairMessagingLeastPrivilegeBoundary(route, migration);
+    const files: readonly RepositoryFileChange[] = [{ path: ROUTE, content: repaired.route },
+        { path: MIGRATION, content: repaired.migration }];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: preserve messaging least privilege", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "MESSAGING_LEAST_PRIVILEGE_IDEMPOTENCY");
+    return { branch, revision, remediation };
 }
