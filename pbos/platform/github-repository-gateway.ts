@@ -61,6 +61,35 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         return branch;
     }
 
+    /** Creates a tracked-files-only branch worktree so implementation workers cannot read checkout-local secrets. */
+    async createIsolatedBranch(repository: RepositoryReference, branch: string, baseRevision: string): Promise<string> {
+        this.assertBranch(branch);
+        if (!/^[a-f0-9]{7,40}$/i.test(baseRevision)) throw new Error("Isolated worktrees require an exact base revision.");
+        const checkout = await this.checkout(repository);
+        const root = resolve(this.workspaceRoot, ".worktrees");
+        await mkdir(root, { recursive: true });
+        const name = `${repository.owner}--${repository.name}--${branch.replaceAll("/", "--")}`;
+        const target = resolve(root, name);
+        if (!target.startsWith(`${root}${sep}`)) throw new Error("Isolated worktree path escaped the PBOS workspace.");
+        await this.commands.run("git", ["worktree", "add", "-b", branch, target, baseRevision], checkout);
+        return target;
+    }
+
+    async commitWorkingDirectory(workingDirectory: string, message: string, paths: readonly string[]): Promise<string> {
+        if (!message.trim() || paths.length === 0) throw new Error("Commit requires a message and explicit paths.");
+        paths.forEach(path => this.safePath(workingDirectory, path));
+        await this.commands.run("git", ["add", "--", ...paths], workingDirectory);
+        const identity = this.commitIdentity;
+        const identityArgs = identity ? ["-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`] : [];
+        await this.commands.run("git", [...identityArgs, "commit", "-m", message], workingDirectory);
+        return (await this.commands.run("git", ["rev-parse", "HEAD"], workingDirectory)).stdout.trim();
+    }
+
+    async pushWorkingDirectory(workingDirectory: string, branch: string): Promise<void> {
+        this.assertBranch(branch);
+        await this.commands.run("git", ["push", "-u", "origin", branch], workingDirectory);
+    }
+
     async propose(inspection: RepositoryInspection, summary: string, changedPaths: readonly string[]): Promise<RepositoryChangeProposal> {
         return this.proposeChange(inspection, summary, changedPaths);
     }

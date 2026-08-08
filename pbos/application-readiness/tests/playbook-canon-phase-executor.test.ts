@@ -34,8 +34,8 @@ function dependencies(directory: string, agent: CanonPhaseImplementationAgent) {
     const actions: string[] = [];
     const gateway = {
         inspectRepository: async () => ({ revision: "abcdef1" }), readFileAtRevision: async () => checklistBefore,
-        createBranch: async () => undefined,
-        workingDirectory: async () => directory, commit: async () => "bcdef12", push: async () => undefined,
+        createIsolatedBranch: async () => directory, commitWorkingDirectory: async () => "bcdef12",
+        pushWorkingDirectory: async () => undefined,
         openDraftPullRequest: async () => ({ url: "https://example.test/pr/8", number: 8,
             branch: "agent/phase", repository: "sgwalton87/playbook-platform" })
     };
@@ -75,15 +75,16 @@ describe("Playbook canon phase execution adapter", () => {
     });
 
     it("invokes the implementation worker without granting commit, push, merge, or deployment authority", async () => {
-        const calls: { command: string; args: readonly string[]; cwd?: string }[] = [];
-        const agent = new CodexCanonPhaseImplementationAgent({ run: async (command, args, cwd) => {
-            calls.push({ command, args, cwd }); return { stdout: "bounded result", stderr: "" };
+        const calls: { args: readonly string[]; cwd: string; timeoutMs: number }[] = [];
+        const agent = new CodexCanonPhaseImplementationAgent({ run: async (args, cwd, onActivity, timeoutMs) => {
+            calls.push({ args, cwd, timeoutMs }); onActivity("Codex worker event: thread.started.");
+            return { stdout: "bounded result", stderr: "" };
         } });
         await agent.execute({ missionId: "048-phase-01", title: "Identity", rationale: "incomplete",
             repository: "sgwalton87/playbook-platform", revision: "abcdef1", workingDirectory: "/tmp/playbook",
             manifestPath: "pbos/readiness/048-phase-01.json" });
-        expect(calls[0]?.command).toBe("codex");
         expect(calls[0]?.args).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "workspace-write"]));
+        expect(calls[0]?.args).toContain("--json");
         expect(calls[0]?.args).toEqual(expect.arrayContaining(["--config", 'approval_policy="never"']));
         const prompt = calls[0]?.args.at(-1) ?? "";
         expect(prompt).toContain("Do not commit, push, open a PR, merge, or deploy");

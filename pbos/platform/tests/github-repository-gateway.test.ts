@@ -88,6 +88,25 @@ describe("GitHub repository gateway", () => {
         ] }));
     });
 
+    it("isolates implementation workers from checkout-local untracked configuration", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const commands = new FakeCommands();
+        const gateway = new GitHubRepositoryGateway(root, commands,
+            { name: "authorized-user", email: "authorized-user@users.noreply.github.com" });
+        const worktree = await gateway.createIsolatedBranch(reference, "agent/phase-one", "abc1234");
+        expect(worktree).toBe(join(root, ".worktrees", "acme--app--agent--phase-one"));
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git",
+            args: ["worktree", "add", "-b", "agent/phase-one", worktree, "abc1234"], cwd: join(root, "acme--app") }));
+        await gateway.commitWorkingDirectory(worktree, "feat: isolated change", ["app/page.tsx"]);
+        await gateway.pushWorkingDirectory(worktree, "agent/phase-one");
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", cwd: worktree,
+            args: ["-c", "user.name=authorized-user", "-c", "user.email=authorized-user@users.noreply.github.com",
+                "commit", "-m", "feat: isolated change"] }));
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", cwd: worktree,
+            args: ["push", "-u", "origin", "agent/phase-one"] }));
+    });
+
     it("reads application source only from an exact governed revision", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
         mkdirSync(join(root, "acme--app"));

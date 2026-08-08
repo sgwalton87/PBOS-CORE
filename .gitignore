@@ -16,4 +16,7 @@ coverage/
 .vscode/*
 !.vscode/settings.json
 
+.codex/
+.worktrees/
+
 supabase/.temp/
