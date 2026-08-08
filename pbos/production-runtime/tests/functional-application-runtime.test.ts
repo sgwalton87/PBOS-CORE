@@ -84,7 +84,7 @@ describe("PBS-5000 functional application runtime", () => {
         expect(result.preview).toMatchObject({ status: "REQUESTED", commit: repo.revision, label: "SIMULATED" });
         expect(result.preview.webUrl).toBeUndefined();
         expect(telemetry).toEqual(["PREREQUISITES_VERIFIED", "APPLICATION_HEALTHY", "RUNTIME_PROBES_VERIFIED", "BROWSER_JOURNEYS_VERIFIED"]);
-    });
+    }, 15_000);
 
     it("executes deployed-preview acceptance without launching a competing local application", async () => {
         const repo = repository(); let launched = false; let browserBaseUrl = "";

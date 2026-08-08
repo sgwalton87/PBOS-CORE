@@ -11,6 +11,7 @@ import {
 
 export interface CommandResult { readonly stdout: string; readonly stderr: string; }
 export interface CommandRunner { run(command: string, args: readonly string[], cwd?: string): Promise<CommandResult>; }
+export interface GitCommitIdentity { readonly name: string; readonly email: string; }
 export class NodeCommandRunner implements CommandRunner {
     async run(command: string, args: readonly string[], cwd?: string): Promise<CommandResult> {
         const result = await promisify(execFile)(command, [...args], { cwd, maxBuffer: 10 * 1024 * 1024 });
@@ -23,7 +24,8 @@ export interface PullRequestReference { readonly url: string; readonly number: n
 
 /** Concrete GitHub implementation. Every process invocation uses argv arrays; no repository value enters a shell. */
 export class GitHubRepositoryGateway implements RepositoryGateway {
-    constructor(private readonly workspaceRoot: string, private readonly commands: CommandRunner = new NodeCommandRunner()) {}
+    constructor(private readonly workspaceRoot: string, private readonly commands: CommandRunner = new NodeCommandRunner(),
+        private readonly commitIdentity?: GitCommitIdentity) {}
 
     inspect(repository: RepositoryReference): Promise<RepositoryInspection> { return this.inspectRepository(repository); }
     async inspectRepository(repository: RepositoryReference): Promise<RepositoryInspection> {
@@ -103,7 +105,9 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         if (!message.trim() || paths.length === 0) throw new Error("Commit requires a message and explicit paths.");
         paths.forEach(path => this.safePath(cwd, path));
         await this.commands.run("git", ["add", "--", ...paths], cwd);
-        await this.commands.run("git", ["commit", "-m", message], cwd);
+        const identity = this.commitIdentity;
+        const identityArgs = identity ? ["-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`] : [];
+        await this.commands.run("git", [...identityArgs, "commit", "-m", message], cwd);
         return (await this.commands.run("git", ["rev-parse", "HEAD"], cwd)).stdout.trim();
     }
 

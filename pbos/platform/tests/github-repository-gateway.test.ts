@@ -75,6 +75,19 @@ describe("GitHub repository gateway", () => {
         expect(result.number).toBe(7);
     });
 
+    it("binds generated commits to the authenticated PBOS GitHub identity", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const commands = new FakeCommands();
+        await new GitHubRepositoryGateway(root, commands,
+            { name: "authorized-user", email: "authorized-user@users.noreply.github.com" })
+            .commit(reference, "feat: governed change", ["README.md"]);
+        expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: [
+            "-c", "user.name=authorized-user", "-c", "user.email=authorized-user@users.noreply.github.com",
+            "commit", "-m", "feat: governed change"
+        ] }));
+    });
+
     it("reads application source only from an exact governed revision", async () => {
         const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
         mkdirSync(join(root, "acme--app"));
