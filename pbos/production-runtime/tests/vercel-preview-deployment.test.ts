@@ -41,7 +41,7 @@ describe("Vercel exact-revision preview deployment", () => {
         expect(calls[2].url).toContain("/v13/deployments?teamId=team_1&forceNew=1");
         const deploymentRequest = JSON.parse(calls[2].body ?? "{}");
         expect(deploymentRequest.gitSource).toMatchObject({ repoId: 77, sha: "abcdef1" });
-        expect(deploymentRequest).not.toHaveProperty("target");
+        expect(deploymentRequest.target).toBeNull();
         expect(calls.map(call => call.body ?? "").join(" ")).not.toContain("secret");
     });
 

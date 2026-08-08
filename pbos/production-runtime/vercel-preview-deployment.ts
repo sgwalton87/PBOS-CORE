@@ -66,6 +66,7 @@ export class VercelPreviewDeploymentGateway implements PreviewDeploymentGateway 
             token, "POST", {
                 name: project.name,
                 project: project.id ?? projectId,
+                target: null,
                 gitSource: { type: "github", repoId: project.link!.repoId, ref: request.branch, sha: request.commit },
                 meta: { githubCommitSha: request.commit, githubCommitRef: request.branch,
                     githubRepo: request.repository.split("/")[1], githubOrg: request.repository.split("/")[0],
