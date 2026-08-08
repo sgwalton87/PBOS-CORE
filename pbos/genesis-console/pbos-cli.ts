@@ -36,11 +36,13 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
     isApplicationWorkspaceHeadingContrastDefect, isApplicationWorkspaceMigrationFoundationDefect,
     isSupportRelationshipMigrationFoundationDefect,
+    isSupportAcceptanceIdentifierCollisionDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
+    preparePlaybookSupportAcceptanceRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
@@ -610,6 +612,22 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; support prerequisite revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const supportAcceptanceRemediationRunId = remediationRun.runId;
+    const supportAcceptanceRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === supportAcceptanceRemediationRunId &&
+        event.payload.classification === "SUPPORT_ACCEPTANCE_IDENTIFIER_COLLISION");
+    if (!activeEpoch && !supportAcceptanceRepairAlreadyRegistered &&
+        isSupportAcceptanceIdentifierCollisionDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Removing the Playwright request-fixture collision on the existing support pull request.\n");
+        const prepared = await preparePlaybookSupportAcceptanceRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; acceptance revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
