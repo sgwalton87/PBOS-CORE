@@ -1,8 +1,8 @@
 import { ActionRisk, BuildAction, BuildAuthorityDecision } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, RepositoryFileChange } from "../platform";
-import { ApplicationAcceptanceEvidence, ProductionMissionExecutor } from "../production-runtime";
-import { ResumableRemediationEngine } from "../validation-automation";
+import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun, ProductionRuntimeService } from "../production-runtime";
+import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookConnectedJourneyAcceptanceFiles, playbookConnectedJourneyAcceptancePlan } from "./playbook-connected-journey-functional-acceptance";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -18,6 +18,12 @@ export interface PlaybookNotificationJourneyExecutorDependencies {
     readonly remediation: Pick<ResumableRemediationEngine, "start">;
     readonly session: GenesisBuildSession;
     readonly authorize: (action: BuildAction, risk: ActionRisk, branch: string) => BuildAuthorityDecision;
+}
+
+export interface PlaybookNotificationJourneyRecoveryDependencies extends PlaybookNotificationJourneyExecutorDependencies {
+    readonly production: Pick<ProductionRuntimeService, "registerBoundedRemediation">;
+    readonly recoveryDefects?: readonly string[];
+    readonly pullRequest: PullRequestReference;
 }
 
 const serviceSource = `export const NOTIFICATION_TYPES = ["message","invitation","shared_action","compass_alert","mail_reply","network_blocker","recommendation"] as const;
@@ -105,7 +111,7 @@ async function deliver(supabase: Awaited<ReturnType<typeof requireUser>>["supaba
   }
   const provenance = await publishPbos(userId, event, userId + ":" + event.eventKey);
   const priority = notificationPriorityForAttempt(event.priority, outbox.attempt_count);
-  const saved = await supabase.from("notifications").upsert({ user_id: userId, scholar_id: userId, type: event.type,
+  const saved = await supabase.from("pbos_notifications").upsert({ user_id: userId, scholar_id: userId, type: event.type,
     title: event.title, body: event.body, href: event.href, priority, read: false, delivery_status: "in_app",
     source_event_key: event.eventKey, provenance }, { onConflict: "user_id,source_event_key" })
     .select("id,user_id,type,title,body,href,priority,read,created_at,source_event_key").single();
@@ -119,7 +125,7 @@ export async function GET() {
   try { const { supabase, user } = await requireUser();
     if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     const [notifications, preferences, failures] = await Promise.all([
-      supabase.from("notifications").select("id,user_id,scholar_id,type,title,body,href,priority,read,created_at,source_event_key")
+      supabase.from("pbos_notifications").select("id,user_id,scholar_id,type,title,body,href,priority,read,created_at,source_event_key")
         .eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("pbos_notification_preferences").select("notification_type,mode").eq("owner_id", user.id),
       supabase.from("pbos_notification_outbox").select("id,event_key,event_type,attempt_count,last_error,next_attempt_at")
@@ -139,7 +145,7 @@ export async function POST(request: NextRequest) {
       .eq("owner_id", user.id).eq("event_key", event.eventKey).maybeSingle();
     if (existing.error) throw new Error(existing.error.message);
     if (existing.data?.state === "DELIVERED") {
-      const notification = await supabase.from("notifications").select("id,user_id,type,title,body,href,priority,read,created_at,source_event_key")
+      const notification = await supabase.from("pbos_notifications").select("id,user_id,type,title,body,href,priority,read,created_at,source_event_key")
         .eq("user_id", user.id).eq("source_event_key", event.eventKey).single();
       if (notification.error) throw new Error(notification.error.message); return NextResponse.json({ notification: notification.data, idempotent: true });
     }
@@ -165,9 +171,9 @@ export async function PATCH(request: NextRequest) {
     if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
     const body = await request.json() as { action?: unknown; notificationId?: unknown; notificationType?: unknown; mode?: unknown; outboxId?: unknown };
     const action = notificationAction(String(body.action ?? ""));
-    if (action === "READ") { const updated = await supabase.from("notifications").update({ read: true, acknowledged_at: new Date().toISOString() })
+    if (action === "READ") { const updated = await supabase.from("pbos_notifications").update({ read: true, acknowledged_at: new Date().toISOString() })
       .eq("id", String(body.notificationId ?? "")).eq("user_id", user.id); if (updated.error) throw new Error(updated.error.message); }
-    if (action === "READ_ALL") { const updated = await supabase.from("notifications").update({ read: true, acknowledged_at: new Date().toISOString() })
+    if (action === "READ_ALL") { const updated = await supabase.from("pbos_notifications").update({ read: true, acknowledged_at: new Date().toISOString() })
       .eq("user_id", user.id).eq("read", false); if (updated.error) throw new Error(updated.error.message); }
     if (action === "PREFERENCE") { const type = notificationType(String(body.notificationType ?? "")); const mode = notificationMode(String(body.mode ?? ""));
       const updated = await supabase.from("pbos_notification_preferences").upsert({ owner_id: user.id, notification_type: type, mode,
@@ -184,7 +190,7 @@ export async function PATCH(request: NextRequest) {
 const centerSource = `"use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage, PlaybookPill } from "@/components/ui";
+import { PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage } from "@/components/ui";
 type Notification = { id: string; type: string; title: string; body: string; href: string; priority: string; read: boolean; created_at: string };
 type Preference = { notification_type: string; mode: string }; type Failure = { id: string; event_type: string; attempt_count: number; last_error: string };
 type Filter = "all" | "unread" | "messages" | "actions" | "intelligence";
@@ -211,25 +217,30 @@ export default function NotificationCenter() {
     subtitle="Idempotent domain events, preferences, acknowledgement, bounded retry, escalation, and failure evidence in one governed center." />
     <PlaybookMetrics><PlaybookMetric label="Unread" value={String(notifications.filter(item=>!item.read).length)}/>
       <PlaybookMetric label="Delivery failures" value={String(failures.length)}/></PlaybookMetrics>
-    <p role="status" aria-live="polite">{loading?"Loading…":status}</p>{error&&<p role="alert">{error} <button onClick={()=>void reload()}>Retry</button></p>}
-    <section aria-label="Notification preferences"><h2>Delivery preferences</h2>{["message","mail_reply","shared_action","network_blocker"].map(type=><label key={type} style={{display:"block"}}>{type}
+    <p role="status" aria-live="polite" style={{color:"#0F172A"}}>{loading?"Loading…":status}</p>{error&&<p role="alert">{error} <button onClick={()=>void reload()}>Retry</button></p>}
+    <section aria-label="Notification preferences" style={{color:"#0F172A"}}><h2 style={{color:"#0F172A"}}>Delivery preferences</h2>{["message","mail_reply","shared_action","network_blocker"].map(type=><label key={type} style={{display:"block",color:"#0F172A"}}>{type}
       <select value={preferences.find(item=>item.notification_type===type)?.mode??"immediate"} onChange={event=>void act({action:"PREFERENCE",notificationType:type,mode:event.target.value})}>
         <option value="immediate">Immediate</option><option value="daily_digest">Daily digest</option><option value="weekly_digest">Weekly digest</option><option value="muted">Muted</option></select></label>)}</section>
-    <section><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(["all","unread","messages","actions","intelligence"] as Filter[]).map(value=><button key={value}
+    <section style={{color:"#0F172A"}}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(["all","unread","messages","actions","intelligence"] as Filter[]).map(value=><button key={value}
       aria-pressed={filter===value} onClick={()=>setFilter(value)}>{value}</button>)}<button onClick={()=>void act({action:"READ_ALL"})}>Mark all read</button></div>
-      {!loading&&visible.length===0&&<p>Nothing needs attention in this view.</p>}{visible.map(item=><article key={item.id} style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1}}>
-        <PlaybookPill>{item.type}</PlaybookPill><h2>{item.title}</h2><p>{item.body}</p><Link href={item.href}>Open</Link>{!item.read&&<button onClick={()=>void act({action:"READ",notificationId:item.id})}>Mark read</button>}
-        <small>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small></article>)}</section>
+      {!loading&&visible.length===0&&<p style={{color:"#0F172A"}}>Nothing needs attention in this view.</p>}{visible.map(item=><article key={item.id} data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>
+        <span style={{display:"inline-flex",background:"#FFF7ED",border:"1px solid #FDBA74",color:"#7C2D12",borderRadius:999,padding:"6px 9px",fontSize:11,fontWeight:900,textTransform:"uppercase"}}>{item.type}</span>
+        <h2 style={{color:"#0F172A"}}>{item.title}</h2><p style={{color:"#0F172A"}}>{item.body}</p><Link href={item.href} style={{color:"#1D4ED8"}}>Open</Link>{!item.read&&<button onClick={()=>void act({action:"READ",notificationId:item.id})}>Mark read</button>}
+        <small style={{color:"#334155"}}>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small></article>)}</section>
     {failures.length>0&&<section aria-label="Delivery failures"><h2>Delivery recovery</h2>{failures.map(item=><article key={item.id}><p>{item.event_type}: {item.last_error}</p>
       <button onClick={()=>void act({action:"RETRY",outboxId:item.id})}>Retry delivery</button></article>)}</section>}
   </PlaybookPage>;
 }
 `;
 
-const migrationSource = `alter table public.notifications add column if not exists source_event_key text;
-alter table public.notifications add column if not exists acknowledged_at timestamptz;
-alter table public.notifications add column if not exists provenance jsonb not null default '[]'::jsonb;
-create unique index if not exists notifications_user_source_event_idx on public.notifications(user_id,source_event_key) where source_event_key is not null;
+const migrationSource = `create table if not exists public.pbos_notifications (
+  id uuid primary key default gen_random_uuid(), user_id uuid not null references auth.users(id) on delete cascade,
+  scholar_id uuid references auth.users(id) on delete cascade, type text not null, title text not null, body text not null,
+  href text not null check (href like '/%'), priority text not null default 'medium' check (priority in ('low','medium','high','urgent')),
+  read boolean not null default false, delivery_status text not null default 'in_app', source_event_key text not null,
+  acknowledged_at timestamptz, provenance jsonb not null default '[]'::jsonb, created_at timestamptz not null default now(),
+  unique(user_id,source_event_key)
+);
 create table if not exists public.pbos_notification_outbox (
   id uuid primary key default gen_random_uuid(), owner_id uuid not null, event_key text not null, event_type text not null,
   event_payload jsonb not null, state text not null default 'PENDING' check (state in ('PENDING','DELIVERED','FAILED','SUPPRESSED','DIGEST_QUEUED')),
@@ -242,18 +253,15 @@ create table if not exists public.pbos_notification_preferences (
   primary key(owner_id,notification_type)
 );
 create index if not exists pbos_notification_retry_idx on public.pbos_notification_outbox(state,next_attempt_at);
+alter table public.pbos_notifications enable row level security;
 alter table public.pbos_notification_outbox enable row level security;
 alter table public.pbos_notification_preferences enable row level security;
+drop policy if exists "Owners manage PBOS notifications" on public.pbos_notifications;
+create policy "Owners manage PBOS notifications" on public.pbos_notifications for all to authenticated using(user_id=auth.uid()) with check(user_id=auth.uid());
 drop policy if exists "Owners manage notification outbox" on public.pbos_notification_outbox;
 create policy "Owners manage notification outbox" on public.pbos_notification_outbox for all to authenticated using(owner_id=auth.uid()) with check(owner_id=auth.uid());
 drop policy if exists "Owners manage notification preferences" on public.pbos_notification_preferences;
 create policy "Owners manage notification preferences" on public.pbos_notification_preferences for all to authenticated using(owner_id=auth.uid()) with check(owner_id=auth.uid());
-drop policy if exists "Users view their notifications" on public.notifications;
-create policy "Users view their notifications" on public.notifications for select to authenticated using(user_id=auth.uid()::text);
-drop policy if exists "Users update their notifications" on public.notifications;
-create policy "Users update their notifications" on public.notifications for update to authenticated using(user_id=auth.uid()::text) with check(user_id=auth.uid()::text);
-drop policy if exists "Users create their notifications" on public.notifications;
-create policy "Users create their notifications" on public.notifications for insert to authenticated with check(user_id=auth.uid()::text);
 `;
 
 const testSource = `import { describe,expect,it } from "vitest";
@@ -289,6 +297,165 @@ function evidence(revision:string):readonly ApplicationAcceptanceEvidence[]{cons
     item("DURABLE_DATA","Outbox, preferences, idempotency and acknowledgements persist under RLS.",MIGRATION),item("AUTHORITY","Owner identity and protected approval are server resolved.",ROUTE),
     item("PBOS_INTEGRATION","Notification publication creates signed lifecycle provenance.",ROUTE),item("ACCEPTANCE_TEST","Idempotency, retry escalation and preference behavior have executable tests.",TEST,"APPLICATION_TEST"),
     item("ACCESSIBILITY","The notification center uses labeled controls, status, alerts and semantic failure recovery.",CENTER,"APPLICATION_TEST"),item("SECURITY","External hrefs, browser ownership and service-role access are rejected.",SERVICE,"SECURITY_TEST")];}
+
+/**
+ * Isolates PBOS notifications from Playbook's pre-existing notification table.
+ * The legacy table has multiple historical schemas in deployed environments,
+ * so mutating it would make a clean migration non-reproducible.
+ */
+export function wireNotificationStorageIsolation(route: string, migration: string):
+    Readonly<{ route: string; migration: string }> {
+    const isolatedRoute = route.replaceAll('.from("notifications")', '.from("pbos_notifications")');
+    const alreadyIsolated = migration.includes("create table if not exists public.pbos_notifications (");
+    if (!alreadyIsolated && !migration.includes("alter table public.notifications add column if not exists source_event_key text;")) {
+        throw new Error("Playbook notification storage changed; re-inspect before repairing schema isolation.");
+    }
+    if (!route.includes('.from("notifications")') && !route.includes('.from("pbos_notifications")')) {
+        throw new Error("Playbook notification route changed; re-inspect before repairing schema isolation.");
+    }
+    return { route: isolatedRoute, migration: alreadyIsolated ? migration : migrationSource };
+}
+
+export function isNotificationSchemaDriftDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidenceText = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete reliable notification journey" &&
+        evidenceText.includes("Supabase staging migration failed with HTTP 400");
+}
+
+/** Advances the existing notification mission and PR with an isolated, additive storage contract. */
+export async function preparePlaybookNotificationSchemaRecovery(
+    dependencies: PlaybookNotificationJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isNotificationSchemaDriftDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for notification schema recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize notification schema recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Notification schema recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const [route, migration] = await Promise.all([
+        dependencies.gateway.readFileAtRevision(reference, ROUTE, inspection.revision),
+        dependencies.gateway.readFileAtRevision(reference, MIGRATION, inspection.revision)
+    ]);
+    const repaired = wireNotificationStorageIsolation(route, migration);
+    const files: readonly RepositoryFileChange[] = [
+        { path: ROUTE, content: repaired.route },
+        { path: MIGRATION, content: repaired.migration }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: isolate governed notification storage", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "NOTIFICATION_SCHEMA_ISOLATION");
+    return { branch, revision, remediation };
+}
+
+/** Repairs only the foreground colors proven inaccessible by the notification browser journey. */
+export function wireNotificationAccessibilityContrast(source: string): string {
+    if (source.includes('aria-live="polite" style={{color:"#0F172A"}}') &&
+        source.includes('style={{color:"#1D4ED8"}}>Open</Link>') && !source.includes("opacity:item.read?.7:1")) return source;
+    const inheritedContrast = source.includes('<p role="status" aria-live="polite">') &&
+        source.includes('<section aria-label="Notification preferences"><h2>Delivery preferences</h2>') &&
+        source.includes('<PlaybookPill>{item.type}</PlaybookPill>');
+    const ancestorOpacity = source.includes('opacity:item.read?.7:1') &&
+        source.includes('color:"#7C2D12"');
+    if (!inheritedContrast && !ancestorOpacity) {
+        throw new Error("Playbook notification interface changed; re-inspect before repairing contrast.");
+    }
+    return source
+        .replace('import { PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage, PlaybookPill } from "@/components/ui";',
+            'import { PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage } from "@/components/ui";')
+        .replace('<p role="status" aria-live="polite">',
+            '<p role="status" aria-live="polite" style={{color:"#0F172A"}}>')
+        .replace('<section aria-label="Notification preferences"><h2>Delivery preferences</h2>',
+            '<section aria-label="Notification preferences" style={{color:"#0F172A"}}><h2 style={{color:"#0F172A"}}>Delivery preferences</h2>')
+        .replace('style={{display:"block"}}>{type}', 'style={{display:"block",color:"#0F172A"}}>{type}')
+        .replace('<section><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>',
+            '<section style={{color:"#0F172A"}}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>')
+        .replace('<p>Nothing needs attention in this view.</p>',
+            '<p style={{color:"#0F172A"}}>Nothing needs attention in this view.</p>')
+        .replace('style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1}}>',
+            'data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>')
+        .replace('style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1,color:"#0F172A"}}>',
+            'data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>')
+        .replace('<PlaybookPill>{item.type}</PlaybookPill><h2>{item.title}</h2><p>{item.body}</p><Link href={item.href}>Open</Link>',
+            '<span style={{display:"inline-flex",background:"#FFF7ED",border:"1px solid #FDBA74",color:"#7C2D12",borderRadius:999,padding:"6px 9px",fontSize:11,fontWeight:900,textTransform:"uppercase"}}>{item.type}</span>\n        <h2 style={{color:"#0F172A"}}>{item.title}</h2><p style={{color:"#0F172A"}}>{item.body}</p><Link href={item.href} style={{color:"#1D4ED8"}}>Open</Link>')
+        .replace('<small>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small>',
+            '<small style={{color:"#334155"}}>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small>');
+}
+
+export function isNotificationAccessibilityContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidenceText = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete reliable notification journey" &&
+        evidenceText.includes("Browser journey command failed for EVENT-TO-ACKNOWLEDGED-NOTIFICATION") &&
+        evidenceText.includes('"id": "color-contrast"') && evidenceText.includes("Notification state is current") &&
+        evidenceText.includes("#ffffff") && evidenceText.includes("#f8f7f4");
+}
+
+export function isNotificationReadStateContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidenceText = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete reliable notification journey" &&
+        evidenceText.includes("Browser journey command failed for EVENT-TO-ACKNOWLEDGED-NOTIFICATION") &&
+        evidenceText.includes('"id": "color-contrast"') && evidenceText.includes("#a16a56") &&
+        evidenceText.includes("#fdf7ef") && evidenceText.includes("article > span");
+}
+
+/** Advances the same notification mission and PR with the exact axe-proven contrast repair. */
+export async function preparePlaybookNotificationAccessibilityRecovery(
+    dependencies: PlaybookNotificationJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    const readStateDefect = isNotificationReadStateContrastDefect(run, dependencies.recoveryDefects);
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        (!isNotificationAccessibilityContrastDefect(run, dependencies.recoveryDefects) && !readStateDefect)) {
+        throw new Error("The production run is not eligible for notification accessibility recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize notification accessibility recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Notification accessibility lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, CENTER, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [
+        { path: CENTER, content: wireNotificationAccessibilityContrast(source) }
+    ];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: meet notification contrast acceptance", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        readStateDefect ? "NOTIFICATION_READ_STATE_CONTRAST" : "NOTIFICATION_ACCESSIBILITY_CONTRAST");
+    return { branch, revision, remediation };
+}
 
 export function playbookNotificationJourneyExecutor(dependencies:PlaybookNotificationJourneyExecutorDependencies):ProductionMissionExecutor{return async context=>{
     if(context.mission.missionId!=="048-notification-journey"||context.run.systemId!==SYSTEM_ID||context.run.repository!==REPOSITORY)throw new Error("The CIP-048 notification adapter is restricted to The Playbook.");

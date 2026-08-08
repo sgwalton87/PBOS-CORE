@@ -6,7 +6,7 @@ import { promisify } from "util";
 import { BuildAuthorityDecision, BuildAuthorityService } from "../autonomous-authority";
 import { AuthenticatedOperator, GenesisStateRepository, OperatorIdentityService, PersistentAuthorityLedger,
     PersistentBuildGrantRegistry, VerifiableApproval } from "../genesis-state";
-import { GitHubRepositoryGateway } from "../platform";
+import { GitHubRepositoryGateway, governedBuildReference } from "../platform";
 import { GenesisPbosBuildChannel } from "../platform";
 import { REFERENCE_SYSTEMS } from "./system-definition";
 import { GenesisBuildSession, GenesisControlPlane } from "./genesis-control-plane";
@@ -28,8 +28,10 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     playbookMessagingJourneyExecutor, playbookNotificationJourneyExecutor, playbookOpportunityJourneyExecutor,
     playbookMobileCertificationExecutor, playbookMobileFoundationExecutor, playbookMobileJourneysExecutor,
     playbookMobileStoreReadinessExecutor,
-    playbookProductJourneysExecutor, playbookScholarSliceExecutor, playbookSupportJourneyExecutor,
-    inspectPlaybookWebStagingReadiness, playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
+    isProductScholarDashboardContrastDefect, playbookProductJourneysExecutor, playbookScholarSliceExecutor,
+    playbookSupportJourneyExecutor,
+    inspectPlaybookWebStagingReadiness, playbookWebStagingAcceptanceEvidence, playbookWebStagingAcceptancePlan,
+    playbookWebStagingExecutor, playbookWebStagingProtectedEnvironmentFiles,
     inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
@@ -37,14 +39,23 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     isApplicationWorkspaceHeadingContrastDefect, isApplicationWorkspaceMigrationFoundationDefect,
     isSupportRelationshipMigrationFoundationDefect,
     isSupportAcceptanceIdentifierCollisionDefect,
+    isMessagingAccessibilityContrastDefect,
     isMessagingLeastPrivilegeDefect,
+    isNotificationAccessibilityContrastDefect,
+    isNotificationReadStateContrastDefect,
+    isNotificationSchemaDriftDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
+    PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
     preparePlaybookSupportAcceptanceRecovery,
+    preparePlaybookMessagingAccessibilityRecovery,
     preparePlaybookMessagingLeastPrivilegeRecovery,
+    preparePlaybookNotificationAccessibilityRecovery,
+    preparePlaybookNotificationSchemaRecovery,
+    preparePlaybookProductScholarContrastRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
@@ -192,25 +203,28 @@ export async function ensureReadinessQueue(services: Pick<ReturnType<typeof runt
     const system = services.state.systems().find(item => item.systemId === systemId);
     if (!system) throw new Error(`Registered system not found: ${systemId}`);
     const existing = services.state.missionQueue(systemId);
-    if (existing.length) {
-        const revision = existing.find(item => item.missionId === "playbook-capability-foundation")?.evidenceIds
-            .find(item => item.startsWith("repository:"))?.slice("repository:".length) ?? "UNKNOWN";
-        services.batches.prepareReadinessQueue(systemId, revision);
-        new ProductionRuntimeService(services.state).reconcileMissionExecutionState(systemId);
-        report("Readiness queue synchronized with the current evidence-gated mission architecture.");
-        return undefined;
-    }
     const [owner, name] = system.repository.split("/");
     if (!owner || !name) throw new Error(`Invalid repository identity: ${system.repository}`);
-    report(`No durable readiness queue exists. Verifying ${system.repository} before initialization…`);
-    const inspection = await services.gateway.inspectRepository({ owner, name, defaultBranch: system.defaultBranch });
-    const required = createPlaybookBlueprint().capabilities;
-    const missing = required.filter(capability => !inspection.findings.includes(`CAPABILITY:${capability}:PRESENT`));
-    if (missing.length) {
-        throw new Error(`Playbook readiness queue requires governed evidence for all capabilities. Missing: ${missing.join(", ")}.`);
+    report(existing.length
+        ? `Synchronizing ${system.repository} canon at its current governed revision…`
+        : `No durable readiness queue exists. Verifying ${system.repository} before initialization…`);
+    const reference = { owner, name, defaultBranch: system.defaultBranch };
+    const inspection = await services.gateway.inspectRepository(reference);
+    if (!existing.length) {
+        const required = createPlaybookBlueprint().capabilities;
+        const missing = required.filter(capability => !inspection.findings.includes(`CAPABILITY:${capability}:PRESENT`));
+        if (missing.length) {
+            throw new Error(`Playbook readiness queue requires governed evidence for all capabilities. Missing: ${missing.join(", ")}.`);
+        }
     }
-    services.batches.prepareReadinessQueue(systemId, inspection.revision);
-    report(`Readiness queue initialized from governed revision ${inspection.revision}.`);
+    const canonSources = await Promise.all(PLAYBOOK_CANON_SOURCES.map(async path => ({ path,
+        content: await services.gateway.readFileAtRevision(reference, path, inspection.revision) })));
+    const canonGraph = new PlaybookCanonProductGraphCompiler().compile(inspection.revision, inspection.files ?? [], canonSources);
+    services.batches.prepareReadinessQueue(systemId, inspection.revision, canonGraph);
+    new ProductionRuntimeService(services.state).reconcileMissionExecutionState(systemId);
+    report(`${existing.length ? "Readiness queue synchronized" : "Readiness queue initialized"} from governed revision ${inspection.revision}.`);
+    report(`CANON GRAPH: ${canonGraph.sources.length} authorities | ${canonGraph.phases.length} phases | ` +
+        `${canonGraph.requirements.length} requirements | ${canonGraph.routes.length} visible routes | ${canonGraph.blockers.length} blockers.`);
     return inspection;
 }
 
@@ -533,15 +547,26 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
         item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
     if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
-    const refreshedRun = services.production.run(productionRun.runId)!;
+    let refreshedRun = services.production.run(productionRun.runId)!;
     if (refreshedRun.status === "AWAITING_APPROVAL") {
         const mission = services.state.missionQueue(systemId).find(item => item.title === refreshedRun.selectedMission);
-        if (remediationRun.state !== "READY_FOR_CERTIFICATION" ||
-            !remediationRun.evidence.some(item => item.state === "PASSED") || !mission) {
+        remediationRun = await services.remediation.resume(remediationRun.runId,
+            run => services.workflows.authorizeRemediation(session, run.pullRequest.branch));
+        if (!mission) {
             throw new Error("Production approval requires matching passed pull-request evidence and mission lineage.");
         }
-        const promoted = await promptForValidatedMissionPromotion(services, session, mission, refreshedRun.runId, remediationRun);
-        return promoted ? runNextProductionMission(target) : 0;
+        const exactApprovalLineage = remediationRun.state === "READY_FOR_CERTIFICATION" &&
+            remediationRun.evidence.some(item => item.state === "PASSED") &&
+            remediationRun.headSha === refreshedRun.currentCommit;
+        if (exactApprovalLineage) {
+            const promoted = await promptForValidatedMissionPromotion(services, session, mission, refreshedRun.runId, remediationRun);
+            return promoted ? runNextProductionMission(target) : 0;
+        }
+        refreshedRun = services.production.transition(refreshedRun.runId, "BLOCKED",
+            "Pull request advanced after functional acceptance; exact-head validation and acceptance must run before certification.",
+            { acceptedCommit: refreshedRun.currentCommit, currentPullRequestHead: remediationRun.headSha,
+                remediationState: remediationRun.state });
+        stdout.write("[LINEAGE] Pull request advanced after acceptance; stale certification was refused.\n");
     }
     const activeEpoch = refreshedRun.activeRecoveryEpochId
         ? services.state.productionRecoveryEpoch(refreshedRun.activeRecoveryEpochId) : undefined;
@@ -552,6 +577,21 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         blockedMission?.executionBlocker
     ].filter((error): error is string => Boolean(error));
     const currentRemediationRunId = remediationRun.runId;
+    const productScholarContrastRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === currentRemediationRunId &&
+        event.payload.classification === "PRODUCT_SCHOLAR_DASHBOARD_CONTRAST");
+    if (!activeEpoch && !productScholarContrastRepairAlreadyRegistered &&
+        isProductScholarDashboardContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the exact WCAG Scholar dashboard contrast repair to the existing product pull request.\n");
+        const prepared = await preparePlaybookProductScholarContrastRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing product mission and PR preserved; Scholar contrast revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
     const identityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
         event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
         event.payload.remediationRunId === currentRemediationRunId &&
@@ -646,6 +686,70 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; messaging revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const messagingAccessibilityRemediationRunId = remediationRun.runId;
+    const messagingAccessibilityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === messagingAccessibilityRemediationRunId &&
+        event.payload.classification === "MESSAGING_ACCESSIBILITY_CONTRAST");
+    if (!activeEpoch && !messagingAccessibilityRepairAlreadyRegistered &&
+        isMessagingAccessibilityContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the exact WCAG messaging-contrast repair to the existing pull request.\n");
+        const prepared = await preparePlaybookMessagingAccessibilityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; accessible messaging revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const notificationSchemaRemediationRunId = remediationRun.runId;
+    const notificationSchemaRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === notificationSchemaRemediationRunId &&
+        event.payload.classification === "NOTIFICATION_SCHEMA_ISOLATION");
+    if (!activeEpoch && !notificationSchemaRepairAlreadyRegistered &&
+        isNotificationSchemaDriftDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Isolating PBOS notifications from the existing Playbook notification schema on the same pull request.\n");
+        const prepared = await preparePlaybookNotificationSchemaRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; notification schema revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const notificationAccessibilityRemediationRunId = remediationRun.runId;
+    const notificationAccessibilityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === notificationAccessibilityRemediationRunId &&
+        event.payload.classification === "NOTIFICATION_ACCESSIBILITY_CONTRAST");
+    if (!activeEpoch && !notificationAccessibilityRepairAlreadyRegistered &&
+        isNotificationAccessibilityContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the exact WCAG notification-contrast repair to the existing pull request.\n");
+        const prepared = await preparePlaybookNotificationAccessibilityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; accessible notification revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const notificationReadStateRemediationRunId = remediationRun.runId;
+    const notificationReadStateRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === notificationReadStateRemediationRunId &&
+        event.payload.classification === "NOTIFICATION_READ_STATE_CONTRAST");
+    if (!activeEpoch && !notificationReadStateRepairAlreadyRegistered &&
+        isNotificationReadStateContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Removing inherited read-state opacity from the existing notification pull request.\n");
+        const prepared = await preparePlaybookNotificationAccessibilityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; read-state contrast revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
@@ -791,6 +895,34 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     return promoted ? runNextProductionMission(target) : 0;
 }
 
+async function reconcileFailedWebStagingEvidence(services: ReturnType<typeof runtime>, systemId: string): Promise<void> {
+    const failed = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
+        item.status === "FAILED" && item.selectedMission === "Deploy and accept Playbook web staging");
+    if (!failed) return;
+    const failedStage = [...services.state.productionStages(failed.runId)].reverse()
+        .find(stage => stage.status === "FAILED");
+    if (!failedStage?.error?.includes("missing implementation acceptance evidence: PREVIEW")) return;
+    const remediation = [...services.state.remediationRuns()].reverse().find(item => item.systemId === systemId &&
+        item.pullRequest.repository === failed.repository && item.pullRequest.branch === failed.currentBranch);
+    if (!remediation) throw new Error("Failed web-staging evidence recovery cannot resolve its existing pull request.");
+    const mission = services.state.missionQueue(systemId).find(item => item.title === failed.selectedMission);
+    if (!mission) throw new Error("Failed web-staging evidence recovery cannot resolve its existing mission.");
+    const approval = durableMissionApproval(services, mission);
+    if (!approval) throw new Error("Failed web-staging evidence recovery requires the original durable mission approval.");
+    const [owner, name] = failed.repository.split("/");
+    if (!owner || !name) throw new Error(`Invalid repository identity: ${failed.repository}`);
+    const reference = governedBuildReference({ owner, name, defaultBranch: failed.startingBranch }, failed.currentBranch);
+    const inspection = await services.gateway.inspectRepository(reference);
+    if (inspection.revision !== failed.currentCommit) {
+        throw new Error(`Web-staging recovery lineage moved from ${failed.currentCommit} to ${inspection.revision}.`);
+    }
+    const plan = await playbookWebStagingAcceptancePlan(services.gateway, reference, failed.currentBranch,
+        failed.currentCommit, approval.approvalId);
+    services.production.recoverFailedFunctionalImplementationValidation(failed.runId, remediation.runId,
+        playbookWebStagingAcceptanceEvidence(failed.currentCommit), plan);
+    stdout.write(`[RECOVERY] Restored the exact web-staging evidence checkpoint on existing PR ${remediation.pullRequest.url}.\n`);
+}
+
 async function runNextProductionMission(target?: string): Promise<number> {
     const services = runtime();
     await ensureGitHubAuthentication(profile());
@@ -798,6 +930,7 @@ async function runNextProductionMission(target?: string): Promise<number> {
     if (target && !requestedSystemId) throw new Error("Production run target must be playbook or bulletproof.");
     const selectedSystemId = requestedSystemId ?? services.state.missionQueue().find(item => item.status === "ELIGIBLE")?.systemId
         ?? "PLAYBOOK-SYSTEM-001";
+    await reconcileFailedWebStagingEvidence(services, selectedSystemId);
     const resumed = await resumeExistingProductionValidation(services, selectedSystemId, target);
     if (resumed !== undefined) return resumed;
     const bootstrappedInspection = await ensureReadinessQueue(services, selectedSystemId,
@@ -1323,7 +1456,9 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         } else if (snapshot.lastRun) stdout.write(`Last production result: ${snapshot.lastRun.status} — ${snapshot.lastRun.terminalSummary ?? snapshot.lastRun.selectedMission}\n`);
         stdout.write(`Health: ${snapshot.health.health}\nNext mission: ${snapshot.nextMission?.title ?? "NONE"}\n`);
         runs.forEach(run => {
-            stdout.write(`Validation: ${run.systemId} — PR #${run.pullRequest.number} — ${effectiveRemediationState(run)}\n`);
+            const validationState = effectiveRemediationState(run);
+            stdout.write(`Mission validation: ${run.systemId} — PR #${run.pullRequest.number} — ${validationState}` +
+                `${validationState === "READY_FOR_CERTIFICATION" ? " (mission scope only; not whole-application certification)" : ""}\n`);
             const job = state.backgroundJobForRun(run.runId);
             if (job) stdout.write(`Monitor: ${run.systemId} — ${job.status} — PID ${job.pid}\n`);
             const batch = [...state.autonomousBatches()].reverse().find(item => item.runId === run.runId);

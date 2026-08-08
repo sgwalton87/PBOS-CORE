@@ -41,4 +41,18 @@ describe("PBS-5000 protected functional environment", () => {
         await expect(resolver.resolve([{ ...command, publicEnvironment: { PRIVATE_SECRET: "not-protected" } }]))
             .rejects.toThrow("Protected environment PRIVATE_SECRET cannot be supplied as public");
     });
+
+    it("treats setup placeholders as missing without exposing their contents", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-protected-placeholder-"));
+        const path = join(root, "provider.env");
+        writeFileSync(path, "PUBLIC_URL=your_project_id_here\nPRIVATE_SECRET=<your-token>\n", { mode: 0o600 });
+
+        const readiness = await new ProtectedEnvironmentResolver({}).inspect([command], [{ path }]);
+
+        expect(readiness).toEqual({ ready: false, required: ["PRIVATE_SECRET", "PUBLIC_URL"], available: [],
+            missing: ["PRIVATE_SECRET", "PUBLIC_URL"], loadedFiles: [path] });
+        expect(JSON.stringify(readiness)).not.toContain("your_project_id_here");
+        await expect(new ProtectedEnvironmentResolver({}).resolve([command], [{ path }]))
+            .rejects.toThrow("PRIVATE_SECRET, PUBLIC_URL");
+    });
 });

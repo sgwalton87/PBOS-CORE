@@ -145,8 +145,10 @@ describe("operator continuity", () => {
                 environment: "preview", approvalId: "preview-approval", tokenEnvironmentVariable: "VERCEL_TOKEN",
                 projectEnvironmentVariable: "VERCEL_PROJECT_ID", requiredProjectEnvironmentVariables: ["PBOS_ENVIRONMENT"],
                 previewOnlyEnvironmentVariables: ["PBOS_ENVIRONMENT"], browserTarget: "DEPLOYED_PREVIEW" } });
-        const green: RemediationRun = { ...run, runId: "preview-validation", headSha: "abcdef1" };
+        production.rebindRepositoryAfterRemediation(active.runId, "preview-validation", "agent/build", "abcdef2");
+        const green: RemediationRun = { ...run, runId: "preview-validation", headSha: "abcdef2" };
         let verifiedUrl: string | undefined;
+        let positioned: readonly string[] | undefined;
         const applicationVerifier = { verifyApplication: async (runId: string) => {
             verifiedUrl = new ProductionRuntimeService(state).run(runId)?.functionalAcceptancePlan?.durablePreview?.webUrl;
             return {} as never;
@@ -155,9 +157,11 @@ describe("operator continuity", () => {
             { authorizeRemediation: () => undefined } as unknown as GenesisWorkflowService,
             new OperatorMemoService(join(root, "memos"), state), async () => undefined, new AutonomousBatchService(state),
             { notify: async () => undefined }, { deploy: async () => ({ webUrl: "https://preview.example",
-                mobileUrl: "https://preview.example", healthPath: "/login", label: "SEEDED" }) }, applicationVerifier)
+                mobileUrl: "https://preview.example", healthPath: "/login", label: "SEEDED" }) }, applicationVerifier,
+            { position: async (...args) => { positioned = args; } })
             .run(green.runId, session.sessionId, 0, 1);
         expect(verifiedUrl).toBe("https://preview.example");
+        expect(positioned).toEqual([root, "agent/build", "abcdef2"]);
         expect(production.run(active.runId)?.functionalAcceptancePlan?.browserJourneys[0]
             .command.publicEnvironment?.PLAYWRIGHT_BASE_URL).toBe("https://preview.example");
     });

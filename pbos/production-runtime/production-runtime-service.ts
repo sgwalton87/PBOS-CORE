@@ -499,10 +499,15 @@ export class ProductionRuntimeService {
         }
         const browserJourneys = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
             ? current.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                requiredEnvironmentVariables: [...new Set([...(journey.command.requiredEnvironmentVariables ?? []),
+                    ...(current.previewDeployment?.provider === "VERCEL" ? ["VERCEL_AUTOMATION_BYPASS_SECRET"] : [])])],
                 publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: preview.webUrl,
                     PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }))
             : current.browserJourneys;
-        const plan: FunctionalAcceptancePlan = { ...current, durablePreview: preview, browserJourneys };
+        const launch = current.previewDeployment.browserTarget === "DEPLOYED_PREVIEW"
+            ? { ...current.launch, baseUrl: preview.webUrl }
+            : current.launch;
+        const plan: FunctionalAcceptancePlan = { ...current, launch, durablePreview: preview, browserJourneys };
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan, lastHeartbeatAt: this.now().toISOString() };
         this.state.saveProductionRun(updated);
         this.event(updated, "PREVIEW_DEPLOYMENT_READY", "Exact-revision durable preview deployment is ready.", {
@@ -647,6 +652,37 @@ export class ProductionRuntimeService {
             throw new Error("Functional validation recovery does not match the governed production lineage.");
         }
         return this.recoverBlockedValidation(runId, remediationRunId, headSha, recovery);
+    }
+
+    /**
+     * Reconciles a functional adapter that published an exact-revision PR but failed its local
+     * implementation-evidence assertion before the deferred validation link was persisted.
+     * This may only restore the already-created mission lineage; it cannot create or replace work.
+     */
+    recoverFailedFunctionalImplementationValidation(runId: string, remediationRunId: string,
+        evidence: readonly ApplicationAcceptanceEvidence[], plan: FunctionalAcceptancePlan): ProductionRun {
+        const run = this.requireRun(runId);
+        const mission = this.state.missionQueue(run.systemId).find(item => item.title === run.selectedMission);
+        const remediation = this.state.remediationRun(remediationRunId);
+        const failedStage = [...this.state.productionStages(runId)].reverse().find(stage => stage.status === "FAILED");
+        if (run.status !== "FAILED" || mission?.completionPolicy?.kind !== "FUNCTIONAL_APPLICATION" ||
+            !failedStage?.error?.includes("missing implementation acceptance evidence") ||
+            !remediation || remediation.systemId !== run.systemId || remediation.pullRequest.repository !== run.repository ||
+            remediation.pullRequest.branch !== run.currentBranch || plan.branch !== run.currentBranch ||
+            plan.commit !== run.currentCommit) {
+            throw new Error("Failed functional implementation recovery does not match the existing mission and pull-request lineage.");
+        }
+        new FunctionalAcceptanceVerifier().assertImplementationEvidence(mission, evidence, run.repository, run.currentCommit);
+        this.recordAcceptanceEvidence(runId, evidence);
+        this.recordFunctionalAcceptancePlan(runId, plan);
+        this.recordValidation(runId, "GitHub Actions validation monitor started", true, 0,
+            `remediation-run:${remediationRunId}`);
+        this.transition(runId, "RECOVERING",
+            "Recovering a failed adapter evidence checkpoint on the existing exact-revision pull request.", {
+                remediationRunId, commit: run.currentCommit, recovery: "FUNCTIONAL_IMPLEMENTATION_EVIDENCE_RECONCILIATION"
+            });
+        this.updateMissionStatus(run.systemId, mission.missionId, "ACTIVE");
+        return this.resume(runId, run.actorId);
     }
 
     recoverBlockedValidation(runId: string, remediationRunId: string, headSha: string,

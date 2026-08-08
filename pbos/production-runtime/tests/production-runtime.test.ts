@@ -90,6 +90,45 @@ describe("canonical PBOS production runtime", () => {
         expect(fixture.runtime.resume(run.runId, input.actorId).status).toBe("VALIDATING");
     });
 
+    it("recovers a failed adapter evidence checkpoint without creating a second mission or pull request", () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "web-staging", systemId: input.systemId,
+            title: input.mission, dependencies: [], status: "ACTIVE", rationale: "Existing functional mission",
+            approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
+                requiredDimensions: ["ROUTE", "PREVIEW"], acceptanceCriteria: ["Preview works"] } }]);
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        const stage = fixture.runtime.startStage(run.runId, "EXECUTION", input.mission);
+        fixture.runtime.failStage(stage.stageId,
+            "Functional mission web-staging is missing implementation acceptance evidence: PREVIEW.");
+        fixture.runtime.transition(run.runId, "FAILED", "Mission execution failed.");
+        fixture.state.saveRemediationRun({ runId: "validation-web", systemId: input.systemId,
+            pullRequest: { url: "https://github.com/sgwalton87/playbook-platform/pull/67", number: 67,
+                branch: input.branch, repository: input.repository }, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5,
+            state: "WAITING_FOR_CHECKS", evidence: [], blockers: [], updatedAt: new Date().toISOString() });
+        const evidence = (["ROUTE", "PREVIEW"] as const).map(dimension => ({
+            evidenceId: `web:${dimension.toLowerCase()}:${input.commit}`, dimension, behavior: `${dimension} prepared`,
+            repository: input.repository, commit: input.commit, artifact: "pbos/readiness/048-web-staging.json",
+            passed: true, source: "IMPLEMENTATION" as const
+        }));
+        const plan: FunctionalAcceptancePlan = { planId: "web-plan", systemId: input.systemId,
+            productNodeId: "web", journeyId: "web-staging", repository: input.repository, branch: input.branch,
+            commit: input.commit, workingDirectory: "/tmp/playbook", prerequisites: [],
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4311", healthPath: "/",
+                startupTimeoutMs: 1_000 }, probes: [], browserJourneys: [] };
+
+        const recovered = fixture.runtime.recoverFailedFunctionalImplementationValidation(run.runId,
+            "validation-web", evidence, plan);
+
+        expect(recovered).toMatchObject({ status: "VALIDATING", currentBranch: input.branch,
+            currentCommit: input.commit, functionalAcceptancePlan: { planId: "web-plan" } });
+        expect(recovered.evidenceIds).toContain("remediation-run:validation-web");
+        expect(fixture.state.productionRuns()).toHaveLength(1);
+        expect(fixture.state.missionQueue(input.systemId)).toHaveLength(1);
+    });
+
     it("creates an authorized recovery epoch without resetting attempts, replacing the mission, or discarding evidence", () => {
         const fixture = runtime();
         fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "scholar-journey", systemId: input.systemId,

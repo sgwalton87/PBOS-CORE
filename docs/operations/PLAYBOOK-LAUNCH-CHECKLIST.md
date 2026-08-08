@@ -2,10 +2,46 @@
 
 ## Current gate
 
-Converge the already-merged academic mission onto Playbook `main`, rerun
-functional acceptance on the exact merge commit, then continue one live PBOS
-Playbook run that returns exact-revision desktop and mobile URLs in the launch
-terminal.
+PR #67 is **NOT CERTIFIABLE**. Human Preview review found product-wide gaps that
+the narrow Scholar acceptance path did not cover: incomplete collapsed
+navigation, undersized branding, hard-wired Compass data, duplicate Oracle/back-
+office navigation, broken Google OAuth, undiscoverable newsfeed, and legacy
+visual layouts outside the new landing route. Preserve the Preview as defect
+evidence and expand acceptance to the complete visible application surface.
+
+Implementation and certification are frozen at the constitutional traceability
+gate. The existing PBS-5000/PBS-6000 matrix is an infrastructure audit, not an
+enforceable Playbook product graph: it marks Product Graph and Acceptance Graph
+missing, does not map the canonical product volumes to routes or design canon,
+and contains stale platform findings. PBOS must not resume product mutation or
+request certification until the graph below is complete and validates the
+governed Playbook revision.
+
+Exact-revision baseline: 15/15 phases incomplete; 18/58 requirements
+implemented, 24 partial, 16 missing; 23/93 visible routes mapped; 1/93 visible
+routes design-canon bound; 148 enforceable blockers. See
+`docs/audits/PLAYBOOK-CANON-TO-PRODUCT-CONVERGENCE.md`.
+
+## Canon-to-product traceability gate
+
+- [x] Compile and digest-bind the 18 current engineering/product authority entry sources
+- [x] Recompile the canon graph from the current governed Playbook revision on every readiness-queue synchronization
+- [x] Replace stale whole-product completion with dependency-ordered authority, journey, design, 15-phase, requirement, web, mobile, and ecosystem missions
+- [x] Require final Playbook product certification to depend on every canonical phase rather than the former seven-journey aggregate alone
+- [x] Emit exact canon authority, phase, requirement, route, and blocker counts in the launch terminal
+- [ ] Register certified execution adapters for every newly generated canon mission before PBOS advertises complete adapter coverage
+- [ ] Classify all 344 Playbook documentation/configuration artifacts as canonical, generated, historical, deprecated, duplicate, or conflicting
+- [ ] Register every canonical document with ID, version, authority, owner, dependencies, and content digest
+- [ ] Resolve every zero-byte canonical document through the approved documentation, governance, or hygiene track
+- [ ] Inventory every Playbook OS, role, route, API, component, data store, integration, and visible navigation entry
+- [ ] Map each canonical requirement to its owning Playbook OS and user journey
+- [ ] Map every journey to exact desktop/mobile routes, states, actions, APIs, durable data, and external dependencies
+- [ ] Map every visible route and state to an approved design-canon ID and required assets
+- [ ] Mark legacy, demo, hard-wired, duplicate, orphaned, and back-office-only surfaces explicitly
+- [ ] Bind each graph node to exact implementation files and exact-revision automated acceptance evidence
+- [ ] Fail the PBOS build when a required node or edge is missing, stale, contradictory, or only documentation-backed
+- [ ] Render uncovered requirements and downstream invalidation in Mission Control and same-terminal telemetry
+- [ ] Reconcile PR #67 against the completed graph; preserve it as defect evidence until every required surface passes
 
 ## Active PBOS-to-Playbook delivery proof
 
@@ -24,10 +60,18 @@ terminal.
 - [x] Exact Playbook merge commit receives an independent CI check
 - [x] Protected doctor distinguishes Scholar readiness from academic-journey readiness
 - [ ] Add the missing `ANTHROPIC_API_KEY` to an accepted mode-0600 Playbook source
-- [ ] Academic browser acceptance passes on the exact Playbook merge commit
-- [ ] One real Playbook exact-revision preview passes functional acceptance
-- [ ] Terminal renders the real desktop web and mobile links from that same run
+- [x] Academic browser acceptance passes on the exact Playbook revision
+- [ ] One real Playbook exact-revision preview passes product-wide functional acceptance
+- [x] Terminal renders the real desktop web and mobile links from that same run
 - [ ] Human reviews the links and issues the distinct certification/merge decision
+- [ ] Collapsed navigation exposes About, Explore, Log in, and Join actions
+- [ ] Public and authenticated shells use appropriately sized Playbook branding
+- [ ] Compass consumes authenticated durable Scholar data (no demo constants)
+- [ ] Oracle exposes one role-appropriate product menu; studio/back-office controls remain isolated
+- [ ] Google OAuth completes from Preview through the configured callback
+- [ ] Newsfeed is discoverable and functionally accepted from authenticated navigation
+- [ ] All human-facing routes conform to the approved futuristic design schema
+- [ ] Product-wide desktop and mobile route matrix passes human and automated review
 
 ## PBS-5000 functional production convergence
 
@@ -50,7 +94,7 @@ terminal.
 - [ ] Supabase management token available to the protected runtime as `SUPABASE_ACCESS_TOKEN`
 - [x] PR #54 Playwright/Vitest collision has an exact deterministic remediation pack
 - [x] PR #54 remediation also normalizes the Scholar registration ID and hardens PBOS health/transport before persistence
-- [ ] Exact-commit Scholar browser journey executed successfully
+- [x] Exact-commit Scholar browser journey executed successfully
 - [ ] Desktop and mobile Scholar evidence reviewed and certified
 
 ### Protected Scholar acceptance setup

@@ -19,7 +19,7 @@ export class ProtectedEnvironmentResolver {
         const required = [...new Set(commands.flatMap(command => command.requiredEnvironmentVariables ?? []))].sort();
         const loaded = await this.load(files);
         const values = { ...loaded.values, ...this.defined(this.processEnvironment) };
-        const available = required.filter(name => Boolean(values[name]?.trim()));
+        const available = required.filter(name => this.isConfigured(values[name]));
         return { ready: available.length === required.length, required, available,
             missing: required.filter(name => !available.includes(name)), loadedFiles: loaded.files };
     }
@@ -82,5 +82,13 @@ export class ProtectedEnvironmentResolver {
     private defined(environment: NodeJS.ProcessEnv): Record<string, string> {
         return Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] =>
             typeof entry[1] === "string" && entry[1].length > 0));
+    }
+
+    private isConfigured(value: string | undefined): boolean {
+        const candidate = value?.trim() ?? "";
+        if (!candidate) return false;
+        return !(/^(?:\.\.\.|<[^>]+>|your[_ -].+|replace[_ -].+|change[_ -]?me|todo)$/i.test(candidate) ||
+            /^(?:your|replace)[_-].*?(?:id|token|key|secret)(?:[_-]here)?$/i.test(candidate) ||
+            /^(?:project|team)[_-]id[_-]here$/i.test(candidate) || /^(?:token|key|secret)[_-]here$/i.test(candidate));
     }
 }

@@ -464,6 +464,16 @@ export class FunctionalApplicationRuntime {
     async execute(runId: string, plan: FunctionalAcceptancePlan,
         report: FunctionalRuntimeReporter = () => undefined): Promise<FunctionalRuntimeResult> {
         this.assertPlan(plan);
+        const usesDeployedPreview = plan.previewDeployment?.browserTarget === "DEPLOYED_PREVIEW" && Boolean(plan.durablePreview);
+        if (usesDeployedPreview) {
+            const previewUrl = plan.durablePreview!.webUrl;
+            plan = { ...plan, launch: { ...plan.launch, baseUrl: previewUrl },
+                browserJourneys: plan.browserJourneys.map(journey => ({ ...journey, command: { ...journey.command,
+                    requiredEnvironmentVariables: [...new Set([...(journey.command.requiredEnvironmentVariables ?? []),
+                        ...(plan.previewDeployment?.provider === "VERCEL" ? ["VERCEL_AUTOMATION_BYPASS_SECRET"] : [])])],
+                    publicEnvironment: { ...(journey.command.publicEnvironment ?? {}), PLAYWRIGHT_BASE_URL: previewUrl,
+                        PBOS_ACCEPTANCE_COMMIT: plan.commit } } })) };
+        }
         const repositoryRevision = (await promisify(execFile)("git", ["rev-parse", "HEAD"], {
             cwd: plan.workingDirectory, maxBuffer: 1024 * 1024
         })).stdout.trim();
@@ -514,11 +524,13 @@ export class FunctionalApplicationRuntime {
             throw new Error(`Functional runtime exhausted its disk safety reserve during dependency preparation: ` +
                 `${minimumFreeBytes} bytes are required but only ${postPreparationBytes} remain.`);
         }
-        await assertLocalLaunchExecutable(plan);
+        if (!usesDeployedPreview) await assertLocalLaunchExecutable(plan);
         report("PREREQUISITES_VERIFIED", { total: prerequisites.length,
             commands: prerequisites.map(item => `${item.command} ${item.args.join(" ")}`),
             recoveredFromDurablePlan: prerequisites.length > (plan.prerequisites?.length ?? 0) });
-        const application = await this.launcher.launch(plan, runtimeEnvironment);
+        const application = usesDeployedPreview
+            ? { logs: () => "", stop: async () => undefined }
+            : await this.launcher.launch(plan, runtimeEnvironment);
         try {
             report("APPLICATION_HEALTHY", { baseUrl: plan.launch.baseUrl, healthPath: plan.launch.healthPath });
             const probes: RuntimeProbeObservation[] = [];

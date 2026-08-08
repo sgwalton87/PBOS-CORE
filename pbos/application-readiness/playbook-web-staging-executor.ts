@@ -15,7 +15,7 @@ const STAGING_MANIFEST = "pbos/readiness/048-web-staging.json";
 const STAGING_MEMO = "docs/acceptance/PBOS-WEB-STAGING.md";
 
 export const PLAYBOOK_WEB_STAGING_PROVIDER_ENVIRONMENT = [
-    "VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID"
+    "VERCEL_TOKEN", "VERCEL_PROJECT_ID", "VERCEL_TEAM_ID", "VERCEL_AUTOMATION_BYPASS_SECRET"
 ] as const;
 
 export function playbookWebStagingProtectedEnvironmentFiles(
@@ -75,7 +75,7 @@ function stagingFiles(startingRevision: string, runId: string): readonly Reposit
     ];
 }
 
-function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
+export function playbookWebStagingAcceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
     const item = (dimension: ApplicationAcceptanceEvidence["dimension"], behavior: string,
         source: ApplicationAcceptanceEvidence["source"] = "IMPLEMENTATION"): ApplicationAcceptanceEvidence => ({
         evidenceId: `048-web-staging:${dimension.toLowerCase()}:${revision}`, dimension, behavior, repository: REPOSITORY,
@@ -89,11 +89,13 @@ function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvi
         item("PBOS_INTEGRATION", "The preview requires the isolated Playbook staging connector configuration."),
         item("ACCEPTANCE_TEST", "Seven remote browser journeys remain executable after deployment.", "APPLICATION_TEST"),
         item("ACCESSIBILITY", "Every remote journey retains its blocking accessibility audit.", "APPLICATION_TEST"),
-        item("SECURITY", "Provider binding, configuration scope, and production exclusion fail closed.", "SECURITY_TEST")
+        item("SECURITY", "Provider binding, configuration scope, and production exclusion fail closed.", "SECURITY_TEST"),
+        item("PREVIEW", "An approval-bound exact-revision Vercel preview is prepared for provider deployment.")
     ];
 }
 
-async function stagingPlan(gateway: GitHubRepositoryGateway, reference: Parameters<typeof playbookProductAcceptancePlan>[1],
+export async function playbookWebStagingAcceptancePlan(gateway: GitHubRepositoryGateway,
+    reference: Parameters<typeof playbookProductAcceptancePlan>[1],
     branch: string, revision: string, approvalId: string): Promise<FunctionalAcceptancePlan> {
     const product = await playbookProductAcceptancePlan(gateway, reference, branch, revision);
     return { ...product,
@@ -146,7 +148,7 @@ export function playbookWebStagingExecutor(dependencies: PlaybookWebStagingExecu
             `PBOS Genesis mission \`048-web-staging\` prepares an approval-bound Vercel preview after exact-revision CI.\n\n` +
             `Production deployment and secret mutation are excluded. Generated revision: \`${revision}\`.`);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        const functionalAcceptancePlan = await stagingPlan(dependencies.gateway, reference, branch, revision,
+        const functionalAcceptancePlan = await playbookWebStagingAcceptancePlan(dependencies.gateway, reference, branch, revision,
             dependencies.deploymentApprovalId);
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId, deploymentProvider: "VERCEL" },
@@ -158,7 +160,7 @@ export function playbookWebStagingExecutor(dependencies: PlaybookWebStagingExecu
             validations: [{ name: "Protected web-staging request published for independent validation", passed: true,
                 durationMs: 0, evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: acceptanceEvidence(revision), functionalAcceptancePlan
+            acceptanceEvidence: playbookWebStagingAcceptanceEvidence(revision), functionalAcceptancePlan
         };
     };
 }

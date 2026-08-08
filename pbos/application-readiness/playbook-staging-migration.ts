@@ -41,7 +41,7 @@ export const PLAYBOOK_STAGING_MIGRATION_DEFINITIONS: Readonly<Record<PlaybookSta
         tableNames: ["pbos_conversations", "pbos_conversation_participants", "pbos_messages"] },
     "048-notification-journey": { missionId: "048-notification-journey", label: "reliable notification outbox journey",
         migrationPaths: ["supabase/migrations/202608050009_pbos_notification_outbox.sql"],
-        tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "notifications"] }
+        tableNames: ["pbos_notification_outbox", "pbos_notification_preferences", "pbos_notifications"] }
 };
 
 export function playbookStagingMigrationDefinition(missionId: string): PlaybookStagingMigrationDefinition | undefined {

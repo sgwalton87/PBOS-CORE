@@ -37,7 +37,12 @@ export class GitHubCheckCollector {
         const headSha = String(pullRequestState === "MERGED" ? mergeCommitSha : metadata.headRefOid);
         const checks = await this.commands.run("gh", ["api", `repos/${pullRequest.repository}/commits/${headSha}/check-runs`]);
         const parsed = (JSON.parse(checks.stdout) as { check_runs?: GhCheck[] }).check_runs ?? [];
-        const evidence = await Promise.all(parsed.map(check => this.evidence(check)));
+        // Repository validation and preview delivery are separate constitutional authorities.
+        // This collector owns exact-revision GitHub Actions evidence; provider checks such as
+        // Vercel are evaluated later by the governed preview gateway and must not turn a green
+        // application revision into an application-remediation request.
+        const governedChecks = parsed.filter(check => this.isGitHubActionsCheck(check));
+        const evidence = await Promise.all(governedChecks.map(check => this.evidence(check)));
         return { headSha, evidence, pullRequestState, mergeCommitSha, baseRefName: metadata.baseRefName };
     }
 
@@ -106,6 +111,15 @@ export class GitHubCheckCollector {
         if (["fail", "failure", "cancel", "cancelled", "timed_out", "action_required", "startup_failure", "stale"].includes(normalized)) return "FAILED";
         if (["skipping", "skipped", "neutral"].includes(normalized)) return "SKIPPED";
         return "PENDING";
+    }
+    private isGitHubActionsCheck(check: GhCheck): boolean {
+        if (!check.details_url) return false;
+        try {
+            const url = new URL(check.details_url);
+            return url.hostname === "github.com" && /\/actions\/runs\/\d+/.test(url.pathname);
+        } catch {
+            return false;
+        }
     }
     private repository(url: string): string {
         const match = new URL(url).pathname.match(/^\/([^/]+\/[^/]+)\//);
