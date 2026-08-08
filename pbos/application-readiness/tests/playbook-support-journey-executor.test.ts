@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { isSupportRelationshipMigrationFoundationDefect, makeSupportRelationshipMigrationIdempotent,
-    playbookSupportJourneyExecutor, preparePlaybookSupportMigrationRecovery,
+import { isSupportAcceptanceIdentifierCollisionDefect, isSupportRelationshipMigrationFoundationDefect,
+    makeSupportRelationshipMigrationIdempotent, playbookSupportJourneyExecutor,
+    preparePlaybookSupportAcceptanceRecovery, preparePlaybookSupportMigrationRecovery,
+    repairSupportAcceptanceIdentifierCollision,
     wireApplicationSupportPanel } from "../playbook-support-journey-executor";
 
 const dashboard = `import { PlaybookGrid, PlaybookPage } from "@/components/ui";
@@ -115,7 +117,7 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(generated.get("pbos/readiness/048-support-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         const acceptance = generated.get("tests/acceptance/pbos-support.spec.ts") ?? "";
         expect(acceptance).toContain("APPLICATION-TO-AUTHORIZED-SUPPORT");
-        expect(acceptance).toContain("expect(request.status()).toBe(201)");
+        expect(acceptance).toContain("expect(supportRequest.status()).toBe(201)");
         expect(acceptance).toContain("existingRelationship");
         expect(acceptance).not.toContain('.delete().eq("scholar_id"');
         expect(result.functionalAcceptancePlan).toMatchObject({ journeyId: "APPLICATION-TO-AUTHORIZED-SUPPORT",
@@ -177,6 +179,40 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(generated.get("supabase/migrations/20260704_support_relationships.sql"))
             .toContain("drop policy if exists");
         expect(isSupportRelationshipMigrationFoundationDefect(blockedRun)).toBe(true);
+    });
+
+    it("repairs the Playwright request fixture collision on the existing mission and pull request", async () => {
+        const colliding = `test("journey", async ({ page, request }) => {\n` +
+            `const request = await page.request.post("/api/pbos/application-support", { data: {} });\n` +
+            `expect(request.status()).toBe(201);\nconst delivered = await request.json();\n});`;
+        const fixed = repairSupportAcceptanceIdentifierCollision(colliding);
+        expect(fixed).toContain("const supportRequest = await page.request.post");
+        expect(fixed).toContain("await supportRequest.json()");
+        expect(repairSupportAcceptanceIdentifierCollision(fixed)).toBe(fixed);
+
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/63", number: 63,
+            branch: "agent/pbos-playbook-system-001-048-support-4559aabf", repository: "sgwalton87/playbook-platform" };
+        const blockedRun = { ...run, status: "BLOCKED", currentBranch: pullRequest.branch, currentCommit: "c151e01",
+            selectedMission: "Complete application-to-support journey",
+            terminalSummary: "Identifier 'request' has already been declared in pbos-support.spec.ts", blockers: [],
+            evidenceIds: [] } as ProductionRun;
+        let generated = "";
+        const gateway = { inspectRepository: async () => ({ revision: "c151e01" }),
+            readFileAtRevision: async () => colliding,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                generated = files[0]!.content; return files.map(file => file.path);
+            }, commit: async () => "supportfix2", push: async () => undefined } as unknown as GitHubRepositoryGateway;
+        const result = await preparePlaybookSupportAcceptanceRecovery({ gateway, session, pullRequest,
+            recoveryDefects: ["Identifier 'request' has already been declared in pbos-support.spec.ts"],
+            authorize: action => ({ decisionId: action, grantId: "grant-support", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-support-fix-2", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: () => blockedRun } }, blockedRun);
+        expect(result.revision).toBe("supportfix2");
+        expect(generated).toContain("const supportRequest");
+        expect(isSupportAcceptanceIdentifierCollisionDefect(blockedRun)).toBe(true);
     });
 
     it("fails before repository inspection when the governed grant denies mutation", async () => {

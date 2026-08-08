@@ -93,12 +93,12 @@ const definitions: Readonly<Record<PlaybookConnectedJourneyMission, JourneyDefin
     if (relationship.error || !relationship.data) throw relationship.error ?? new Error("Synthetic support relationship was not created.");
     relationshipId = relationship.data.id as string;
   }
-  const request = await page.request.post("/api/pbos/application-support", { data: {
+  const supportRequest = await page.request.post("/api/pbos/application-support", { data: {
     workspaceId: workspace.data.id, relationshipId, category: "RECOMMENDATION",
     summary: "Review my governed scholarship application.", requestId: "pbos-acceptance-support"
   } });
-  expect(request.status()).toBe(201);
-  const delivered = await request.json() as { request?: { requestId?: string; state?: string } };
+  expect(supportRequest.status()).toBe(201);
+  const delivered = await supportRequest.json() as { request?: { requestId?: string; state?: string } };
   expect(delivered.request?.requestId).toBeTruthy();
   await page.goto("/application-workspaces");
   await expect(page.getByRole("heading", { name: "Ask your support network for application help" })).toBeVisible();`

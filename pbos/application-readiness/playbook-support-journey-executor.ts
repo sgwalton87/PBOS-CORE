@@ -13,6 +13,7 @@ const SUPPORT_ROUTE = "app/api/pbos/application-support/route.ts";
 const SUPPORT_PANEL = "components/application-workspace/ApplicationSupportRequestPanel.tsx";
 const SUPPORT_SERVICE = "lib/pbos/application-support-request.ts";
 const SUPPORT_TEST = "tests/unit/pbos/application-support-request.test.ts";
+const SUPPORT_ACCEPTANCE = "tests/acceptance/pbos-support.spec.ts";
 const SUPPORT_RELATIONSHIP_MIGRATION = "supabase/migrations/20260704_support_relationships.sql";
 const SUPPORT_MIGRATION = "supabase/migrations/202608050007_pbos_application_support.sql";
 
@@ -57,6 +58,27 @@ export function isSupportRelationshipMigrationFoundationDefect(run: ProductionRu
     const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
     return run.systemId === SYSTEM_ID && run.selectedMission === "Complete application-to-support journey" &&
         evidence.includes("Supabase staging migration failed with HTTP 400");
+}
+
+export function isSupportAcceptanceIdentifierCollisionDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidence = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete application-to-support journey" &&
+        evidence.includes("Identifier 'request' has already been declared") && evidence.includes("pbos-support.spec.ts");
+}
+
+export function repairSupportAcceptanceIdentifierCollision(source: string): string {
+    if (source.includes("const supportRequest = await page.request.post") &&
+        source.includes("expect(supportRequest.status()).toBe(201)")) return source;
+    if (!source.includes('const request = await page.request.post("/api/pbos/application-support"') ||
+        !source.includes("expect(request.status()).toBe(201)") || !source.includes("await request.json()")) {
+        throw new Error("Playbook support acceptance source changed; re-inspect before repairing its request identifier.");
+    }
+    return source
+        .replace('const request = await page.request.post("/api/pbos/application-support"',
+            'const supportRequest = await page.request.post("/api/pbos/application-support"')
+        .replace("expect(request.status()).toBe(201)", "expect(supportRequest.status()).toBe(201)")
+        .replace("await request.json()", "await supportRequest.json()");
 }
 
 const serviceSource = `import type { PlaybookIdentityMapping } from "../../pbos/connector/contracts";
@@ -522,5 +544,42 @@ export async function preparePlaybookSupportMigrationRecovery(
     const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
     dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
         "SUPPORT_RELATIONSHIP_MIGRATION_FOUNDATION");
+    return { branch, revision, remediation };
+}
+
+/** Repairs the generated Playwright fixture collision on the same support mission and PR. */
+export async function preparePlaybookSupportAcceptanceRecovery(
+    dependencies: PlaybookSupportJourneyRecoveryDependencies, run: ProductionRun):
+    Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
+        !isSupportAcceptanceIdentifierCollisionDefect(run, dependencies.recoveryDefects)) {
+        throw new Error("The production run is not eligible for support acceptance recovery.");
+    }
+    if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
+        dependencies.pullRequest.repository !== REPOSITORY || dependencies.pullRequest.branch !== run.currentBranch) {
+        throw new Error("The active Genesis session and pull request do not authorize support acceptance recovery.");
+    }
+    const branch = run.currentBranch;
+    const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, branch);
+    for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
+        ["MODIFY_APPLICATION_CODE", "MEDIUM"], ["CREATE_TESTS", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"],
+        ["PUSH_BRANCH", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
+        const decision = dependencies.authorize(action, risk, branch);
+        if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
+    }
+    const inspection = await dependencies.gateway.inspectRepository(reference);
+    if (inspection.revision !== run.currentCommit) {
+        throw new Error(`Support acceptance recovery lineage moved from ${run.currentCommit} to ${inspection.revision}; re-inspect before mutation.`);
+    }
+    const source = await dependencies.gateway.readFileAtRevision(reference, SUPPORT_ACCEPTANCE, inspection.revision);
+    const files: readonly RepositoryFileChange[] = [{ path: SUPPORT_ACCEPTANCE,
+        content: repairSupportAcceptanceIdentifierCollision(source) }];
+    await dependencies.gateway.applyChange(reference, files);
+    const revision = await dependencies.gateway.commit(reference,
+        "fix: remove support acceptance fixture collision", files.map(file => file.path));
+    await dependencies.gateway.push(reference, branch);
+    const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
+    dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
+        "SUPPORT_ACCEPTANCE_IDENTIFIER_COLLISION");
     return { branch, revision, remediation };
 }
