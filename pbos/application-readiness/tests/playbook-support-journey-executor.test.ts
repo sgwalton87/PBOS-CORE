@@ -1,13 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { playbookSupportJourneyExecutor, wireApplicationSupportPanel } from "../playbook-support-journey-executor";
+import { isSupportRelationshipMigrationFoundationDefect, makeSupportRelationshipMigrationIdempotent,
+    playbookSupportJourneyExecutor, preparePlaybookSupportMigrationRecovery,
+    wireApplicationSupportPanel } from "../playbook-support-journey-executor";
 
 const dashboard = `import { PlaybookGrid, PlaybookPage } from "@/components/ui";
 export default function ApplicationWorkspaceDashboard() {
   return <PlaybookPage><PlaybookGrid><p>Existing application workspace</p></PlaybookGrid>
     </PlaybookPage>;
 }`;
+
+const supportRelationships = `create table if not exists public.support_relationships (
+  id uuid primary key default gen_random_uuid(),
+  scholar_id uuid not null,
+  permissions jsonb not null default '[]'::jsonb
+);
+create policy "Scholars can view their support relationships" on public.support_relationships for select using (true);
+create policy "Supporters can view their scholar relationships" on public.support_relationships for select using (true);
+create policy "Scholars can create support relationships" on public.support_relationships for insert with check (true);
+`;
 
 const session = {
     sessionId: "session-support", activatedAt: new Date(),
@@ -39,6 +51,7 @@ describe("CIP-048 application-to-support execution adapter", () => {
             readFileAtRevision: async (_reference: unknown, path: string, revision: string) => {
                 calls.push(`read:${revision}:${path}`);
                 if (path.endsWith("ApplicationWorkspaceDashboard.tsx")) return dashboard;
+                if (path.endsWith("20260704_support_relationships.sql")) return supportRelationships;
                 if (path === ".env.example") return "PBOS_API_URL=\n";
                 if (path === "package.json") return '{"scripts":{},"devDependencies":{}}';
                 return "existing application-workspace route";
@@ -85,6 +98,8 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(panel).not.toContain("useCallback");
         expect(panel).toContain("fetchSupportContext().then(result =>");
         expect(generated.get("supabase/migrations/202608050007_pbos_application_support.sql")).toContain("enable row level security");
+        expect(generated.get("supabase/migrations/20260704_support_relationships.sql"))
+            .toContain('drop policy if exists "Scholars can view their support relationships"');
         expect(generated.get("pbos/readiness/048-support-journey.json")).toContain("IMPLEMENTED_PENDING_VALIDATION");
         const acceptance = generated.get("tests/acceptance/pbos-support.spec.ts") ?? "";
         expect(acceptance).toContain("APPLICATION-TO-AUTHORIZED-SUPPORT");
@@ -107,6 +122,47 @@ describe("CIP-048 application-to-support execution adapter", () => {
         expect(wired).toContain("Existing application workspace");
         expect(wired).toContain("<ApplicationSupportRequestPanel />");
         expect(() => wireApplicationSupportPanel("changed dashboard")).toThrow("re-inspect");
+    });
+
+    it("makes the canonical support relationship migration replay-safe and fails closed on drift", () => {
+        const wired = makeSupportRelationshipMigrationIdempotent(supportRelationships);
+        expect(wired.match(/drop policy if exists/g)).toHaveLength(3);
+        expect(makeSupportRelationshipMigrationIdempotent(wired)).toBe(wired);
+        expect(() => makeSupportRelationshipMigrationIdempotent("select 1;")).toThrow("re-inspect");
+    });
+
+    it("repairs the missing staging prerequisite on the existing mission and pull request", async () => {
+        const generated = new Map<string, string>();
+        const calls: string[] = [];
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/63", number: 63,
+            branch: "agent/pbos-playbook-system-001-048-support-4559aabf", repository: "sgwalton87/playbook-platform" };
+        const blockedRun = { ...run, status: "BLOCKED", currentBranch: pullRequest.branch, currentCommit: "11860f1",
+            selectedMission: "Complete application-to-support journey",
+            terminalSummary: "Supabase staging migration failed with HTTP 400", blockers: [], evidenceIds: [] } as ProductionRun;
+        const gateway = {
+            inspectRepository: async () => ({ revision: "11860f1" }),
+            readFileAtRevision: async () => supportRelationships,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                files.forEach(file => generated.set(file.path, file.content)); return files.map(file => file.path);
+            },
+            commit: async () => "supportfix1",
+            push: async () => { calls.push("push"); }
+        } as unknown as GitHubRepositoryGateway;
+        const result = await preparePlaybookSupportMigrationRecovery({ gateway, session, pullRequest,
+            recoveryDefects: ["Supabase staging migration failed with HTTP 400"],
+            authorize: action => ({ decisionId: action, grantId: "grant-support", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-support-fix", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: (_runId, _remediationId, _branch, revision, classification) => {
+                calls.push(`${revision}:${classification}`); return blockedRun;
+            } } }, blockedRun);
+        expect(result.revision).toBe("supportfix1");
+        expect(calls).toContain("supportfix1:SUPPORT_RELATIONSHIP_MIGRATION_FOUNDATION");
+        expect(generated.get("supabase/migrations/20260704_support_relationships.sql"))
+            .toContain("drop policy if exists");
+        expect(isSupportRelationshipMigrationFoundationDefect(blockedRun)).toBe(true);
     });
 
     it("fails before repository inspection when the governed grant denies mutation", async () => {
