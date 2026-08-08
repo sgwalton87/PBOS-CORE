@@ -41,7 +41,8 @@ Create or update one Playwright acceptance spec that exercises real desktop and 
 Update only the checklist items proven by this package and recalculate the phase percentage honestly. Do not mark the whole phase 100% unless no unfinished items remain. Write ${request.manifestPath} as JSON with:
 {"schemaVersion":1,"missionId":"${request.missionId}","completionClaim":true,"completedItems":["exact checklist item"],"remainingItems":["still unfinished"],"routes":["/concrete-route"],"browserSpec":"tests/acceptance/spec.ts","acceptance":[{"dimension":"ROUTE","behavior":"specific behavior","artifact":"path","source":"IMPLEMENTATION"}]}
 completionClaim means this bounded package—not the whole phase—is complete. completedItems must be nonempty and must exactly match checklist items moved to complete. Acceptance must contain all of: ${requiredDimensions.join(", ")}. Every artifact must exist. If no cohesive package can be completed, leave completionClaim false and explain blockers in the manifest. Never claim evidence you did not execute.`;
-        const result = await this.commands.run("codex", ["exec", "--ephemeral", "--sandbox", "workspace-write", "--color", "never",
+        const result = await this.commands.run("codex", ["exec", "--ephemeral", "--sandbox", "workspace-write",
+            "--config", 'approval_policy="never"', "--color", "never",
             "--cd", request.workingDirectory, prompt], request.workingDirectory, { timeoutMs: 45 * 60 * 1000 });
         return { summary: result.stdout.slice(-20_000) };
     }

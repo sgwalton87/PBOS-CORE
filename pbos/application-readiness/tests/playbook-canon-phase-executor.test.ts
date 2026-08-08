@@ -84,6 +84,7 @@ describe("Playbook canon phase execution adapter", () => {
             manifestPath: "pbos/readiness/048-phase-01.json" });
         expect(calls[0]?.command).toBe("codex");
         expect(calls[0]?.args).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "workspace-write"]));
+        expect(calls[0]?.args).toEqual(expect.arrayContaining(["--config", 'approval_policy="never"']));
         const prompt = calls[0]?.args.at(-1) ?? "";
         expect(prompt).toContain("Do not commit, push, open a PR, merge, or deploy");
         expect(prompt).toContain("PBOS_ACCEPTANCE_COMMIT");
