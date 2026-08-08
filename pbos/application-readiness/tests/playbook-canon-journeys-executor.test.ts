@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { compilePlaybookUserJourneys, parsePlaybookRoleJourneys } from "../playbook-canon-journeys-executor";
+import { compilePlaybookUserJourneys, parsePlaybookRoleJourneys,
+    playbookCanonJourneysExecutor } from "../playbook-canon-journeys-executor";
 
 const roles = `# Role Registry
 | Role | Signup | Onboarding | OS Route | Dashboard | Permissions | Record Type | Playbook Record | Scholar Record | Verification | Status |
@@ -28,5 +29,24 @@ describe("Playbook canon journey compiler", () => {
         expect(() => parsePlaybookRoleJourneys("# Role Registry")).toThrow("no parseable role journeys");
         expect(() => compilePlaybookUserJourneys(roles, "# no sprints", routes, "abcdef1"))
             .toThrow("no ordered delivery journeys");
+    });
+
+    it("uses the delegated documentation action defined by PBOS authority", async () => {
+        const actions: string[] = [];
+        const gateway = { inspectRepository: async () => ({ revision: "abcdef1" }),
+            readFileAtRevision: async (_reference: unknown, path: string) => path.includes("ROLE_REGISTRY") ? roles
+                : path.includes("SPRINT_MAP") ? sprints : routes,
+            createBranch: async () => undefined, applyChange: async () => undefined, commit: async () => "bcdef12",
+            push: async () => undefined, openDraftPullRequest: async () => ({ url: "https://example.test/pr/1", number: 1,
+                branch: "agent/test", repository: "sgwalton87/playbook-platform" }) };
+        const executor = playbookCanonJourneysExecutor({ gateway: gateway as never, remediation: { start: () => ({ runId: "validation" }) } as never,
+            session: { system: { systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform" } } as never,
+            authorize: action => { actions.push(action); return { decisionId: action, grantId: "grant", action,
+                allowed: true, reason: "authorized", decidedAt: new Date() }; } });
+        await executor({ run: { systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform",
+            startingBranch: "main", startingCommit: "abcdef1", runId: "12345678-aaaa-bbbb-cccc-123456789012" } as never,
+            mission: { missionId: "048-canon-journeys" } as never, report: () => undefined });
+        expect(actions).toContain("UPDATE_DOCUMENTATION");
+        expect(actions).not.toContain("MODIFY_DOCUMENTATION");
     });
 });
