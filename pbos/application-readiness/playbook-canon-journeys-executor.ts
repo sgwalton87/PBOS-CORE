@@ -123,7 +123,7 @@ export function playbookCanonJourneysExecutor(
             context.run.startingBranch);
         const branch = `agent/pbos-playbook-system-001-048-canon-journeys-${context.run.runId.slice(0, 8)}`;
         for (const [action, risk] of [["INSPECT_REPOSITORY", "LOW"], ["PROPOSE_CHANGE", "MEDIUM"],
-            ["MODIFY_DOCUMENTATION", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"], ["PUSH_BRANCH", "MEDIUM"],
+            ["UPDATE_DOCUMENTATION", "MEDIUM"], ["CREATE_COMMIT", "MEDIUM"], ["PUSH_BRANCH", "MEDIUM"],
             ["OPEN_DRAFT_PR", "MEDIUM"]] as readonly (readonly [BuildAction, ActionRisk])[]) {
             const decision = dependencies.authorize(action, risk, branch);
             if (!decision.allowed) throw new Error(`${action} denied: ${decision.reason}`);
