@@ -47,6 +47,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
     PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler,
+    playbookCanonJourneysExecutor,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
@@ -1087,6 +1088,9 @@ async function runNextProductionMission(target?: string): Promise<number> {
     stdout.write(`[PBOS_V1] ${channel.operatingSystemId} | ${channel.connectorId} | domains ${channel.domainRegistrationIds.join(", ")}\n`);
     stdout.write(`[REPOSITORY] ${channel.repository}@${inspection.revision} | branch boundary agent/*\n`);
     const adapters = new ProductionMissionAdapterRegistry()
+        .register("PLAYBOOK-SYSTEM-001", "048-canon-journeys", () => playbookCanonJourneysExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }))
         .register("PLAYBOOK-SYSTEM-001", "048-repository-gap-analysis", () => repositoryGapAnalysisExecutor(services.gateway, repository, inspection))
         .register("PLAYBOOK-SYSTEM-001", "048-foundation", () => playbookFoundationExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,

@@ -60,7 +60,7 @@ export class PlaybookCanonMissionPlanner {
             dependencies: ["048-canon-authority"], status: journeyBlocked ? "QUEUED" : "COMPLETE",
             rationale: journeyBlocked ? "The canonical User Journeys authority is empty."
                 : "Canonical role and user journeys are available for product planning.",
-            approvalRequired: false, evidenceIds: priorEvidence(prior.get("048-canon-journeys")),
+            approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-journeys")),
             completionPolicy: artifactPolicy(["Every supported role has an ordered, state-complete canonical user journey."])
         }, {
             missionId: "048-canon-design", systemId: SYSTEM_ID, title: "Bind every visible Playbook route to approved design canon",
