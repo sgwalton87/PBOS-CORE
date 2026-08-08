@@ -223,7 +223,7 @@ export default function NotificationCenter() {
         <option value="immediate">Immediate</option><option value="daily_digest">Daily digest</option><option value="weekly_digest">Weekly digest</option><option value="muted">Muted</option></select></label>)}</section>
     <section style={{color:"#0F172A"}}><div style={{display:"flex",gap:8,flexWrap:"wrap"}}>{(["all","unread","messages","actions","intelligence"] as Filter[]).map(value=><button key={value}
       aria-pressed={filter===value} onClick={()=>setFilter(value)}>{value}</button>)}<button onClick={()=>void act({action:"READ_ALL"})}>Mark all read</button></div>
-      {!loading&&visible.length===0&&<p style={{color:"#0F172A"}}>Nothing needs attention in this view.</p>}{visible.map(item=><article key={item.id} style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1,color:"#0F172A"}}>
+      {!loading&&visible.length===0&&<p style={{color:"#0F172A"}}>Nothing needs attention in this view.</p>}{visible.map(item=><article key={item.id} data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>
         <span style={{display:"inline-flex",background:"#FFF7ED",border:"1px solid #FDBA74",color:"#7C2D12",borderRadius:999,padding:"6px 9px",fontSize:11,fontWeight:900,textTransform:"uppercase"}}>{item.type}</span>
         <h2 style={{color:"#0F172A"}}>{item.title}</h2><p style={{color:"#0F172A"}}>{item.body}</p><Link href={item.href} style={{color:"#1D4ED8"}}>Open</Link>{!item.read&&<button onClick={()=>void act({action:"READ",notificationId:item.id})}>Mark read</button>}
         <small style={{color:"#334155"}}>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small></article>)}</section>
@@ -369,10 +369,13 @@ export async function preparePlaybookNotificationSchemaRecovery(
 /** Repairs only the foreground colors proven inaccessible by the notification browser journey. */
 export function wireNotificationAccessibilityContrast(source: string): string {
     if (source.includes('aria-live="polite" style={{color:"#0F172A"}}') &&
-        source.includes('style={{color:"#1D4ED8"}}>Open</Link>')) return source;
-    if (!source.includes('<p role="status" aria-live="polite">') ||
-        !source.includes('<section aria-label="Notification preferences"><h2>Delivery preferences</h2>') ||
-        !source.includes('<PlaybookPill>{item.type}</PlaybookPill>')) {
+        source.includes('style={{color:"#1D4ED8"}}>Open</Link>') && !source.includes("opacity:item.read?.7:1")) return source;
+    const inheritedContrast = source.includes('<p role="status" aria-live="polite">') &&
+        source.includes('<section aria-label="Notification preferences"><h2>Delivery preferences</h2>') &&
+        source.includes('<PlaybookPill>{item.type}</PlaybookPill>');
+    const ancestorOpacity = source.includes('opacity:item.read?.7:1') &&
+        source.includes('color:"#7C2D12"');
+    if (!inheritedContrast && !ancestorOpacity) {
         throw new Error("Playbook notification interface changed; re-inspect before repairing contrast.");
     }
     return source
@@ -388,7 +391,9 @@ export function wireNotificationAccessibilityContrast(source: string): string {
         .replace('<p>Nothing needs attention in this view.</p>',
             '<p style={{color:"#0F172A"}}>Nothing needs attention in this view.</p>')
         .replace('style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1}}>',
-            'style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1,color:"#0F172A"}}>')
+            'data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>')
+        .replace('style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1,color:"#0F172A"}}>',
+            'data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>')
         .replace('<PlaybookPill>{item.type}</PlaybookPill><h2>{item.title}</h2><p>{item.body}</p><Link href={item.href}>Open</Link>',
             '<span style={{display:"inline-flex",background:"#FFF7ED",border:"1px solid #FDBA74",color:"#7C2D12",borderRadius:999,padding:"6px 9px",fontSize:11,fontWeight:900,textTransform:"uppercase"}}>{item.type}</span>\n        <h2 style={{color:"#0F172A"}}>{item.title}</h2><p style={{color:"#0F172A"}}>{item.body}</p><Link href={item.href} style={{color:"#1D4ED8"}}>Open</Link>')
         .replace('<small>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small>',
@@ -404,12 +409,22 @@ export function isNotificationAccessibilityContrastDefect(run: ProductionRun,
         evidenceText.includes("#ffffff") && evidenceText.includes("#f8f7f4");
 }
 
+export function isNotificationReadStateContrastDefect(run: ProductionRun,
+    recoveryDefects: readonly string[] = []): boolean {
+    const evidenceText = [run.terminalSummary, ...(run.blockers ?? []), ...recoveryDefects].join("\n");
+    return run.systemId === SYSTEM_ID && run.selectedMission === "Complete reliable notification journey" &&
+        evidenceText.includes("Browser journey command failed for EVENT-TO-ACKNOWLEDGED-NOTIFICATION") &&
+        evidenceText.includes('"id": "color-contrast"') && evidenceText.includes("#a16a56") &&
+        evidenceText.includes("#fdf7ef") && evidenceText.includes("article > span");
+}
+
 /** Advances the same notification mission and PR with the exact axe-proven contrast repair. */
 export async function preparePlaybookNotificationAccessibilityRecovery(
     dependencies: PlaybookNotificationJourneyRecoveryDependencies, run: ProductionRun):
     Promise<Readonly<{ branch: string; revision: string; remediation: RemediationRun }>> {
+    const readStateDefect = isNotificationReadStateContrastDefect(run, dependencies.recoveryDefects);
     if (run.status !== "BLOCKED" || !run.currentBranch || run.activeRecoveryEpochId ||
-        !isNotificationAccessibilityContrastDefect(run, dependencies.recoveryDefects)) {
+        (!isNotificationAccessibilityContrastDefect(run, dependencies.recoveryDefects) && !readStateDefect)) {
         throw new Error("The production run is not eligible for notification accessibility recovery.");
     }
     if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY ||
@@ -438,7 +453,7 @@ export async function preparePlaybookNotificationAccessibilityRecovery(
     await dependencies.gateway.push(reference, branch);
     const remediation = dependencies.remediation.start(SYSTEM_ID, dependencies.pullRequest);
     dependencies.production.registerBoundedRemediation(run.runId, remediation.runId, branch, revision,
-        "NOTIFICATION_ACCESSIBILITY_CONTRAST");
+        readStateDefect ? "NOTIFICATION_READ_STATE_CONTRAST" : "NOTIFICATION_ACCESSIBILITY_CONTRAST");
     return { branch, revision, remediation };
 }
 

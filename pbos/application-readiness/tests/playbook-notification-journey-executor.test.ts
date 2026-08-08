@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { isNotificationAccessibilityContrastDefect, isNotificationSchemaDriftDefect, playbookNotificationJourneyExecutor,
+import { isNotificationAccessibilityContrastDefect, isNotificationReadStateContrastDefect, isNotificationSchemaDriftDefect, playbookNotificationJourneyExecutor,
     preparePlaybookNotificationAccessibilityRecovery, preparePlaybookNotificationSchemaRecovery,
     wireNotificationAccessibilityContrast, wireNotificationStorageIsolation } from "../playbook-notification-journey-executor";
 
@@ -113,7 +113,12 @@ describe("CIP-048 reliable notification execution adapter", () => {
         expect(accessible).toContain('aria-live="polite" style={{color:"#0F172A"}}');
         expect(accessible).toContain('style={{color:"#1D4ED8"}}>Open</Link>');
         expect(accessible).toContain('color:"#7C2D12"');
+        expect(accessible).toContain("data-read={item.read}");
+        expect(accessible).not.toContain("opacity:item.read?.7:1");
         expect(accessible).not.toContain("PlaybookPill");
+        const faded = accessible.replace('data-read={item.read} style={{padding:16,borderBottom:"1px solid #E2E8F0",color:"#0F172A"}}>',
+            'style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1,color:"#0F172A"}}>');
+        expect(wireNotificationAccessibilityContrast(faded)).not.toContain("opacity:item.read?.7:1");
         expect(wireNotificationAccessibilityContrast(accessible)).toBe(accessible);
 
         const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/65", number: 65,
@@ -137,5 +142,8 @@ describe("CIP-048 reliable notification execution adapter", () => {
         expect(result.revision).toBe("notifyaccessible");
         expect(written).toContain('color:"#0F172A"');
         expect(isNotificationAccessibilityContrastDefect(blockedRun, [defect])).toBe(true);
+        const opacityDefect = 'Browser journey command failed for EVENT-TO-ACKNOWLEDGED-NOTIFICATION "id": "color-contrast" #a16a56 #fdf7ef article > span';
+        expect(isNotificationReadStateContrastDefect({ ...blockedRun, terminalSummary: opacityDefect,
+            blockers: [opacityDefect] } as ProductionRun, [opacityDefect])).toBe(true);
     });
 });

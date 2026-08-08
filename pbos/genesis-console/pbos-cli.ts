@@ -40,6 +40,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     isMessagingAccessibilityContrastDefect,
     isMessagingLeastPrivilegeDefect,
     isNotificationAccessibilityContrastDefect,
+    isNotificationReadStateContrastDefect,
     isNotificationSchemaDriftDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
@@ -700,6 +701,22 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; accessible notification revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const notificationReadStateRemediationRunId = remediationRun.runId;
+    const notificationReadStateRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === notificationReadStateRemediationRunId &&
+        event.payload.classification === "NOTIFICATION_READ_STATE_CONTRAST");
+    if (!activeEpoch && !notificationReadStateRepairAlreadyRegistered &&
+        isNotificationReadStateContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Removing inherited read-state opacity from the existing notification pull request.\n");
+        const prepared = await preparePlaybookNotificationAccessibilityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; read-state contrast revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
