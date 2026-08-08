@@ -37,12 +37,14 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     isApplicationWorkspaceHeadingContrastDefect, isApplicationWorkspaceMigrationFoundationDefect,
     isSupportRelationshipMigrationFoundationDefect,
     isSupportAcceptanceIdentifierCollisionDefect,
+    isMessagingLeastPrivilegeDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
     preparePlaybookAcademicIdempotencyRecovery, preparePlaybookApplicationAccessibilityRecovery,
     preparePlaybookApplicationMigrationRecovery, preparePlaybookOpportunityIdentityRecovery,
     preparePlaybookSupportMigrationRecovery,
     preparePlaybookSupportAcceptanceRecovery,
+    preparePlaybookMessagingLeastPrivilegeRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
 import { BULLETPROOF_CONNECTOR_MANIFEST, BULLETPROOF_DOMAIN_MANIFEST, createPlaybookBlueprint,
@@ -628,6 +630,22 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; acceptance revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const messagingRemediationRunId = remediationRun.runId;
+    const messagingRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === messagingRemediationRunId &&
+        event.payload.classification === "MESSAGING_LEAST_PRIVILEGE_IDEMPOTENCY");
+    if (!activeEpoch && !messagingRepairAlreadyRegistered &&
+        isMessagingLeastPrivilegeDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Preserving least privilege while repairing messaging idempotency on the existing pull request.\n");
+        const prepared = await preparePlaybookMessagingLeastPrivilegeRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; messaging revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
@@ -1219,8 +1237,7 @@ async function migratePlaybookStaging(remediationRunId?: string,
         const existingBlockers = await waitForPlaybookMissionTables(environment.NEXT_PUBLIC_SUPABASE_URL!,
             environment.SUPABASE_SERVICE_ROLE_KEY!, definition, 1);
         if (!existingBlockers.length) {
-            stdout.write(`PBOS ${definition.label} staging schema is already ready; no migration was applied.\n`);
-            return 0;
+            stdout.write(`PBOS ${definition.label} staging tables exist; policy and grant definitions will still converge at this exact revision.\n`);
         }
         const unexpected = existingBlockers.filter(blocker => !blocker.endsWith(":HTTP_404"));
         if (unexpected.length) {
