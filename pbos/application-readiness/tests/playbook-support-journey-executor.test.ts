@@ -21,6 +21,18 @@ create policy "Supporters can view their scholar relationships" on public.suppor
 create policy "Scholars can create support relationships" on public.support_relationships for insert with check (true);
 `;
 
+const canonicalMultilineSupportRelationships = `create table if not exists public.support_relationships (
+  id uuid primary key default gen_random_uuid(),
+  permissions jsonb not null default '[]'::jsonb
+);
+create policy "Scholars can view their support relationships"
+on public.support_relationships for select using (true);
+create policy "Supporters can view their scholar relationships"
+on public.support_relationships for select using (true);
+create policy "Scholars can create support relationships"
+on public.support_relationships for insert with check (true);
+`;
+
 const session = {
     sessionId: "session-support", activatedAt: new Date(),
     system: { systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook",
@@ -128,6 +140,8 @@ describe("CIP-048 application-to-support execution adapter", () => {
         const wired = makeSupportRelationshipMigrationIdempotent(supportRelationships);
         expect(wired.match(/drop policy if exists/g)).toHaveLength(3);
         expect(makeSupportRelationshipMigrationIdempotent(wired)).toBe(wired);
+        expect(makeSupportRelationshipMigrationIdempotent(canonicalMultilineSupportRelationships)
+            .match(/drop policy if exists/g)).toHaveLength(3);
         expect(() => makeSupportRelationshipMigrationIdempotent("select 1;")).toThrow("re-inspect");
     });
 
