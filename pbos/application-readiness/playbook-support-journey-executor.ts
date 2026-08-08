@@ -42,7 +42,7 @@ export function makeSupportRelationshipMigrationIdempotent(source: string): stri
         throw new Error("Playbook support-relationship migration changed; re-inspect before repairing staging prerequisites.");
     }
     return supportRelationshipPolicies.reduce((result, policy) => {
-        const create = `create policy "${policy}" on public.support_relationships`;
+        const create = `create policy "${policy}"`;
         const drop = `drop policy if exists "${policy}" on public.support_relationships;`;
         if (result.includes(drop)) return result;
         if (!result.includes(create)) {
