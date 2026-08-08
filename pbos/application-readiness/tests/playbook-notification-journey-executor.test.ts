@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { GitHubRepositoryGateway } from "../../platform";
 import { ProductionRun } from "../../production-runtime";
-import { isNotificationSchemaDriftDefect, playbookNotificationJourneyExecutor,
-    preparePlaybookNotificationSchemaRecovery, wireNotificationStorageIsolation } from "../playbook-notification-journey-executor";
+import { isNotificationAccessibilityContrastDefect, isNotificationSchemaDriftDefect, playbookNotificationJourneyExecutor,
+    preparePlaybookNotificationAccessibilityRecovery, preparePlaybookNotificationSchemaRecovery,
+    wireNotificationAccessibilityContrast, wireNotificationStorageIsolation } from "../playbook-notification-journey-executor";
 
 const session = { sessionId: "session-notification", activatedAt: new Date(),
     system: { systemId: "PLAYBOOK-SYSTEM-001", operatingSystemId: "PLAYBOOK-OS-001", name: "The Playbook", domain: "Education",
@@ -44,6 +45,11 @@ describe("CIP-048 reliable notification execution adapter", () => {
         expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain('const load=useCallback(async()=>{setLoading(true)');
         expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain("useCallback");
         expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).toContain("fetchNotifications().then(result=>");
+        expect(generated.get("components/notifications-v2/NotificationCenter.tsx"))
+            .toContain('aria-live="polite" style={{color:"#0F172A"}}');
+        expect(generated.get("components/notifications-v2/NotificationCenter.tsx"))
+            .toContain('style={{color:"#1D4ED8"}}>Open</Link>');
+        expect(generated.get("components/notifications-v2/NotificationCenter.tsx")).not.toContain("PlaybookPill");
         expect(generated.get("supabase/migrations/202608050009_pbos_notification_outbox.sql"))
             .toContain("create table if not exists public.pbos_notifications");
         expect(generated.get("supabase/migrations/202608050009_pbos_notification_outbox.sql"))
@@ -93,5 +99,43 @@ describe("CIP-048 reliable notification execution adapter", () => {
         expect(generated.get("supabase/migrations/202608050009_pbos_notification_outbox.sql"))
             .toContain("pbos_notifications");
         expect(isNotificationSchemaDriftDefect(blockedRun, [defect])).toBe(true);
+    });
+
+    it("repairs only the axe-proven notification contrast on the existing pull request", async () => {
+        const center = `import { PlaybookHero, PlaybookMetric, PlaybookMetrics, PlaybookPage, PlaybookPill } from "@/components/ui";
+<p role="status" aria-live="polite">Notification state is current.</p>
+<section aria-label="Notification preferences"><h2>Delivery preferences</h2><label key={type} style={{display:"block"}}>{type}</label></section>
+<section><div style={{display:"flex",gap:8,flexWrap:"wrap"}}></div><p>Nothing needs attention in this view.</p>
+<article key={item.id} style={{padding:16,borderBottom:"1px solid #E2E8F0",opacity:item.read?.7:1}}>
+<PlaybookPill>{item.type}</PlaybookPill><h2>{item.title}</h2><p>{item.body}</p><Link href={item.href}>Open</Link>
+<small>{item.priority} priority · {new Date(item.created_at).toLocaleString()}</small></article></section>`;
+        const accessible = wireNotificationAccessibilityContrast(center);
+        expect(accessible).toContain('aria-live="polite" style={{color:"#0F172A"}}');
+        expect(accessible).toContain('style={{color:"#1D4ED8"}}>Open</Link>');
+        expect(accessible).toContain('color:"#7C2D12"');
+        expect(accessible).not.toContain("PlaybookPill");
+        expect(wireNotificationAccessibilityContrast(accessible)).toBe(accessible);
+
+        const pullRequest = { url: "https://github.com/sgwalton87/playbook-platform/pull/65", number: 65,
+            branch: "agent/pbos-playbook-system-001-048-notifications-73e6a99a", repository: "sgwalton87/playbook-platform" };
+        const defect = 'Browser journey command failed for EVENT-TO-ACKNOWLEDGED-NOTIFICATION "id": "color-contrast" Notification state is current #ffffff #f8f7f4';
+        const blockedRun = { ...run, status: "BLOCKED", currentBranch: pullRequest.branch, currentCommit: "notifyschema",
+            selectedMission: "Complete reliable notification journey", terminalSummary: defect, blockers: [defect], evidenceIds: [] } as ProductionRun;
+        let written = "";
+        const gateway = { inspectRepository: async () => ({ revision: "notifyschema" }),
+            readFileAtRevision: async () => center,
+            applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
+                written = files[0]!.content; return files.map(file => file.path);
+            }, commit: async () => "notifyaccessible", push: async () => undefined } as unknown as GitHubRepositoryGateway;
+        const result = await preparePlaybookNotificationAccessibilityRecovery({ gateway, session, pullRequest,
+            recoveryDefects: [defect], authorize: action => ({ decisionId: action, grantId: "grant", action,
+                allowed: true, reason: "authorized", decidedAt: new Date() }),
+            remediation: { start: () => ({ runId: "validation-notification-accessibility", systemId: "PLAYBOOK-SYSTEM-001",
+                pullRequest, headSha: "UNKNOWN", attempt: 0, maximumAttempts: 5, state: "WAITING_FOR_CHECKS",
+                evidence: [], blockers: [], updatedAt: new Date().toISOString() }) },
+            production: { registerBoundedRemediation: () => blockedRun } }, blockedRun);
+        expect(result.revision).toBe("notifyaccessible");
+        expect(written).toContain('color:"#0F172A"');
+        expect(isNotificationAccessibilityContrastDefect(blockedRun, [defect])).toBe(true);
     });
 });

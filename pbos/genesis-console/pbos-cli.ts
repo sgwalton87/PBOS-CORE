@@ -39,6 +39,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     isSupportAcceptanceIdentifierCollisionDefect,
     isMessagingAccessibilityContrastDefect,
     isMessagingLeastPrivilegeDefect,
+    isNotificationAccessibilityContrastDefect,
     isNotificationSchemaDriftDefect,
     isOpportunityAccessibilityContrastDefect, isOpportunityIdentityIdempotencyDefect, isOpportunityJourneyContextDefect,
     PlaybookStagingMigrationDefinition, PlaybookStagingMigrationService,
@@ -48,6 +49,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     preparePlaybookSupportAcceptanceRecovery,
     preparePlaybookMessagingAccessibilityRecovery,
     preparePlaybookMessagingLeastPrivilegeRecovery,
+    preparePlaybookNotificationAccessibilityRecovery,
     preparePlaybookNotificationSchemaRecovery,
     preparePlaybookOpportunityAccessibilityRecovery, preparePlaybookOpportunityJourneyContextRecovery,
     repositoryGapAnalysisExecutor } from "../application-readiness";
@@ -682,6 +684,22 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         }, refreshedRun);
         remediationRun = prepared.remediation;
         stdout.write(`[REPAIR] Existing mission and PR preserved; notification schema revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
+    }
+    const notificationAccessibilityRemediationRunId = remediationRun.runId;
+    const notificationAccessibilityRepairAlreadyRegistered = services.state.productionEvents(refreshedRun.runId).some(event =>
+        event.type === "BOUNDED_REMEDIATION_REGISTERED" &&
+        event.payload.remediationRunId === notificationAccessibilityRemediationRunId &&
+        event.payload.classification === "NOTIFICATION_ACCESSIBILITY_CONTRAST");
+    if (!activeEpoch && !notificationAccessibilityRepairAlreadyRegistered &&
+        isNotificationAccessibilityContrastDefect(refreshedRun, functionalDefects)) {
+        stdout.write("[REPAIR] Applying the exact WCAG notification-contrast repair to the existing pull request.\n");
+        const prepared = await preparePlaybookNotificationAccessibilityRecovery({
+            gateway: services.gateway, remediation: services.remediation, production: services.production, session,
+            recoveryDefects: functionalDefects, pullRequest: remediationRun.pullRequest,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch)
+        }, refreshedRun);
+        remediationRun = prepared.remediation;
+        stdout.write(`[REPAIR] Existing mission and PR preserved; accessible notification revision ${prepared.revision} is validating at ${prepared.remediation.pullRequest.url}.\n`);
     }
     if (activeEpoch && isOpportunityAccessibilityContrastDefect(refreshedRun, activeEpoch.remainingDefects)) {
         const epoch = activeEpoch;
