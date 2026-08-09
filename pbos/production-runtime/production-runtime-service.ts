@@ -550,6 +550,13 @@ export class ProductionRuntimeService {
         const items = this.state.missionQueue(systemId);
         const current = items.find(item => item.missionId === missionId);
         if (!current) throw new Error(`Mission not found: ${missionId}`);
+        if (status === "COMPLETE") {
+            const incompleteDependencies = current.dependencies.filter(dependency =>
+                items.find(item => item.missionId === dependency)?.status !== "COMPLETE");
+            if (incompleteDependencies.length) {
+                throw new Error(`Mission ${missionId} cannot complete before dependencies: ${incompleteDependencies.join(", ")}.`);
+            }
+        }
         if (status === "COMPLETE" && current.completionPolicy?.kind === "FUNCTIONAL_APPLICATION") {
             const run = [...this.state.productionRuns()].reverse().find(item =>
                 item.systemId === systemId && item.selectedMission === current.title);

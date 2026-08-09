@@ -41,7 +41,7 @@ describe("CIP-049 protected mobile store readiness adapter", () => {
                 ? 'import type { ExpoConfig } from "expo/config";\nconst config: ExpoConfig = { extra: { universalLinkDomain: "app.theplaybook.io", systemId: "PLAYBOOK-SYSTEM-001" } };\nexport default config;\n'
                 : path === "apps/mobile/eas.json"
                     ? '{"cli":{"appVersionSource":"remote"},"build":{"preview":{"distribution":"internal"},"production":{}},"submit":{"production":{}}}'
-                    : '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","platforms":["IOS","ANDROID"]}',
+                    : '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","platforms":["IOS","ANDROID"],"productCanonicalGraphRevision":"abc1234","productJourneyIds":["SCHOLAR-ONBOARDING-TO-DASHBOARD"]}',
             workingDirectory: async () => "/private/tmp/playbook-mobile-store",
             createBranch: async () => undefined,
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
@@ -64,6 +64,7 @@ describe("CIP-049 protected mobile store readiness adapter", () => {
         expect(generated.get("apps/mobile/eas.json")).toContain('"groups"');
         expect(generated.get("apps/mobile/store/screenshots.json")).toContain("PENDING_DEVICE_CAPTURE_AND_HUMAN_APPROVAL");
         expect(generated.get("pbos/readiness/049-store-readiness.json")).toContain("TESTFLIGHT");
+        expect(generated.get("pbos/readiness/049-store-readiness.json")).toContain('"productJourneyIds": [');
         expect(result.functionalAcceptancePlan?.previewDeployment).toMatchObject({ provider: "EAS", commit: "def5678",
             approvalId: "mobile-release-approval", distributionTarget: "TESTFLIGHT_AND_PLAY_INTERNAL" });
         expect(result.functionalAcceptancePlan?.durablePreview).toBeUndefined();
