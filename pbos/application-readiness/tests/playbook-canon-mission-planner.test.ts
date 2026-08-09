@@ -21,7 +21,12 @@ describe("Playbook canon mission planner", () => {
         expect(items.find(item => item.missionId === "048-canon-authority")?.status).toBe("COMPLETE");
         expect(items.find(item => item.missionId === "048-canon-journeys")?.status).toBe("QUEUED");
         expect(items.find(item => item.missionId === "048-phase-01")).toMatchObject({ status: "QUEUED",
-            dependencies: expect.arrayContaining(["048-canon-journeys", "048-canon-design"]) });
+            dependencies: expect.arrayContaining(["048-canon-journeys", "048-canon-design", "048-phase-01-item-unfinished"]) });
+        expect(items.find(item => item.missionId === "048-phase-01-item-unfinished")).toMatchObject({ status: "QUEUED",
+            title: "Complete Phase 1 item: unfinished" });
+        expect(items.find(item => item.missionId === "048-canon-requirements")?.status).toBe("COMPLETE");
+        expect(items.find(item => item.missionId === "048-requirement-cmp-01")).toMatchObject({ status: "QUEUED",
+            dependencies: ["048-canon-requirements"] });
         expect(items.find(item => item.missionId === "048-product-journeys")).toMatchObject({ status: "QUEUED",
             title: "Certify complete canon-converged Playbook product", evidenceIds: [] });
         expect(items.find(item => item.missionId === "048-web-staging")?.dependencies).toEqual(["048-product-journeys"]);
@@ -30,7 +35,7 @@ describe("Playbook canon mission planner", () => {
     it("requires all product phases before platform QA and final product certification", () => {
         const items = new PlaybookCanonMissionPlanner().compile(graph);
         expect(items.find(item => item.missionId === "048-phase-15")?.dependencies)
-            .toEqual(expect.arrayContaining(["048-phase-01", "048-phase-14"]));
+            .toEqual(expect.arrayContaining(["048-phase-01", "048-phase-14", "048-phase-15-item-unfinished"]));
         expect(items.find(item => item.missionId === "048-product-journeys")?.dependencies)
             .toEqual(expect.arrayContaining(["048-canon-authority", "048-canon-journeys", "048-canon-design",
                 "048-canon-requirements", "048-phase-01", "048-phase-15"]));
@@ -85,7 +90,7 @@ describe("Playbook canon mission planner", () => {
         expect(requirementRationale).toContain("Store readiness");
 
         const compassPackage = items.find(item => item.missionId === "048-domain-compass");
-        expect(compassPackage).toMatchObject({ title: "Compass readiness package", dependencies: ["048-canon-requirements"] });
+        expect(compassPackage).toMatchObject({ title: "Compass readiness package", dependencies: ["048-requirement-cmp-01"] });
         const starting5Package = items.find(item => item.missionId === "048-domain-starting-5");
         expect(starting5Package).toMatchObject({ title: "Starting 5 onboarding persistence package" });
         const storePackage = items.find(item => item.missionId === "048-domain-store");

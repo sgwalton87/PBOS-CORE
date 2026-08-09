@@ -1181,7 +1181,13 @@ async function runNextProductionMission(target?: string): Promise<number> {
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
         { producesFunctionalAcceptancePlan: true });
     }
-    for (const mission of candidates.filter(item => /^048-(os|onboarding|domain)-[a-z0-9-]+$/.test(item.missionId))) {
+    for (const mission of candidates.filter(item => /^048-phase-\d{2}-item-[a-z0-9-]+$/.test(item.missionId))) {
+        adapters.register("PLAYBOOK-SYSTEM-001", mission.missionId, () => playbookCanonPhaseExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+        { producesFunctionalAcceptancePlan: true });
+    }
+    for (const mission of candidates.filter(item => /^048-(os|onboarding|domain|requirement)-[a-z0-9-]+$/.test(item.missionId))) {
         adapters.register("PLAYBOOK-SYSTEM-001", mission.missionId, () => playbookCanonPhaseExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
