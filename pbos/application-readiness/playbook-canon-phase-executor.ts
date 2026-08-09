@@ -9,6 +9,7 @@ import { ApplicationAcceptanceDimension, ApplicationAcceptanceEvidence, Function
 import { ResumableRemediationEngine } from "../validation-automation";
 import { playbookScholarProtectedEnvironmentFiles } from "./playbook-functional-acceptance";
 import { PLAYBOOK_CANON_SOURCES } from "./playbook-canon-product-graph";
+import { playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -120,7 +121,7 @@ function publishablePath(path: string): boolean {
 }
 
 function phaseItems(source: string, missionId: string): ReadonlyMap<string, string> {
-    const phaseNumber = Number.parseInt(missionId.slice(-2), 10);
+    const phaseNumber = Number.parseInt(missionId.match(/^048-phase-(\d{2})/)?.[1] ?? "", 10);
     const start = source.search(new RegExp(`^# Phase ${phaseNumber} — `, "m"));
     if (start < 0) throw new Error(`Canon phase ${phaseNumber} is missing from ${MASTER_CHECKLIST}.`);
     const rest = source.slice(start);
@@ -136,6 +137,14 @@ function assertChecklistTransition(before: string, after: string, missionId: str
     const invalid = manifest.completedItems.find(item => !prior.has(item) || prior.get(item) === "🟩" || current.get(item) !== "🟩");
     if (invalid || newlyComplete.length !== declared.size || newlyComplete.some(item => !declared.has(item))) {
         throw new Error(`Canon phase checklist transition does not match completedItems${invalid ? `: ${invalid}` : ""}.`);
+    }
+    if (/^048-phase-\d{2}-item-/.test(missionId)) {
+        const target = [...prior.keys()].find(item => playbookCanonChecklistItemMissionId(
+            `PHASE-${missionId.match(/^048-phase-(\d{2})/)?.[1]}`, item) === missionId);
+        if (!target || manifest.completedItems.length !== 1 || manifest.completedItems[0] !== target) {
+            throw new Error("Canon checklist-item mission changed work outside its exact item boundary.");
+        }
+        return;
     }
     const actualRemaining = [...current].filter(([, status]) => status !== "🟩").map(([item]) => item).sort();
     const declaredRemaining = [...manifest.remainingItems].sort();
@@ -162,8 +171,8 @@ async function assertManifestArtifacts(manifest: PhaseManifest, workingDirectory
 
 export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecutorDependencies): ProductionMissionExecutor {
     return async context => {
-        const phaseMission = /^048-phase-\d{2}$/.test(context.mission.missionId);
-        const roadmapMission = /^048-(os|onboarding|domain)-[a-z0-9-]+$/.test(context.mission.missionId);
+        const phaseMission = /^048-phase-\d{2}(?:-item-[a-z0-9-]+)?$/.test(context.mission.missionId);
+        const roadmapMission = /^048-(os|onboarding|domain|requirement)-[a-z0-9-]+$/.test(context.mission.missionId);
         if ((!phaseMission && !roadmapMission) || context.run.systemId !== SYSTEM_ID || context.run.repository !== REPOSITORY) {
             throw new Error("The Playbook canon implementation adapter is restricted to phase, OS, onboarding, and domain missions.");
         }

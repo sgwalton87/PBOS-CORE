@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assertPlaybookFullCanonicalRoadmap, PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS,
-    PLAYBOOK_CANONICAL_OPERATING_SYSTEMS, PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS } from "../playbook-full-canonical-roadmap";
+    PLAYBOOK_CANONICAL_OPERATING_SYSTEMS, PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS,
+    playbookCanonChecklistItemMissionId } from "../playbook-full-canonical-roadmap";
 
 describe("Playbook full canonical roadmap", () => {
     it("preserves all 17 OS identities and 14+ role-specific onboarding pathways", () => {
@@ -17,5 +18,10 @@ describe("Playbook full canonical roadmap", () => {
         const onboardingIds = PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS.map(item => item.operatingSystemId);
         expect(onboardingIds).not.toContain("FOUNDER");
         expect(onboardingIds).not.toContain("PLATFORM_ADMIN");
+    });
+
+    it("derives stable item-sized phase mission identities", () => {
+        expect(playbookCanonChecklistItemMissionId("PHASE-01", "Google Login"))
+            .toBe("048-phase-01-item-google-login");
     });
 });

@@ -5,14 +5,17 @@
 The full canon graph is now the only production queue authority. PBOS compiled
 23 digest-bound sources into 17 operating-system identities, 15 role-specific
 onboarding pathways, 15 phases, 58 traced requirements, and 93 visible routes.
-The governed Playbook revision is
-`17c8d7f78a088971b97e3e0a23fb89e51100c2b4`; 118 exact-revision blockers and
-221 explicitly unfinished phase checklist items remain.
-The 32 required OS/onboarding journey contracts are currently absent, so the
-whole product is not certifiable.
+After PBOS compiled and merged the complete topology in Playbook PR #73, the
+governed revision is `bc9c474ec8cb84f70fca3bec28d2da8e587a2edc` and the
+graph has 87 blockers. All 32 OS/onboarding contracts are now declared, while
+their behavior remains explicitly incomplete and uncertified. The phase board
+still contains 221 unfinished checklist items; the whole product is not
+certifiable.
 
-The next eligible product mission is Phase 1, Identity & Authentication. PBOS
-will advance it through small, cohesive implementation packages. Every package
+The first whole-phase implementation attempt truthfully stopped because 16 auth
+items and external-provider evidence could not complete atomically. PBOS now
+emits one mission per unfinished checklist item and keeps each phase as a
+dependency aggregate. Every item package
 must produce a real code diff, exact-revision desktop/mobile browser evidence,
 durable-data and authority evidence, accessibility and security evidence, green
 independent CI, and a separate certification decision. A successful package may
@@ -34,6 +37,9 @@ their owning phase package passes the new acceptance path.
 - [x] Prevent any phase, OS, onboarding, or domain mission from completing with remaining scoped work
 - [x] Repair multi-codepoint checklist status parsing so all 221 unfinished items are visible to PBOS
 - [x] Separate complete journey topology from incomplete journey behavior to eliminate the topology/implementation dependency deadlock
+- [x] Split all 221 unfinished phase items into independently certifiable missions instead of one all-or-nothing phase worker
+- [x] Split all 40 unresolved traced requirements into explicit functional missions
+- [x] Compile, validate, certify, and merge the 15-role/17-OS journey topology through PBOS Genesis (Playbook PR #73)
 - [x] Recompile the canon graph from the current governed Playbook revision on every readiness-queue synchronization
 - [x] Replace stale whole-product completion with dependency-ordered authority, journey, design, 15-phase, requirement, web, mobile, and ecosystem missions
 - [x] Require final Playbook product certification to depend on every canonical phase rather than the former seven-journey aggregate alone
