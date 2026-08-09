@@ -200,9 +200,15 @@ export class PlaybookCanonMissionPlanner {
             const missionId = `048-phase-${phase.phaseId.slice(-2)}`;
             const complete = phase.completion === 100 && phase.incompleteItems.length === 0;
             const baseDependencies = [...new Set(["048-canon-journeys", ...(phaseDependencies[phase.phaseId] ?? ["048-canon-authority"])])];
-            const itemMissionIds = phase.incompleteItems.map(item => playbookCanonChecklistItemMissionId(phase.phaseId, item));
-            phase.incompleteItems.forEach((item, itemIndex) => {
-                const itemMissionId = itemMissionIds[itemIndex];
+            const fallbackOccurrences = new Map<string, number>();
+            const incompleteItemNodes = phase.items?.filter(item => item.status !== "🟩") ?? phase.incompleteItems.map(label => {
+                const identity = label.toLowerCase(); const occurrence = (fallbackOccurrences.get(identity) ?? 0) + 1;
+                fallbackOccurrences.set(identity, occurrence);
+                return { label, status: "UNKNOWN", missionId: playbookCanonChecklistItemMissionId(phase.phaseId, label, occurrence) };
+            });
+            const itemMissionIds = incompleteItemNodes.map(item => item.missionId);
+            incompleteItemNodes.forEach(itemNode => {
+                const item = itemNode.label; const itemMissionId = itemNode.missionId;
                 items.push({ missionId: itemMissionId, systemId: SYSTEM_ID,
                     title: `Complete ${phase.title} item: ${item}`,
                     dependencies: baseDependencies, status: "QUEUED",

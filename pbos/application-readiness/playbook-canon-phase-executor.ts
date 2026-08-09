@@ -120,33 +120,40 @@ function publishablePath(path: string): boolean {
     return path !== "next-env.d.ts" && !/^(artifacts\/|\.next\/|\.vercel\/|playwright-report\/|test-results\/)/.test(path);
 }
 
-function phaseItems(source: string, missionId: string): ReadonlyMap<string, string> {
+function phaseItems(source: string, missionId: string): readonly Readonly<{ label: string; status: string; missionId: string }>[] {
     const phaseNumber = Number.parseInt(missionId.match(/^048-phase-(\d{2})/)?.[1] ?? "", 10);
     const start = source.search(new RegExp(`^# Phase ${phaseNumber} — `, "m"));
     if (start < 0) throw new Error(`Canon phase ${phaseNumber} is missing from ${MASTER_CHECKLIST}.`);
     const rest = source.slice(start);
     const next = rest.slice(1).search(/^# Phase \d+ — /m);
     const section = next < 0 ? rest : rest.slice(0, next + 1);
-    return new Map([...section.matchAll(/^- (⬜️?|🟨|🟦|🟥|🟩)\s+(.+)$/gmu)].map(match => [match[2].trim(), match[1]]));
+    const phaseId = `PHASE-${String(phaseNumber).padStart(2, "0")}`; const occurrences = new Map<string, number>();
+    return [...section.matchAll(/^- (⬜️?|🟨|🟦|🟥|🟩)\s+(.+)$/gmu)].map(match => {
+        const label = match[2].trim(); const identity = label.toLowerCase();
+        const occurrence = (occurrences.get(identity) ?? 0) + 1;
+        occurrences.set(identity, occurrence);
+        return { label, status: match[1], missionId: playbookCanonChecklistItemMissionId(phaseId, label, occurrence) };
+    });
 }
 
 function assertChecklistTransition(before: string, after: string, missionId: string, manifest: PhaseManifest): void {
     const prior = phaseItems(before, missionId); const current = phaseItems(after, missionId);
-    const declared = new Set(manifest.completedItems);
-    const newlyComplete = [...current].filter(([item, status]) => status === "🟩" && prior.get(item) !== "🟩").map(([item]) => item);
-    const invalid = manifest.completedItems.find(item => !prior.has(item) || prior.get(item) === "🟩" || current.get(item) !== "🟩");
-    if (invalid || newlyComplete.length !== declared.size || newlyComplete.some(item => !declared.has(item))) {
-        throw new Error(`Canon phase checklist transition does not match completedItems${invalid ? `: ${invalid}` : ""}.`);
-    }
+    const priorById = new Map(prior.map(item => [item.missionId, item]));
+    const newlyComplete = current.filter(item => item.status === "🟩" && priorById.get(item.missionId)?.status !== "🟩");
     if (/^048-phase-\d{2}-item-/.test(missionId)) {
-        const target = [...prior.keys()].find(item => playbookCanonChecklistItemMissionId(
-            `PHASE-${missionId.match(/^048-phase-(\d{2})/)?.[1]}`, item) === missionId);
-        if (!target || manifest.completedItems.length !== 1 || manifest.completedItems[0] !== target) {
+        const target = priorById.get(missionId);
+        if (!target || newlyComplete.length !== 1 || newlyComplete[0]?.missionId !== missionId ||
+            manifest.completedItems.length !== 1 || manifest.completedItems[0] !== target.label) {
             throw new Error("Canon checklist-item mission changed work outside its exact item boundary.");
         }
         return;
     }
-    const actualRemaining = [...current].filter(([, status]) => status !== "🟩").map(([item]) => item).sort();
+    const declaredComplete = [...manifest.completedItems].sort();
+    const actualComplete = newlyComplete.map(item => item.label).sort();
+    if (JSON.stringify(actualComplete) !== JSON.stringify(declaredComplete)) {
+        throw new Error("Canon phase checklist transition does not match completedItems.");
+    }
+    const actualRemaining = current.filter(item => item.status !== "🟩").map(item => item.label).sort();
     const declaredRemaining = [...manifest.remainingItems].sort();
     if (JSON.stringify(actualRemaining) !== JSON.stringify(declaredRemaining)) {
         throw new Error("Canon phase remainingItems do not match the governed checklist.");
