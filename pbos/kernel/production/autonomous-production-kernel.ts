@@ -32,7 +32,8 @@ export function classifyFunctionalAcceptanceFailure(error: unknown): string {
 export class AutonomousProductionKernel {
     constructor(private readonly state: GenesisStateRepository,
         private readonly production = new ProductionRuntimeService(state),
-        private readonly application = new FunctionalApplicationRuntime()) {}
+        private readonly application = new FunctionalApplicationRuntime(),
+        private readonly leaseHeartbeatIntervalMs = 10_000) {}
 
     async verifyApplication(runId: string,
         independentValidation: ApplicationAcceptanceEvidence): Promise<Readonly<{ run: ProductionRun; result: FunctionalRuntimeResult }>> {
@@ -60,6 +61,11 @@ export class AutonomousProductionKernel {
         this.production.startStage(runId, "PREREQUISITE", `Prepare ${mission.title}`, {
             planId: plan.planId, productNodeId: plan.productNodeId, journeyId: plan.journeyId
         });
+        let heartbeatFailure: Error | undefined;
+        const leaseHeartbeat = setInterval(() => {
+            try { this.production.heartbeat(runId); }
+            catch (error) { heartbeatFailure = error instanceof Error ? error : new Error(String(error)); }
+        }, this.leaseHeartbeatIntervalMs);
         try {
             const result = await this.application.execute(runId, plan, (event, detail) => {
                 this.production.completeActiveStage(runId, detail);
@@ -78,6 +84,8 @@ export class AutonomousProductionKernel {
                     this.production.startStage(runId, "PREVIEW", `Verify durable preview for ${mission.title}`, detail);
                 }
             });
+            if (heartbeatFailure) throw new Error(`Functional runtime lease heartbeat failed: ${heartbeatFailure.message}`,
+                { cause: heartbeatFailure });
             this.production.recordAcceptanceEvidence(runId, [...result.evidence, independentValidation]);
             this.production.recordPreview(result.preview);
             this.production.completeActiveStage(runId, {
@@ -123,6 +131,8 @@ export class AutonomousProductionKernel {
                     "Functional application acceptance failed and requires governed remediation.", { reason });
             }
             throw error;
+        } finally {
+            clearInterval(leaseHeartbeat);
         }
     }
 }

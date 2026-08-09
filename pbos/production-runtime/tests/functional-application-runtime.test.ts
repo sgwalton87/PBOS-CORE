@@ -170,6 +170,31 @@ describe("PBS-5000 functional application runtime", () => {
         ]);
     });
 
+    it("reuses an exact worktree dependency tree during recovery instead of reinstalling it", async () => {
+        const repo = repository();
+        mkdirSync(join(repo.path, "node_modules"), { recursive: true });
+        writeFileSync(join(repo.path, "node_modules", ".package-lock.json"), JSON.stringify({ lockfileVersion: 3 }));
+        const future = new Date(Date.now() + 1_000);
+        const { utimesSync } = await import("fs");
+        utimesSync(join(repo.path, "node_modules", ".package-lock.json"), future, future);
+        let launched = false;
+        const telemetry: Array<{ event: string; payload?: Readonly<Record<string, unknown>> }> = [];
+        const runtime = new FunctionalApplicationRuntime({ launch: async () => {
+            launched = true;
+            return { logs: () => "", stop: async () => undefined };
+        } }, { run: async (_plan, probe) => ({ probe, status: probe.expectedStatus, responseExcerpt: "ok",
+            durationMs: 1, passed: true }) }, { run: async (_plan, journey) => ({ journey, durationMs: 1,
+            artifacts: [], verifiedDimensions: journey.verifiedDimensions, passed: true }) }, undefined,
+        async () => 1536 * 1024 * 1024);
+
+        await runtime.execute("recovered-dependencies", plan(repo.path, repo.revision),
+            (event, payload) => telemetry.push({ event, payload }));
+
+        expect(launched).toBe(true);
+        expect(telemetry.find(item => item.event === "PREREQUISITES_VERIFIED")?.payload)
+            .toMatchObject({ reused: ["npm ci --no-audit --no-fund"] });
+    });
+
     it("accepts browser claims only when a commit-bound acceptance report proves every declared dimension", async () => {
         const repo = repository(); const acceptance = plan(repo.path, repo.revision); const journey = acceptance.browserJourneys[0];
         mkdirSync(join(repo.path, "artifacts"), { recursive: true });

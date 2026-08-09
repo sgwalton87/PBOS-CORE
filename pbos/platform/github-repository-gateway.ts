@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { chmod, mkdir, readFile, writeFile } from "fs/promises";
+import { access, chmod, mkdir, readFile, writeFile } from "fs/promises";
 import { basename, join, resolve, sep } from "path";
 import { promisify } from "util";
 import { randomUUID } from "crypto";
@@ -73,6 +73,17 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const name = `${repository.owner}--${repository.name}--${branch.replaceAll("/", "--")}`;
         const target = resolve(root, name);
         if (!target.startsWith(`${root}${sep}`)) throw new Error("Isolated worktree path escaped the PBOS workspace.");
+        try {
+            await access(target);
+            const currentBranch = (await this.commands.run("git", ["branch", "--show-current"], target)).stdout.trim();
+            const governedBase = (await this.commands.run("git", ["merge-base", "HEAD", baseRevision], target)).stdout.trim();
+            if (currentBranch !== branch || governedBase !== baseRevision) {
+                throw new Error("Existing isolated worktree does not match the governed recovery lineage.");
+            }
+            return target;
+        } catch (error) {
+            if (error instanceof Error && error.message === "Existing isolated worktree does not match the governed recovery lineage.") throw error;
+        }
         await this.commands.run("git", ["worktree", "add", "-b", branch, target, baseRevision], checkout);
         return target;
     }

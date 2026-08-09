@@ -78,6 +78,38 @@ describe("canonical PBOS production runtime", () => {
             .toThrow(/already has active stage/);
     });
 
+    it("resumes an interrupted execution checkpoint as the same running mission", () => {
+        const fixture = runtime();
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        fixture.runtime.startStage(run.runId, "EXECUTION", "Implement journey");
+        fixture.advance(30_001);
+
+        const recovered = fixture.runtime.recoverStaleRuns().at(-1)!;
+        const resumed = fixture.runtime.resume(recovered.runId, input.actorId);
+
+        expect(resumed).toMatchObject({ runId: run.runId, status: "RUNNING",
+            resumeCheckpoint: "EXECUTION", repairAttempts: 0 });
+    });
+
+    it("recovers a failed execution stage at the same execution checkpoint", () => {
+        const fixture = runtime();
+        const run = fixture.runtime.begin(input);
+        fixture.runtime.transition(run.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(run.runId, "STARTING", "Starting");
+        fixture.runtime.transition(run.runId, "RUNNING", "Running");
+        const stage = fixture.runtime.startStage(run.runId, "EXECUTION", "Implement journey");
+        fixture.runtime.failStage(stage.stageId, "Retryable worker infrastructure failure");
+        fixture.runtime.transition(run.runId, "FAILED", "Mission execution failed");
+
+        const recovered = fixture.runtime.recoverFailedExecution(run.runId, "Retry existing execution");
+
+        expect(recovered).toMatchObject({ runId: run.runId, status: "RECOVERING",
+            resumeCheckpoint: "EXECUTION", activeStageId: undefined, repairAttempts: 0 });
+    });
+
     it("resumes a paused validation checkpoint as validation rather than re-running engineering", () => {
         const fixture = runtime();
         const run = fixture.runtime.begin(input);
@@ -340,6 +372,32 @@ describe("canonical PBOS production runtime", () => {
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED");
     });
 
+    it("repairs missing protected-environment declarations in a durable functional plan", () => {
+        const fixture = runtime();
+        const run = fixture.runtime.begin(input);
+        const acceptance: FunctionalAcceptancePlan = { planId: "environment-plan", systemId: input.systemId,
+            productNodeId: "login", journeyId: "LOGIN", repository: input.repository, branch: input.branch,
+            commit: input.commit, workingDirectory: "/tmp/example",
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:3000",
+                healthPath: "/login", startupTimeoutMs: 1_000 }, probes: [],
+            browserJourneys: [{ journeyId: "LOGIN", persona: "SCHOLAR", behavior: "Login works", route: "/login",
+                engine: "PLAYWRIGHT", command: { command: "npm", args: ["run", "acceptance"] },
+                viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshotArtifacts: ["desktop.png", "mobile.png"],
+                traceArtifact: "trace.zip", accessibilityArtifact: "a11y.json", acceptanceArtifact: "acceptance.json",
+                verifiedDimensions: ["AUTHORITY"] }] };
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, acceptance);
+
+        const normalized = fixture.runtime.normalizeFunctionalAcceptanceRequiredEnvironment(run.runId,
+            ["PBOS_ACCEPTANCE_EMAIL", "PBOS_ACCEPTANCE_PASSWORD"]);
+
+        expect(normalized.functionalAcceptancePlan?.launch.requiredEnvironmentVariables)
+            .toEqual(["PBOS_ACCEPTANCE_EMAIL", "PBOS_ACCEPTANCE_PASSWORD"]);
+        expect(normalized.functionalAcceptancePlan?.browserJourneys[0].command.requiredEnvironmentVariables)
+            .toEqual(["PBOS_ACCEPTANCE_EMAIL", "PBOS_ACCEPTANCE_PASSWORD"]);
+        expect(fixture.runtime.events(run.runId).map(event => event.type))
+            .toContain("FUNCTIONAL_ACCEPTANCE_ENVIRONMENT_NORMALIZED");
+    });
+
     it("redacts secrets from structured event payloads", () => {
         const fixture = runtime(); const run = fixture.runtime.begin(input);
         fixture.runtime.transition(run.runId, "QUEUED", "Queued", { token: "should-not-leak", command: "authorization=Bearer-secret" });
@@ -464,6 +522,35 @@ describe("canonical PBOS production runtime", () => {
         expect(sequence.runs.at(-1)?.status).toBe("VALIDATING");
         expect(sequence.runs.at(-1)?.evidenceIds).toContain("remediation-run:validation-048");
         expect(fixture.state.executionLeases().at(-1)?.status).toBe("ACTIVE");
+    });
+
+    it("reuses a stale execution run instead of creating a duplicate mission run", async () => {
+        const fixture = runtime();
+        fixture.runtime.reconcileQueue(input.systemId, [{ missionId: "048-foundation", systemId: input.systemId,
+            title: "Complete foundations", dependencies: [], status: "QUEUED", rationale: "Approved gap analysis.",
+            approvalRequired: false, evidenceIds: [] }]);
+        const original = fixture.runtime.begin({ ...input, mission: "Complete foundations", objective: "Complete foundations" });
+        fixture.runtime.updateMissionStatus(input.systemId, "048-foundation", "ACTIVE");
+        fixture.runtime.transition(original.runId, "QUEUED", "Queued");
+        fixture.runtime.transition(original.runId, "STARTING", "Starting");
+        fixture.runtime.transition(original.runId, "RUNNING", "Running");
+        fixture.runtime.recordExecutionPlan(original.runId, { planId: "recovery-plan", runId: original.runId,
+            missionId: "048-foundation", objective: "Complete foundations", governingSpecifications: [], inScope: [],
+            outOfScope: [], dependencies: [], expectedFiles: [], databaseChanges: [], apiChanges: [], uiChanges: [],
+            securityImplications: [], dataImplications: [], accessibilityImplications: [], testPlan: [], previewPlan: [],
+            recoveryPlan: [], certificationCriteria: [], expectedArtifacts: [], approvalRequirements: [],
+            createdAt: new Date().toISOString() });
+        fixture.runtime.startStage(original.runId, "EXECUTION", "Complete foundations");
+        fixture.advance(30_001);
+        fixture.runtime.recoverStaleRuns();
+
+        const sequence = await new ProductionMissionRunner(fixture.state, fixture.runtime).run({ ...input,
+            authorizationArtifactId: "approval", autonomousContinuation: false }, () => async () => ({
+            outputs: {}, evidenceIds: ["implementation:recovered"], validations: [{ name: "Recovered work", passed: true,
+                durationMs: 1, evidenceId: "implementation:recovered" }] }));
+
+        expect(sequence.runs.at(-1)?.runId).toBe(original.runId);
+        expect(fixture.state.productionRuns()).toHaveLength(1);
     });
 
     it("refuses mission execution when the Genesis to PBOS v1 channel crosses repositories", async () => {

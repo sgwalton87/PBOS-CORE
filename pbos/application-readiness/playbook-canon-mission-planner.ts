@@ -230,7 +230,7 @@ export class PlaybookCanonMissionPlanner {
 
         items.push({ missionId: "048-canon-requirements", systemId: SYSTEM_ID,
             title: "Compile all Playbook intelligence and human-agency requirements",
-            dependencies: ["048-phase-03", "048-phase-05", "048-phase-09"],
+            dependencies: ["048-canon-authority"],
             status: graph.requirements.length ? "COMPLETE" : "QUEUED",
             rationale: `${graph.requirements.length} requirements are indexed; ${incompleteRequirements} remain partial or missing and are delegated to explicit functional missions.`
                 + requirementSpotlight(graph.requirements),
