@@ -88,11 +88,13 @@ export function playbookCanonicalJourneySpecification(journeyId: string): string
         `tests/acceptance/pbos-${journeyId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.spec.ts`;
 }
 
-export function playbookCanonChecklistItemMissionId(phaseId: string, item: string): string {
+export function playbookCanonChecklistItemMissionId(phaseId: string, item: string, occurrence = 1): string {
     const phase = phaseId.replace(/^PHASE-/i, "").padStart(2, "0");
     const slug = item.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-    if (!/^\d{2}$/.test(phase) || !slug) throw new Error(`Invalid canonical checklist item identity: ${phaseId}:${item}.`);
-    return `048-phase-${phase}-item-${slug}`;
+    if (!/^\d{2}$/.test(phase) || !slug || !Number.isInteger(occurrence) || occurrence < 1) {
+        throw new Error(`Invalid canonical checklist item identity: ${phaseId}:${item}:${occurrence}.`);
+    }
+    return `048-phase-${phase}-item-${slug}${occurrence > 1 ? `-occurrence-${occurrence}` : ""}`;
 }
 
 function assertUnique(values: readonly string[], label: string): void {

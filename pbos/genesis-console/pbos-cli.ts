@@ -35,7 +35,7 @@ import { isPlaybookAcademicRecoveryDefect, playbookAcademicJourneyExecutor, play
     inspectPlaybookMobileReleaseReadiness, playbookMobileReleaseProtectedEnvironmentFiles,
     inspectPlaybookAcademicAcceptanceReadiness,
     inspectPlaybookScholarStagingReadiness, inspectPlaybookStagingMigrationReadiness, isAdditiveScholarMigrationEligible,
-    playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
+    PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT, playbookScholarProtectedEnvironmentFiles, playbookStagingMigrationDefinition,
     isApplicationWorkspaceHeadingContrastDefect, isApplicationWorkspaceMigrationFoundationDefect,
     isSupportRelationshipMigrationFoundationDefect,
     isSupportAcceptanceIdentifierCollisionDefect,
@@ -103,6 +103,17 @@ export function effectiveRemediationState(run: RemediationRun): RemediationRun["
 
 export function isResumableProductionValidationStatus(status: ProductionRun["status"]): boolean {
     return ["VALIDATING", "BLOCKED", "PAUSED", "RECOVERING", "AWAITING_APPROVAL"].includes(status);
+}
+
+export function isUnstartedDuplicateProductionRun(candidate: ProductionRun,
+    authoritative: ProductionRun): boolean {
+    return candidate.runId !== authoritative.runId && candidate.systemId === authoritative.systemId &&
+        candidate.repository === authoritative.repository &&
+        candidate.selectedMission === authoritative.selectedMission &&
+        ["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "RECOVERING"].includes(candidate.status) &&
+        candidate.currentCommit === candidate.startingCommit && !candidate.functionalAcceptancePlan &&
+        candidate.acceptanceEvidence.length === 0 && candidate.evidenceIds.length === 0 &&
+        candidate.filesAdded.length === 0 && candidate.filesModified.length === 0 && candidate.filesDeleted.length === 0;
 }
 
 export type PlaybookDoctorReadinessState = "READY" | "READY_FOR_GOVERNED_MIGRATION" | "BLOCKED";
@@ -250,7 +261,8 @@ export function durableMissionApproval(services: MissionApprovalServices,
         if (event.type !== "VERIFIABLE_APPROVAL" || event.resource !== mission.missionId ||
             event.evidence.purpose !== "START_PRODUCTION_MISSION") continue;
         const approval = event.evidence.approval as VerifiableApproval | undefined;
-        if (approval && services.identities.verify(approval, "START_PRODUCTION_MISSION", mission.missionId)) return approval;
+        if (approval && services.identities.verify(approval, "START_PRODUCTION_MISSION", mission.missionId,
+            new Date(approval.issuedAt))) return approval;
     }
     return undefined;
 }
@@ -528,6 +540,13 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         isResumableProductionValidationStatus(item.status) &&
         item.evidenceIds.some(evidenceId => evidenceId.startsWith("remediation-run:")));
     if (!productionRun) return undefined;
+    const duplicate = [...services.state.productionRuns()].reverse()
+        .find(item => isUnstartedDuplicateProductionRun(item, productionRun));
+    if (duplicate) {
+        services.production.cancel(duplicate.runId, duplicate.actorId);
+        stdout.write(`[RECOVERY] Cancelled unstarted duplicate run ${duplicate.runId}; ` +
+            `authoritative lineage remains ${productionRun.runId}.\n`);
+    }
     const remediationId = productionRun.evidenceIds.filter(item => item.startsWith("remediation-run:")).at(-1)!
         .slice("remediation-run:".length);
     let remediationRun = services.state.remediationRun(remediationId);
@@ -843,6 +862,10 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
             : services.production.updateRepositoryPosition(productionRun.runId, remediationRun.pullRequest.branch,
                 validatedRevision);
     }
+    if (productionMission?.missionId.startsWith("048-phase-")) {
+        governedRun = services.production.normalizeFunctionalAcceptanceRequiredEnvironment(
+            productionRun.runId, PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT);
+    }
     const stagingDefinition = productionMission && playbookStagingMigrationDefinition(productionMission.missionId);
     if (stagingDefinition) {
         stdout.write(`PBOS STAGING READINESS: ${stagingDefinition.label}\n`);
@@ -934,6 +957,28 @@ async function reconcileFailedWebStagingEvidence(services: ReturnType<typeof run
     stdout.write(`[RECOVERY] Restored the exact web-staging evidence checkpoint on existing PR ${remediation.pullRequest.url}.\n`);
 }
 
+function retryableCanonWorkerInfrastructureFailure(error: string | undefined): boolean {
+    return Boolean(error && (/Codex worker exited[^]*models cache/i.test(error) || /ENOSPC: no space left on device/i.test(error)));
+}
+
+async function reconcileFailedCanonExecution(services: ReturnType<typeof runtime>, systemId: string): Promise<void> {
+    const failed = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId && item.status === "FAILED");
+    if (!failed) return;
+    const mission = services.state.missionQueue(systemId).find(item => item.title === failed.selectedMission);
+    if (!mission || !/^048-(?:phase-\d{2}(?:-item-[a-z0-9-]+)?|os-|onboarding-|domain-|requirement-)/.test(mission.missionId)) return;
+    const failedStage = [...services.state.productionStages(failed.runId)].reverse()
+        .find(stage => stage.type === "EXECUTION" && stage.status === "FAILED");
+    if (!retryableCanonWorkerInfrastructureFailure(failedStage?.error)) return;
+    if (!durableMissionApproval(services, mission) || failed.currentCommit !== failed.startingCommit ||
+        failed.currentBranch !== failed.startingBranch) {
+        throw new Error(`Canon worker recovery for ${failed.runId} does not match its durable approval and repository lineage.`);
+    }
+    services.production.recoverFailedExecution(failed.runId,
+        "Recovering the existing canon mission after a retryable implementation-worker infrastructure failure.");
+    services.production.updateMissionStatus(systemId, mission.missionId, "ACTIVE");
+    stdout.write(`[RECOVERY] Preserved run ${failed.runId}, mission ${mission.missionId}, and its exact worktree after a retryable worker infrastructure failure.\n`);
+}
+
 async function runNextProductionMission(target?: string): Promise<number> {
     const services = runtime();
     await ensureGitHubAuthentication(profile());
@@ -942,12 +987,17 @@ async function runNextProductionMission(target?: string): Promise<number> {
     const selectedSystemId = requestedSystemId ?? services.state.missionQueue().find(item => item.status === "ELIGIBLE")?.systemId
         ?? "PLAYBOOK-SYSTEM-001";
     await reconcileFailedWebStagingEvidence(services, selectedSystemId);
+    await reconcileFailedCanonExecution(services, selectedSystemId);
     const resumed = await resumeExistingProductionValidation(services, selectedSystemId, target);
     if (resumed !== undefined) return resumed;
     const bootstrappedInspection = await ensureReadinessQueue(services, selectedSystemId,
         message => stdout.write(`[READINESS] ${message}\n`));
     const candidates = services.state.missionQueue(selectedSystemId);
-    const next = new GovernedMissionQueue().next(candidates);
+    const recoveringExecution = services.production.activeRun()?.status === "RECOVERING"
+        ? services.production.activeRun() : undefined;
+    const next = recoveringExecution?.systemId === selectedSystemId
+        ? candidates.find(item => item.title === recoveringExecution.selectedMission)
+        : new GovernedMissionQueue().next(candidates);
     if (!next) {
         const incomplete = candidates.filter(item => item.status !== "COMPLETE");
         if (candidates.length > 0 && incomplete.length === 0) {

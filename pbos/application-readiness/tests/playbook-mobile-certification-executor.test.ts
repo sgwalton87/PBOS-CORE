@@ -46,7 +46,7 @@ describe("CIP-049 mobile final-certification adapter", () => {
         const approvals: Array<{ action: string; approval?: string }> = [];
         const gateway = { inspectRepository: async () => ({ revision: "abc1234" }),
             readFileAtRevision: async (_reference: unknown, path: string) => path === "pbos/readiness/049-store-readiness.json"
-                ? '{"missionId": "049-store-readiness", "targets": ["TESTFLIGHT", "GOOGLE_PLAY_INTERNAL"]}' : "",
+                ? '{"missionId":"049-store-readiness","productCanonicalGraphRevision":"abc1234","productJourneyIds":["SCHOLAR-ONBOARDING-TO-DASHBOARD"],"storeDistribution":["TESTFLIGHT","GOOGLE_PLAY_INTERNAL"]}' : "",
             workingDirectory: async () => "/private/tmp/playbook-mobile-certification",
             createBranch: async () => undefined,
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {

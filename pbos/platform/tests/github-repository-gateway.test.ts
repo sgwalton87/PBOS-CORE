@@ -10,6 +10,8 @@ class FakeCommands implements CommandRunner {
         this.calls.push({ command, args, cwd });
         if (args[0] === "rev-parse" && args[1] === "--git-dir") return { stdout: ".git\n", stderr: "" };
         if (args[0] === "rev-parse") return { stdout: "abc123\n", stderr: "" };
+        if (args[0] === "branch" && args[1] === "--show-current") return { stdout: "agent/phase-one\n", stderr: "" };
+        if (args[0] === "merge-base") return { stdout: "abc1234\n", stderr: "" };
         if (args[0] === "ls-tree") return { stdout: ["README.md", "package.json", "package-lock.json", "src/index.ts",
             "pbos/generated/capabilities/analytics.json", "pbos/generated/capabilities/analytics.ts",
             "pbos/generated/capabilities/analytics.test.ts", "pbos/readiness/048-canon-journeys.json"].join("\n"), stderr: "" };
@@ -113,6 +115,21 @@ describe("GitHub repository gateway", () => {
                 "commit", "-m", "feat: isolated change"] }));
         expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", cwd: worktree,
             args: ["push", "-u", "origin", "agent/phase-one"] }));
+    });
+
+    it("reuses the same exact-lineage isolated worktree after an interrupted worker", async () => {
+        const root = mkdtempSync(join(tmpdir(), "pbos-gateway-"));
+        mkdirSync(join(root, "acme--app"));
+        const target = join(root, ".worktrees", "acme--app--agent--phase-one");
+        mkdirSync(target, { recursive: true });
+        const commands = new FakeCommands();
+
+        const recovered = await new GitHubRepositoryGateway(root, commands)
+            .createIsolatedBranch(reference, "agent/phase-one", "abc1234");
+
+        expect(recovered).toBe(target);
+        expect(commands.calls).not.toContainEqual(expect.objectContaining({ command: "git",
+            args: ["worktree", "add", "-b", "agent/phase-one", target, "abc1234"] }));
     });
 
     it("reads application source only from an exact governed revision", async () => {

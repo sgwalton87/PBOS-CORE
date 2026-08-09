@@ -7,6 +7,7 @@ import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionMiss
     ProtectedEnvironmentReadiness, ProtectedEnvironmentResolver } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
 import { playbookMobileAcceptancePlan } from "./playbook-mobile-functional-acceptance";
+import { readPlaybookMobileJourneysManifest } from "./playbook-readiness-manifests";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -75,7 +76,8 @@ function withStoreProfiles(source: string): string {
 }
 
 function storeFiles(startingRevision: string, runId: string, appConfig: string,
-    easConfiguration: string): readonly RepositoryFileChange[] {
+    easConfiguration: string, mobile: Readonly<{ productCanonicalGraphRevision: string;
+        productJourneyIds: readonly string[] }>): readonly RepositoryFileChange[] {
     return [
         { path: "apps/mobile/app.config.ts", content: withEasProjectBinding(appConfig) },
         { path: "apps/mobile/eas.json", content: withStoreProfiles(easConfiguration) },
@@ -97,6 +99,8 @@ function storeFiles(startingRevision: string, runId: string, appConfig: string,
         }, null, 2)}\n` },
         { path: STORE_MANIFEST, content: `${JSON.stringify({ schemaVersion: 1, missionId: "049-store-readiness",
             systemId: SYSTEM_ID, repository: REPOSITORY, startingRevision, productionRunId: runId,
+            productCanonicalGraphRevision: mobile.productCanonicalGraphRevision,
+            productJourneyIds: mobile.productJourneyIds,
             provider: "EAS", cliVersion: EAS_CLI_VERSION, previewDistribution: "INTERNAL",
             storeDistribution: ["TESTFLIGHT", "GOOGLE_PLAY_INTERNAL"],
             state: "AUTHORIZED_PENDING_EXACT_REVISION_CI_AND_EXTERNAL_RELEASE",
@@ -131,8 +135,9 @@ function acceptanceEvidence(revision: string): readonly ApplicationAcceptanceEvi
 
 export async function playbookMobileReleaseAcceptancePlan(
     gateway: GitHubRepositoryGateway, reference: Parameters<typeof playbookMobileAcceptancePlan>[1],
-    branch: string, revision: string, approvalId: string): Promise<FunctionalAcceptancePlan> {
-    const mobile = await playbookMobileAcceptancePlan(gateway, reference, branch, revision);
+    branch: string, revision: string, approvalId: string,
+    productJourneyIds: readonly string[]): Promise<FunctionalAcceptancePlan> {
+    const mobile = await playbookMobileAcceptancePlan(gateway, reference, branch, revision, productJourneyIds);
     return { ...mobile, planId: `playbook-mobile-store-readiness:${revision}`,
         productNodeId: "THE-PLAYBOOK-MOBILE-STORE-READINESS", journeyId: "PLAYBOOK-MOBILE-INTERNAL-RELEASE",
         protectedEnvironmentFiles: [...(mobile.protectedEnvironmentFiles ?? []),
@@ -169,13 +174,11 @@ export function playbookMobileStoreReadinessExecutor(
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan store readiness.`);
         }
-        const mobile = await dependencies.gateway.readFileAtRevision(reference, MOBILE_MANIFEST, inspection.revision);
-        if (!mobile.includes("IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION") || !mobile.includes('"IOS"') || !mobile.includes('"ANDROID"')) {
-            throw new Error("Validated iOS and Android journey evidence is required before store readiness.");
-        }
+        const mobile = readPlaybookMobileJourneysManifest(
+            await dependencies.gateway.readFileAtRevision(reference, MOBILE_MANIFEST, inspection.revision));
         const appConfig = await dependencies.gateway.readFileAtRevision(reference, "apps/mobile/app.config.ts", inspection.revision);
         const easConfiguration = await dependencies.gateway.readFileAtRevision(reference, "apps/mobile/eas.json", inspection.revision);
-        const changes = storeFiles(inspection.revision, context.run.runId, appConfig, easConfiguration);
+        const changes = storeFiles(inspection.revision, context.run.runId, appConfig, easConfiguration, mobile);
         context.report("BUILDING", `Preparing approval-bound EAS internal releases on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, changes);
@@ -201,7 +204,7 @@ export function playbookMobileStoreReadinessExecutor(
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
             acceptanceEvidence: acceptanceEvidence(revision),
             functionalAcceptancePlan: await playbookMobileReleaseAcceptancePlan(dependencies.gateway, reference, branch, revision,
-                dependencies.deploymentApprovalId)
+                dependencies.deploymentApprovalId, mobile.productJourneyIds)
         };
     };
 }

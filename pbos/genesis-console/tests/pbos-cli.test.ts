@@ -1,16 +1,16 @@
 import { mkdtempSync, readFileSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
 import { applicationDeliverySummary, durableMissionApproval, ensureReadinessQueue, latestUnfinishedRuns, promptForInlinePlatformCertification,
-    isResumableProductionValidationStatus, playbookDoctorReadiness, promptForEcosystemCertificationApprovals, promptForMissionApproval,
+    isResumableProductionValidationStatus, isUnstartedDuplicateProductionRun, playbookDoctorReadiness, promptForEcosystemCertificationApprovals, promptForMissionApproval,
     streamProductionTelemetry } from "../pbos-cli";
 import { RemediationRun } from "../../validation-automation";
 import { AutonomousBatchService } from "../../operator-continuity";
 import { createPlaybookBlueprint } from "../../reference-systems";
 import { GitHubRepositoryGateway } from "../../platform";
-import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
+import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionRun, ProductionRuntimeService } from "../../production-runtime";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition } from "../functional-acceptance-authority";
 import { PLAYBOOK_CANON_SOURCES } from "../../application-readiness";
 
@@ -28,6 +28,20 @@ describe("partner-ready CLI durable state", () => {
         expect(isResumableProductionValidationStatus("VALIDATING")).toBe(true);
         expect(isResumableProductionValidationStatus("CERTIFIED")).toBe(false);
         expect(isResumableProductionValidationStatus("COMPLETED")).toBe(false);
+    });
+
+    it("identifies only an unstarted duplicate of an authoritative recovery run", () => {
+        const run = (overrides: Partial<ProductionRun>): ProductionRun => ({
+            runId: "authoritative", systemId: "PLAYBOOK-SYSTEM-001", repository: "sgwalton87/playbook-platform",
+            selectedMission: "Complete Login", status: "BLOCKED", startingCommit: "abcdef1", currentCommit: "abcdef2",
+            acceptanceEvidence: [], evidenceIds: ["remediation-run:login"], filesAdded: [], filesModified: [], filesDeleted: [],
+            ...overrides
+        } as ProductionRun);
+        const authoritative = run({});
+        expect(isUnstartedDuplicateProductionRun(run({ runId: "duplicate", status: "RUNNING",
+            currentCommit: "abcdef1", evidenceIds: [] }), authoritative)).toBe(true);
+        expect(isUnstartedDuplicateProductionRun(run({ runId: "real-progress", status: "RUNNING",
+            currentCommit: "abcdef1", evidenceIds: ["implementation:login"] }), authoritative)).toBe(false);
     });
 
     it("blocks the Playbook doctor when the active academic acceptance environment is incomplete", () => {
@@ -147,6 +161,28 @@ describe("partner-ready CLI durable state", () => {
         expect(io.output).toContain("PBOS APPROVAL CHECKPOINT");
         expect(io.output).toContain("MISSION AUTHORIZED");
         expect(io.output.join("\n")).toContain("Protected actions remain excluded");
+    });
+
+    it("keeps a signed mission decision durable after its execution window expires", async () => {
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date("2026-08-09T00:00:00.000Z"));
+            const root = mkdtempSync(join(tmpdir(), "pbos-cli-durable-approval-"));
+            const state = new GenesisStateRepository(join(root, "state.json"));
+            const identities = new OperatorIdentityService(join(root, "operators.json"));
+            const enrolled = identities.enroll("PBOS-ORG-001", "Founder");
+            const operator = identities.authenticate(enrolled.operator.operatorId, enrolled.credential);
+            const mission = { missionId: "048-phase-01-item-login", systemId: "PLAYBOOK-SYSTEM-001", title: "Complete Login",
+                dependencies: [], status: "ELIGIBLE" as const, rationale: "Ready.", approvalRequired: true, evidenceIds: [] };
+            state.saveMissionQueue([mission], mission.systemId);
+            const approval = await promptForMissionApproval(new ApprovalIO("yes"), { state, identities, operator }, mission);
+            vi.advanceTimersByTime(31 * 60_000);
+
+            expect(approval && identities.verify(approval, "START_PRODUCTION_MISSION", mission.missionId)).toBe(false);
+            expect(durableMissionApproval({ state, identities, operator }, mission)?.approvalId).toBe(approval?.approvalId);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("keeps the mission queued without mutation when approval is declined", async () => {

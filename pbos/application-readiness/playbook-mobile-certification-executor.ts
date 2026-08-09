@@ -5,6 +5,7 @@ import { GitHubRepositoryGateway, governedBuildReference, PullRequestReference, 
 import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
 import { playbookMobileReleaseAcceptancePlan } from "./playbook-mobile-store-readiness-executor";
+import { readPlaybookMobileStoreReadinessManifest } from "./playbook-readiness-manifests";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -117,11 +118,8 @@ export function playbookMobileCertificationExecutor(
         if (inspection.revision !== context.run.startingCommit) {
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan mobile certification.`);
         }
-        const storeManifest = await dependencies.gateway.readFileAtRevision(reference, STORE_MANIFEST, inspection.revision);
-        if (!storeManifest.includes('"missionId": "049-store-readiness"') ||
-            !storeManifest.includes("TESTFLIGHT") || !storeManifest.includes("GOOGLE_PLAY_INTERNAL")) {
-            throw new Error("The merged store-readiness manifest is required before mobile final certification.");
-        }
+        const storeManifest = readPlaybookMobileStoreReadinessManifest(
+            await dependencies.gateway.readFileAtRevision(reference, STORE_MANIFEST, inspection.revision));
         const changes = candidateFiles(inspection.revision, context.run.runId, prior);
         context.report("BUILDING", `Preparing exact-revision mobile certification evidence on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
@@ -148,7 +146,7 @@ export function playbookMobileCertificationExecutor(
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
             acceptanceEvidence: implementationEvidence(revision),
             functionalAcceptancePlan: await playbookMobileReleaseAcceptancePlan(dependencies.gateway, reference,
-                branch, revision, dependencies.deploymentApprovalId)
+                branch, revision, dependencies.deploymentApprovalId, storeManifest.productJourneyIds)
         };
     };
 }

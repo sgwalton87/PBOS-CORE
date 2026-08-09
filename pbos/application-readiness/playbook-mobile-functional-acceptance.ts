@@ -45,8 +45,8 @@ export function playbookMobileAcceptanceFiles(): readonly RepositoryFileChange[]
 }
 
 export async function playbookMobileAcceptancePlan(gateway: GitHubRepositoryGateway, reference: RepositoryReference,
-    branch: string, revision: string): Promise<FunctionalAcceptancePlan> {
-    const product = await playbookProductAcceptancePlan(gateway, reference, branch, revision);
+    branch: string, revision: string, declaredJourneyIds: readonly string[]): Promise<FunctionalAcceptancePlan> {
+    const product = await playbookProductAcceptancePlan(gateway, reference, branch, revision, declaredJourneyIds);
     const nativeJourney: NativeJourneyPlan = {
         journeyId: "PLAYBOOK-MOBILE-SCHOLAR-JOURNEYS",
         behavior: "An authenticated Scholar completes the primary Playbook journeys through the shared native application.",

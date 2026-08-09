@@ -24,7 +24,8 @@ describe("Playbook canon mission planner", () => {
             dependencies: expect.arrayContaining(["048-canon-journeys", "048-canon-design", "048-phase-01-item-unfinished"]) });
         expect(items.find(item => item.missionId === "048-phase-01-item-unfinished")).toMatchObject({ status: "QUEUED",
             title: "Complete Phase 1 item: unfinished" });
-        expect(items.find(item => item.missionId === "048-canon-requirements")?.status).toBe("COMPLETE");
+        expect(items.find(item => item.missionId === "048-canon-requirements")).toMatchObject({ status: "COMPLETE",
+            dependencies: ["048-canon-authority"] });
         expect(items.find(item => item.missionId === "048-requirement-cmp-01")).toMatchObject({ status: "QUEUED",
             dependencies: ["048-canon-requirements"] });
         expect(items.find(item => item.missionId === "048-product-journeys")).toMatchObject({ status: "QUEUED",

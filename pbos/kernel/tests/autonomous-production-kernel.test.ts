@@ -39,9 +39,9 @@ function fixture(application: Pick<FunctionalApplicationRuntime, "execute"> = { 
     report?.("BROWSER_JOURNEYS_VERIFIED", { journeys: 1 });
     report?.("DURABLE_PREVIEW_VERIFIED", { preview: "READY" });
     return result;
-} }) {
+} }, leaseTtlMs = 30_000, leaseHeartbeatIntervalMs = 10_000) {
     const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-kernel-acceptance-")), "state.json"));
-    const production = new ProductionRuntimeService(state);
+    const production = new ProductionRuntimeService(state, leaseTtlMs);
     state.saveMissionQueue([{ missionId: "journey", systemId: plan.systemId, title: "Scholar journey", dependencies: [], status: "ACTIVE",
         rationale: "Highest functional impact", approvalRequired: true, evidenceIds: [], completionPolicy: { kind: "FUNCTIONAL_APPLICATION",
             requiredDimensions: ["ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "ACCEPTANCE_TEST",
@@ -51,7 +51,8 @@ function fixture(application: Pick<FunctionalApplicationRuntime, "execute"> = { 
     production.transition(run.runId, "QUEUED", "Queued"); production.transition(run.runId, "STARTING", "Starting");
     production.transition(run.runId, "RUNNING", "Running"); production.transition(run.runId, "VALIDATING", "Validating");
     production.recordFunctionalAcceptancePlan(run.runId, plan);
-    return { state, production, kernel: new AutonomousProductionKernel(state, production, application as FunctionalApplicationRuntime) };
+    return { state, production, kernel: new AutonomousProductionKernel(state, production,
+        application as FunctionalApplicationRuntime, leaseHeartbeatIntervalMs) };
 }
 
 describe("PBS-5000 autonomous production kernel", () => {
@@ -78,6 +79,24 @@ describe("PBS-5000 autonomous production kernel", () => {
             .toBe("BROWSER_ACCEPTANCE_FAILURE");
         expect(subject.state.missionQueue(plan.systemId)[0]).toMatchObject({ status: "BLOCKED", blockedRunId: "run",
             executionBlocker: "browser journey failed" });
+    });
+
+    it("renews the production lease while a long functional command is still active", async () => {
+        const subject = fixture({ execute: async (_runId, _plan, report) => {
+            await new Promise(resolve => setTimeout(resolve, 40));
+            report?.("PREREQUISITES_VERIFIED", { total: 1 });
+            report?.("APPLICATION_HEALTHY", { health: "HEALTHY" });
+            report?.("RUNTIME_PROBES_VERIFIED", { probes: 1 });
+            report?.("BROWSER_JOURNEYS_VERIFIED", { journeys: 1 });
+            report?.("DURABLE_PREVIEW_VERIFIED", { preview: "READY" });
+            return result;
+        } }, 15, 5);
+
+        const verification = subject.kernel.verifyApplication("run", evidence("INDEPENDENT_VALIDATION", "CI_VALIDATION"));
+        await new Promise(resolve => setTimeout(resolve, 25));
+
+        expect(subject.production.recoverStaleRuns()).toEqual([]);
+        expect((await verification).run.status).toBe("AWAITING_APPROVAL");
     });
 
     it("preserves the real failure and requests operator authority when the repair budget is exhausted", async () => {
