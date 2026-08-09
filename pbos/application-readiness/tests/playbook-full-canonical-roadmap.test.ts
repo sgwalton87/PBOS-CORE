@@ -23,5 +23,7 @@ describe("Playbook full canonical roadmap", () => {
     it("derives stable item-sized phase mission identities", () => {
         expect(playbookCanonChecklistItemMissionId("PHASE-01", "Google Login"))
             .toBe("048-phase-01-item-google-login");
+        expect(playbookCanonChecklistItemMissionId("PHASE-15", "Soft launch", 2))
+            .toBe("048-phase-15-item-soft-launch-occurrence-2");
     });
 });
