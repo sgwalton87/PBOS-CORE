@@ -38,11 +38,13 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const revision = (await this.commands.run("git", ["rev-parse", governedBase], cwd)).stdout.trim();
         const files = (await this.commands.run("git", ["ls-tree", "-r", "--name-only", revision], cwd)).stdout.split("\n").filter(Boolean);
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
+        const productJourneyFindings = await this.productJourneyFindings(cwd, revision, files);
         const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN",
             files.includes("package.json")
                 ? files.includes("package-lock.json") ? "DEPENDENCY_LOCK:PRESENT" : "DEPENDENCY_LOCK:MISSING"
                 : "DEPENDENCY_MANIFEST:NOT_APPLICABLE",
-            ...this.capabilityFindings(files)];
+            ...this.capabilityFindings(files),
+            ...productJourneyFindings];
         return { repository, revision, findings, inspectedAt: new Date(), files };
     }
 
@@ -246,5 +248,21 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
             files.includes("supabase/migrations/202608050002_pbos_scholar_foundation.sql")) present.add("IDENTITY");
         if (files.includes("pbos/generated/domain/education/scholar-journey.ts")) present.add("WORKFLOWS");
         return [...present].sort().map(capability => `CAPABILITY:${capability}:PRESENT`);
+    }
+
+    private async productJourneyFindings(cwd: string, revision: string, files: readonly string[]): Promise<readonly string[]> {
+        const manifestPath = "pbos/readiness/048-canon-journeys.json";
+        if (!files.includes(manifestPath)) return [];
+        try {
+            const content = (await this.commands.run("git", ["show", `${revision}:${manifestPath}`], cwd)).stdout;
+            const parsed = JSON.parse(content) as { productJourneys?: Array<{ journeyId?: unknown }> };
+            const journeyIds = (parsed.productJourneys ?? []).flatMap(item => {
+                const journeyId = typeof item?.journeyId === "string" ? item.journeyId.trim() : "";
+                return /^[A-Z0-9-]+$/.test(journeyId) ? [journeyId] : [];
+            });
+            return [...new Set(journeyIds)].sort().map(journeyId => `PRODUCT_JOURNEY_ID:${journeyId}:PRESENT`);
+        } catch {
+            return [];
+        }
     }
 }

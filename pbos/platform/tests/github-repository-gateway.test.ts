@@ -12,7 +12,13 @@ class FakeCommands implements CommandRunner {
         if (args[0] === "rev-parse") return { stdout: "abc123\n", stderr: "" };
         if (args[0] === "ls-tree") return { stdout: ["README.md", "package.json", "package-lock.json", "src/index.ts",
             "pbos/generated/capabilities/analytics.json", "pbos/generated/capabilities/analytics.ts",
-            "pbos/generated/capabilities/analytics.test.ts"].join("\n"), stderr: "" };
+            "pbos/generated/capabilities/analytics.test.ts", "pbos/readiness/048-canon-journeys.json"].join("\n"), stderr: "" };
+        if (args[0] === "show" && args[1] === "abc123:pbos/readiness/048-canon-journeys.json") {
+            return { stdout: JSON.stringify({ productJourneys: [
+                { journeyId: "SCHOLAR-ONBOARDING-TO-DASHBOARD" },
+                { journeyId: "TRANSCRIPT-TO-ACADEMIC-READINESS" }
+            ] }), stderr: "" };
+        }
         if (command === "gh") return { stdout: "https://github.com/acme/app/pull/7\n", stderr: "" };
         return { stdout: "", stderr: "" };
     }
@@ -32,6 +38,8 @@ describe("GitHub repository gateway", () => {
         expect(inspection.findings).toContain("GOVERNED_BASE:origin/main");
         expect(inspection.findings).toContain("DEPENDENCY_LOCK:PRESENT");
         expect(inspection.findings).toContain("CAPABILITY:ANALYTICS:PRESENT");
+        expect(inspection.findings).toContain("PRODUCT_JOURNEY_ID:SCHOLAR-ONBOARDING-TO-DASHBOARD:PRESENT");
+        expect(inspection.findings).toContain("PRODUCT_JOURNEY_ID:TRANSCRIPT-TO-ACADEMIC-READINESS:PRESENT");
         expect(await new GitHubRepositoryGateway(root, commands).currentRevision(reference)).toBe("abc123");
         expect(commands.calls).toContainEqual(expect.objectContaining({ command: "git", args: ["rev-parse", "HEAD"] }));
     });
