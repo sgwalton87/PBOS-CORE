@@ -1,6 +1,6 @@
 import { MissionQueueItem } from "../production-runtime";
 import { PlaybookCanonProductGraph } from "./playbook-canon-product-graph";
-import { PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS } from "./playbook-full-canonical-roadmap";
+import { PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS, playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 
@@ -35,6 +35,7 @@ const phaseDependencies: Readonly<Record<string, readonly string[]>> = {
 
 function priorEvidence(prior: MissionQueueItem | undefined): readonly string[] { return prior?.evidenceIds ?? []; }
 const missionSegment = (value: string): string => value.toLowerCase().replaceAll("_", "-");
+const requirementMissionId = (value: string): string => `048-requirement-${value.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
 function blockerValues(blockers: readonly string[], prefix: string): readonly string[] {
     return blockers.filter(blocker => blocker.startsWith(prefix)).map(blocker => blocker.slice(prefix.length));
@@ -198,33 +199,57 @@ export class PlaybookCanonMissionPlanner {
                 completion: 0, incompleteItems: ["Canonical phase definition is missing."] };
             const missionId = `048-phase-${phase.phaseId.slice(-2)}`;
             const complete = phase.completion === 100 && phase.incompleteItems.length === 0;
+            const baseDependencies = [...new Set(["048-canon-journeys", ...(phaseDependencies[phase.phaseId] ?? ["048-canon-authority"])])];
+            const itemMissionIds = phase.incompleteItems.map(item => playbookCanonChecklistItemMissionId(phase.phaseId, item));
+            phase.incompleteItems.forEach((item, itemIndex) => {
+                const itemMissionId = itemMissionIds[itemIndex];
+                items.push({ missionId: itemMissionId, systemId: SYSTEM_ID,
+                    title: `Complete ${phase.title} item: ${item}`,
+                    dependencies: baseDependencies, status: "QUEUED",
+                    rationale: `${item} remains unfinished in ${phase.phaseId} at ${graph.revision}.`,
+                    approvalRequired: true, evidenceIds: priorEvidence(prior.get(itemMissionId)),
+                    completionPolicy: functionalPolicy([
+                        `${item} is functionally complete without claiming completion of other ${phase.title} items.`,
+                        `${item} passes exact-revision route, UI, durable-data, authority, integration, accessibility, security, desktop, and mobile acceptance.`
+                    ]) });
+            });
             items.push({ missionId, systemId: SYSTEM_ID, title: `${complete ? "Complete" : "Advance"} ${phase.title} from Playbook canon`,
-                dependencies: [...new Set(["048-canon-journeys", ...(phaseDependencies[phase.phaseId] ?? ["048-canon-authority"])])],
+                dependencies: [...baseDependencies, ...itemMissionIds],
                 status: complete ? "COMPLETE" : "QUEUED",
                 rationale: complete ? `${phase.title} is proven complete at ${graph.revision}.`
                     : `${phase.title} is ${phase.completion}% complete with ${phase.incompleteItems.length} unfinished items.`,
                 approvalRequired: true, evidenceIds: complete ? priorEvidence(prior.get(missionId)) : [],
-                completionPolicy: functionalPolicy(complete ? [`${phase.title} satisfies every canonical checklist item.`] : [
-                    `One cohesive ${phase.title} work package moves only proven checklist items to complete.`,
-                    `The increment passes exact-revision desktop, mobile, accessibility, security, authority, and durable-data acceptance before merge.`
-                ]) });
+                completionPolicy: artifactPolicy([`${phase.title} satisfies every canonical checklist item and its calculated completion is 100%.`]) });
         });
 
         items.push({ missionId: "048-canon-requirements", systemId: SYSTEM_ID,
-            title: "Converge all Playbook intelligence and human-agency requirements",
+            title: "Compile all Playbook intelligence and human-agency requirements",
             dependencies: ["048-phase-03", "048-phase-05", "048-phase-09"],
-            status: incompleteRequirements ? "QUEUED" : "COMPLETE",
-            rationale: `${incompleteRequirements} of ${graph.requirements.length} traced requirements remain partial or missing.`
+            status: graph.requirements.length ? "COMPLETE" : "QUEUED",
+            rationale: `${graph.requirements.length} requirements are indexed; ${incompleteRequirements} remain partial or missing and are delegated to explicit functional missions.`
                 + requirementSpotlight(graph.requirements),
             approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-requirements")),
-            completionPolicy: functionalPolicy(["Every traced requirement is implemented and accepted without demo or parallel truth stores."]) });
+            completionPolicy: artifactPolicy(["Every traced requirement has a stable ID, status, source, and explicit implementation mission when unresolved."]) });
+
+        const requirementPackages = unresolvedRequirements(graph.requirements).map(requirement => {
+            const missionId = requirementMissionId(requirement.requirementId);
+            items.push({ missionId, systemId: SYSTEM_ID, title: `Complete ${requirement.requirementId}: ${requirement.requirement}`,
+                dependencies: ["048-canon-requirements"], status: "QUEUED",
+                rationale: `${requirement.requirementId} is ${requirement.status} in ${requirement.sourcePath}.`,
+                approvalRequired: true, evidenceIds: priorEvidence(prior.get(missionId)),
+                completionPolicy: functionalPolicy([
+                    `${requirement.requirementId} is implemented through the existing canonical architecture without demo or parallel truth stores.`,
+                    `${requirement.requirementId} passes exact-revision functional, authority, durable-data, accessibility, security, desktop, and mobile acceptance.`
+                ]) });
+            return { requirement, missionId };
+        });
 
         const hotspotPackages = domainHotspotPackages(graph.requirements);
         hotspotPackages.forEach(({ definition, requirements }) => {
             const missionId = `048-domain-${definition.id}`;
             items.push({ missionId, systemId: SYSTEM_ID,
                 title: definition.missionTitle,
-                dependencies: ["048-canon-requirements"],
+                dependencies: requirements.map(requirement => requirementMissionId(requirement.requirementId)),
                 status: "QUEUED",
                 rationale: `${definition.label} remains unresolved in canonical requirements: ${requirements.map(requirement => requirement.requirementId).join(", ")}.`,
                 approvalRequired: true,
@@ -274,6 +299,7 @@ export class PlaybookCanonMissionPlanner {
 
         const productDependencies = ["048-canon-authority", "048-canon-journeys", "048-canon-design", "048-canon-requirements",
             ...Array.from({ length: 15 }, (_, index) => `048-phase-${String(index + 1).padStart(2, "0")}`),
+            ...requirementPackages.map(item => item.missionId),
             ...hotspotPackages.map(packageMission => `048-domain-${packageMission.definition.id}`),
             ...graph.onboardingPathways.map(pathway => `048-onboarding-${missionSegment(pathway.pathwayId)}`),
             ...graph.operatingSystems.map(operatingSystem => `048-os-${missionSegment(operatingSystem.osId)}`)];

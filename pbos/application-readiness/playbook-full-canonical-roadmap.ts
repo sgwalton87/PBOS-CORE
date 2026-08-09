@@ -88,6 +88,13 @@ export function playbookCanonicalJourneySpecification(journeyId: string): string
         `tests/acceptance/pbos-${journeyId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.spec.ts`;
 }
 
+export function playbookCanonChecklistItemMissionId(phaseId: string, item: string): string {
+    const phase = phaseId.replace(/^PHASE-/i, "").padStart(2, "0");
+    const slug = item.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    if (!/^\d{2}$/.test(phase) || !slug) throw new Error(`Invalid canonical checklist item identity: ${phaseId}:${item}.`);
+    return `048-phase-${phase}-item-${slug}`;
+}
+
 function assertUnique(values: readonly string[], label: string): void {
     const duplicate = values.find((value, index) => values.indexOf(value) !== index);
     if (duplicate) throw new Error(`Playbook canonical roadmap contains duplicate ${label}: ${duplicate}.`);
