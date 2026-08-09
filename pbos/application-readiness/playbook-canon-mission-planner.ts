@@ -1,5 +1,6 @@
 import { MissionQueueItem } from "../production-runtime";
 import { PlaybookCanonProductGraph } from "./playbook-canon-product-graph";
+import { PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS } from "./playbook-full-canonical-roadmap";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 
@@ -33,6 +34,106 @@ const phaseDependencies: Readonly<Record<string, readonly string[]>> = {
 };
 
 function priorEvidence(prior: MissionQueueItem | undefined): readonly string[] { return prior?.evidenceIds ?? []; }
+const missionSegment = (value: string): string => value.toLowerCase().replaceAll("_", "-");
+
+function blockerValues(blockers: readonly string[], prefix: string): readonly string[] {
+    return blockers.filter(blocker => blocker.startsWith(prefix)).map(blocker => blocker.slice(prefix.length));
+}
+
+function summarize(values: readonly string[], max = 3): string {
+    if (!values.length) return "";
+    if (values.length <= max) return values.join(", ");
+    return `${values.slice(0, max).join(", ")} (+${values.length - max} more)`;
+}
+
+interface DomainHotspotDefinition {
+    readonly id: string;
+    readonly label: string;
+    readonly matcher: RegExp;
+    readonly missionTitle: string;
+    readonly acceptanceCriteria: readonly string[];
+}
+
+const DOMAIN_HOTSPOTS: readonly DomainHotspotDefinition[] = [{
+    id: "compass",
+    label: "Compass",
+    matcher: /\bcompass\b/i,
+    missionTitle: "Compass readiness package",
+    acceptanceCriteria: [
+        "Compass signals are durable, explainable, and role-scoped for governed Scholar outcomes.",
+        "Compass UI/UX states satisfy canonical design, accessibility, and security acceptance on exact revision."
+    ]
+}, {
+    id: "newsfeed",
+    label: "Newsfeed",
+    matcher: /\b(feed|newsfeed)\b/i,
+    missionTitle: "Newsfeed readiness package",
+    acceptanceCriteria: [
+        "Newsfeed events are idempotent, durable, and authority-scoped for each role pathway.",
+        "Newsfeed UI states satisfy canonical design, accessibility, and recovery acceptance on exact revision."
+    ]
+}, {
+    id: "messaging",
+    label: "Messaging",
+    matcher: /\bmessage|messaging\b/i,
+    missionTitle: "Messaging readiness package",
+    acceptanceCriteria: [
+        "Governed messaging enforces participant authority, moderation, and durable conversation state.",
+        "Messaging journey passes route, data, security, accessibility, and independent validation acceptance."
+    ]
+}, {
+    id: "onboarding",
+    label: "Onboarding",
+    matcher: /\bonboard/i,
+    missionTitle: "Onboarding role-pathway readiness package",
+    acceptanceCriteria: [
+        "Role-specific onboarding pathways persist canonical profile, permissions, and OS landing continuity.",
+        "Onboarding recovery and cross-device continuity pass exact-revision acceptance evidence."
+    ]
+}, {
+    id: "starting-5",
+    label: "Starting 5 support",
+    matcher: /\bstarting\s*5|support network|supporter\b/i,
+    missionTitle: "Starting 5 onboarding persistence package",
+    acceptanceCriteria: [
+        "Starting 5 invitations can be issued from onboarding and persist into governed Scholar runtime state.",
+        "Support relationship authority, messaging integration, and recovery states pass exact-revision acceptance."
+    ]
+}, {
+    id: "store",
+    label: "Store readiness",
+    matcher: /\btestflight|google play|store\b/i,
+    missionTitle: "Store wiring package",
+    acceptanceCriteria: [
+        "TestFlight and Google Play internal release wiring is commit-bound and evidence-backed.",
+        "Store metadata, privacy disclosures, signing, and submission checkpoints pass governed acceptance."
+    ]
+}];
+
+type CanonRequirement = PlaybookCanonProductGraph["requirements"][number];
+
+function unresolvedRequirements(requirements: readonly CanonRequirement[]): readonly CanonRequirement[] {
+    return requirements.filter(requirement => requirement.status !== "IMPLEMENTED");
+}
+
+function requirementSpotlight(requirements: readonly CanonRequirement[]): string {
+    const unresolved = unresolvedRequirements(requirements);
+    const labels = DOMAIN_HOTSPOTS
+        .filter(hotspot => unresolved.some(requirement => hotspot.matcher.test(requirement.requirement)))
+        .map(hotspot => hotspot.label);
+    return labels.length ? ` Priority domains blocked: ${labels.join(", ")}.` : "";
+}
+
+function domainHotspotPackages(requirements: readonly CanonRequirement[]): ReadonlyArray<Readonly<{
+    definition: DomainHotspotDefinition;
+    requirements: readonly CanonRequirement[];
+}>> {
+    const unresolved = unresolvedRequirements(requirements);
+    return DOMAIN_HOTSPOTS.flatMap(definition => {
+        const matches = unresolved.filter(requirement => definition.matcher.test(requirement.requirement));
+        return matches.length ? [{ definition, requirements: matches }] : [];
+    });
+}
 
 /** Turns the exact-revision canon graph into the only product queue PBOS may execute. */
 export class PlaybookCanonMissionPlanner {
@@ -46,6 +147,20 @@ export class PlaybookCanonMissionPlanner {
         const unmappedRoutes = graph.routes.filter(route => route.canonStatus === "UNMAPPED").length;
         const undesignedRoutes = graph.routes.filter(route => route.canonStatus === "MAPPED" && !route.designCanonIds.length).length;
         const incompleteRequirements = graph.requirements.filter(requirement => requirement.status !== "IMPLEMENTED").length;
+        const roleJourneyIncomplete = blockerValues(graph.blockers, "ROLE_JOURNEY_INCOMPLETE:")
+            .map(value => { const [role, status] = value.split(":"); return `${role} (${status})`; });
+        const roleOsUnmapped = blockerValues(graph.blockers, "ROLE_OS_ROUTE_UNMAPPED:")
+            .map(value => { const [role, route] = value.split(":"); return `${role} -> ${route}`; });
+        const roleOsOutOfScope = blockerValues(graph.blockers, "ROLE_OS_ROUTE_NOT_DECLARED_IN_OS_SCOPE:")
+            .map(value => { const [role, route] = value.split(":"); return `${role} -> ${route}`; });
+        const roleOsUndesigned = blockerValues(graph.blockers, "ROLE_OS_ROUTE_DESIGN_CANON_MISSING:")
+            .map(value => { const [role, route] = value.split(":"); return `${role} -> ${route}`; });
+        const osScopeUnavailable = graph.blockers.includes("CANON_OS_SCOPE_ROUTES_UNAVAILABLE");
+        const roleJourneysUnavailable = graph.blockers.includes("CANON_ROLE_JOURNEYS_UNAVAILABLE");
+        const journeyTopologyComplete = !journeyBlocked && !roleJourneysUnavailable
+            && PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS.every(journeyId => graph.productJourneyIds.includes(journeyId))
+            && graph.onboardingPathways.length >= 14;
+        const roleRouteIssues = roleOsUnmapped.length + roleOsOutOfScope.length + roleOsUndesigned.length;
 
         const items: MissionQueueItem[] = [{
             missionId: "048-canon-authority", systemId: SYSTEM_ID, title: "Converge Playbook canonical authority",
@@ -57,15 +172,22 @@ export class PlaybookCanonMissionPlanner {
             completionPolicy: artifactPolicy(["Every canonical authority source is present, nonempty, and digest-bound."])
         }, {
             missionId: "048-canon-journeys", systemId: SYSTEM_ID, title: "Compile complete Playbook role and user journeys",
-            dependencies: ["048-canon-authority"], status: journeyBlocked ? "QUEUED" : "COMPLETE",
-            rationale: journeyBlocked ? "The canonical User Journeys authority is empty."
-                : "Canonical role and user journeys are available for product planning.",
+            dependencies: ["048-canon-authority"], status: journeyTopologyComplete ? "COMPLETE" : "QUEUED",
+            rationale: !journeyTopologyComplete
+                ? `Role/user journey topology is incomplete.${journeyBlocked ? " User Journeys is empty." : ""}`
+                    + `${roleJourneysUnavailable ? " Role journey index is missing." : ""}`
+                    + `${roleJourneyIncomplete.length ? ` Incomplete roles: ${summarize(roleJourneyIncomplete)}.` : ""}`
+                : `All required OS/onboarding journey contracts are declared; ${roleJourneyIncomplete.length} incomplete role implementations remain delegated to explicit functional missions.`,
             approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-journeys")),
-            completionPolicy: artifactPolicy(["Every supported role has an ordered, state-complete canonical user journey."])
+            completionPolicy: artifactPolicy(["Every required role and OS has an ordered canonical journey contract with gaps represented explicitly."])
         }, {
             missionId: "048-canon-design", systemId: SYSTEM_ID, title: "Bind every visible Playbook route to approved design canon",
-            dependencies: ["048-canon-authority"], status: unmappedRoutes || undesignedRoutes ? "QUEUED" : "COMPLETE",
-            rationale: `${unmappedRoutes} visible routes are unmapped and ${undesignedRoutes} mapped routes lack design-canon IDs.`,
+            dependencies: ["048-canon-authority"], status: unmappedRoutes || undesignedRoutes || roleRouteIssues || osScopeUnavailable ? "QUEUED" : "COMPLETE",
+            rationale: `${unmappedRoutes} visible routes are unmapped and ${undesignedRoutes} mapped routes lack design-canon IDs.`
+                + `${roleOsUnmapped.length ? ` Role OS routes unmapped: ${summarize(roleOsUnmapped)}.` : ""}`
+                + `${roleOsUndesigned.length ? ` Role OS routes missing design canon: ${summarize(roleOsUndesigned)}.` : ""}`
+                + `${roleOsOutOfScope.length ? ` Role OS routes outside declared OS scope: ${summarize(roleOsOutOfScope)}.` : ""}`
+                + `${osScopeUnavailable ? " Canonical OS scope routes are unavailable." : ""}`,
             approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-design")),
             completionPolicy: artifactPolicy(["Every human-facing route and state is mapped to an approved responsive design target without inferring implementation."])
         }];
@@ -92,18 +214,79 @@ export class PlaybookCanonMissionPlanner {
             title: "Converge all Playbook intelligence and human-agency requirements",
             dependencies: ["048-phase-03", "048-phase-05", "048-phase-09"],
             status: incompleteRequirements ? "QUEUED" : "COMPLETE",
-            rationale: `${incompleteRequirements} of ${graph.requirements.length} traced requirements remain partial or missing.`,
+            rationale: `${incompleteRequirements} of ${graph.requirements.length} traced requirements remain partial or missing.`
+                + requirementSpotlight(graph.requirements),
             approvalRequired: true, evidenceIds: priorEvidence(prior.get("048-canon-requirements")),
             completionPolicy: functionalPolicy(["Every traced requirement is implemented and accepted without demo or parallel truth stores."]) });
 
+        const hotspotPackages = domainHotspotPackages(graph.requirements);
+        hotspotPackages.forEach(({ definition, requirements }) => {
+            const missionId = `048-domain-${definition.id}`;
+            items.push({ missionId, systemId: SYSTEM_ID,
+                title: definition.missionTitle,
+                dependencies: ["048-canon-requirements"],
+                status: "QUEUED",
+                rationale: `${definition.label} remains unresolved in canonical requirements: ${requirements.map(requirement => requirement.requirementId).join(", ")}.`,
+                approvalRequired: true,
+                evidenceIds: priorEvidence(prior.get(missionId)),
+                completionPolicy: functionalPolicy(definition.acceptanceCriteria) });
+        });
+
+        const onboardingMissionByOs = new Map<string, string>();
+        graph.onboardingPathways.forEach(pathway => {
+            const missionId = `048-onboarding-${missionSegment(pathway.pathwayId)}`;
+            onboardingMissionByOs.set(pathway.operatingSystemId, missionId);
+            const priorMission = prior.get(missionId);
+            const sourceComplete = ["COMPLETE", "IMPLEMENTED", "VERIFIED", "CERTIFIED"].includes(pathway.status);
+            const evidenceIds = priorEvidence(priorMission);
+            items.push({ missionId, systemId: SYSTEM_ID, title: `Complete ${pathway.label}`,
+                dependencies: ["048-canon-authority", "048-canon-journeys", "048-canon-design", "048-phase-01"],
+                status: sourceComplete && priorMission?.status === "COMPLETE" && evidenceIds.length ? "COMPLETE" : "QUEUED",
+                rationale: sourceComplete
+                    ? `${pathway.label} is declared complete in canon but still requires exact-revision PBOS acceptance lineage.`
+                    : `${pathway.label} is ${pathway.status}; implement role selection, durable onboarding, verification, authority, record projection, OS landing, recovery, and responsive acceptance.`,
+                approvalRequired: true, evidenceIds,
+                completionPolicy: functionalPolicy([
+                    `${pathway.label} completes from public role selection through durable role-specific record projection.`,
+                    `${pathway.label} enforces verification, consent, least privilege, recovery, and exact-revision desktop/mobile acceptance.`
+                ]) });
+        });
+
+        graph.operatingSystems.forEach(operatingSystem => {
+            const missionId = `048-os-${missionSegment(operatingSystem.osId)}`;
+            const priorMission = prior.get(missionId);
+            const evidenceIds = priorEvidence(priorMission);
+            const implementationReady = operatingSystem.routeImplemented && operatingSystem.routeMapped && operatingSystem.designBound;
+            const onboardingDependency = onboardingMissionByOs.get(operatingSystem.osId);
+            items.push({ missionId, systemId: SYSTEM_ID, title: `Complete ${operatingSystem.label}`,
+                dependencies: ["048-canon-authority", "048-canon-journeys", "048-canon-design",
+                    ...(onboardingDependency ? [onboardingDependency] : [])],
+                status: implementationReady && priorMission?.status === "COMPLETE" && evidenceIds.length ? "COMPLETE" : "QUEUED",
+                rationale: `${operatingSystem.label} at ${operatingSystem.route}: route ${operatingSystem.routeImplemented ? "present" : "missing"}, ` +
+                    `canonical mapping ${operatingSystem.routeMapped ? "present" : "missing"}, design binding ${operatingSystem.designBound ? "present" : "missing"}. ` +
+                    "PBOS functional acceptance lineage is required independently for this OS identity.",
+                approvalRequired: true, evidenceIds,
+                completionPolicy: functionalPolicy([
+                    `${operatingSystem.label} renders role-specific navigation, data, actions, permissions, and recovery at ${operatingSystem.route}.`,
+                    `${operatingSystem.label} passes durable-data, negative-authority, accessibility, security, desktop, and mobile acceptance on one exact revision.`
+                ]) });
+        });
+
         const productDependencies = ["048-canon-authority", "048-canon-journeys", "048-canon-design", "048-canon-requirements",
-            ...Array.from({ length: 15 }, (_, index) => `048-phase-${String(index + 1).padStart(2, "0")}`)];
+            ...Array.from({ length: 15 }, (_, index) => `048-phase-${String(index + 1).padStart(2, "0")}`),
+            ...hotspotPackages.map(packageMission => `048-domain-${packageMission.definition.id}`),
+            ...graph.onboardingPathways.map(pathway => `048-onboarding-${missionSegment(pathway.pathwayId)}`),
+            ...graph.operatingSystems.map(operatingSystem => `048-os-${missionSegment(operatingSystem.osId)}`)];
+        const priorProduct = prior.get("048-product-journeys");
+        const priorProductEvidence = priorEvidence(priorProduct);
+        const productCertified = graph.certificationReady && priorProduct?.status === "COMPLETE"
+            && priorProductEvidence.some(evidenceId => evidenceId.startsWith("approval:"));
         items.push({ missionId: "048-product-journeys", systemId: SYSTEM_ID,
             title: "Certify complete canon-converged Playbook product", dependencies: productDependencies,
-            status: graph.certificationReady ? "COMPLETE" : "QUEUED",
-            rationale: graph.certificationReady ? "The exact-revision canon graph contains no blockers."
+            status: productCertified ? "COMPLETE" : "QUEUED",
+            rationale: graph.certificationReady ? "The exact-revision canon graph contains no blockers; full-product functional acceptance and certification remain required."
                 : `${graph.blockers.length} canon-to-product blockers remain.`, approvalRequired: true,
-            evidenceIds: graph.certificationReady ? [`canon-graph:${graph.revision}`] : [],
+            evidenceIds: productCertified ? priorProductEvidence : [],
             completionPolicy: functionalPolicy(["The exact-revision canon graph contains no required missing, partial, stale, or unbound node."]) });
 
         const retained = ["048-web-staging", "049-mobile-foundation", "049-mobile-journeys", "049-store-readiness",

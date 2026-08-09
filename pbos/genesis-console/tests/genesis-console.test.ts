@@ -170,6 +170,8 @@ describe("Genesis terminal control plane", () => {
         const io = new FakeTerminal(["1", "1", "3", "y"]);
         const blueprint = createPlaybookBlueprint();
         const findings = blueprint.capabilities.map(capability => `CAPABILITY:${capability}:PRESENT`);
+        findings.push("PRODUCT_JOURNEY_ID:SCHOLAR-ONBOARDING-TO-DASHBOARD:PRESENT");
+        findings.push("PRODUCT_JOURNEY_ID:TRANSCRIPT-TO-ACADEMIC-READINESS:PRESENT");
         const plan = { planId: "readiness", status: "READY_FOR_APPROVAL", blockers: [], workPackages: [], blueprint,
             inspection: { findings, revision: "5dda9e7", repository: {
                 owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, inspectedAt: new Date() },
@@ -178,11 +180,13 @@ describe("Genesis terminal control plane", () => {
         const continuity = {
             summarize: () => { throw new Error("historical remediation summary must not be rendered"); }
         } as unknown as OperatorContinuityService;
+        const queueCalls: unknown[][] = [];
         const batches = ({ latest: () => ({ batchId: "batch-certified", state: "READY_FOR_CERTIFICATION",
             pullRequestUrl: "https://github.com/sgwalton87/playbook-platform/pull/51",
             workPackages: blueprint.capabilities.map(capability => ({
                 workPackageId: `PLAYBOOK-SYSTEM-001:${capability}`, title: `Implement ${capability.toLowerCase()}`
-            })) }) }) as unknown as AutonomousBatchService;
+            })) }),
+            prepareReadinessQueue: (...args: unknown[]) => { queueCalls.push(args); return undefined; } }) as unknown as AutonomousBatchService;
         const terminal = new GenesisTerminal(new GenesisControlPlane(new GenesisSystemCatalog(REFERENCE_SYSTEMS)), io,
             undefined, undefined, workflows, undefined, continuity, batches);
 
@@ -191,8 +195,10 @@ describe("Genesis terminal control plane", () => {
         expect(io.output).toContain("Governed revision: 5dda9e7");
         expect(io.output).toContain("Capability foundation: 7/7 complete");
         expect(io.output).toContain("Readiness state: READY_FOR_GAP_ANALYSIS");
+        expect(io.output).toContain("NEXT MISSION: Compile the complete exact-revision Playbook canonical graph");
         expect(io.output).not.toContain("Status: READY_FOR_CERTIFICATION");
         expect(io.output).not.toContain("Draft PR: https://github.com/sgwalton87/playbook-platform/pull/51");
+        expect(queueCalls).toEqual([]);
     });
 
     it("streams autonomous telemetry in the launch terminal until human approval is required", async () => {

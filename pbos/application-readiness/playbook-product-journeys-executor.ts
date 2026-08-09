@@ -6,6 +6,7 @@ import { ApplicationAcceptanceEvidence, ProductionMissionExecutor, ProductionRun
 import { RemediationRun, ResumableRemediationEngine } from "../validation-automation";
 import { playbookAcademicAcceptanceFiles } from "./playbook-academic-functional-acceptance";
 import { playbookProductAcceptancePlan } from "./playbook-product-functional-acceptance";
+import { playbookCanonicalJourneySpecification } from "./playbook-full-canonical-roadmap";
 import { PLAYBOOK_CANON_SOURCES, PlaybookCanonProductGraphCompiler } from "./playbook-canon-product-graph";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -13,16 +14,6 @@ const REPOSITORY = "sgwalton87/playbook-platform";
 const MANIFEST = "pbos/readiness/048-product-journeys.json";
 const MEMO = "docs/acceptance/PBOS-CONNECTED-PRODUCT.md";
 const ACADEMIC_TRACKER = "components/ag/AGTracker.tsx";
-
-const journeyContracts = [
-    ["tests/acceptance/pbos-scholar.spec.ts", "SCHOLAR-ONBOARDING-TO-DASHBOARD"],
-    ["tests/acceptance/pbos-academic.spec.ts", "TRANSCRIPT-TO-ACADEMIC-READINESS"],
-    ["tests/acceptance/pbos-opportunity.spec.ts", "READINESS-TO-OPPORTUNITY"],
-    ["tests/acceptance/pbos-application.spec.ts", "OPPORTUNITY-TO-APPLICATION"],
-    ["tests/acceptance/pbos-support.spec.ts", "APPLICATION-TO-AUTHORIZED-SUPPORT"],
-    ["tests/acceptance/pbos-messaging.spec.ts", "AUTHORIZED-SUPPORT-MESSAGING"],
-    ["tests/acceptance/pbos-notifications.spec.ts", "EVENT-TO-ACKNOWLEDGED-NOTIFICATION"]
-] as const;
 
 export interface PlaybookProductJourneysExecutorDependencies {
     readonly gateway: GitHubRepositoryGateway;
@@ -98,25 +89,26 @@ export async function preparePlaybookProductScholarContrastRecovery(
     return { branch, revision, remediation };
 }
 
-function evidence(revision: string): readonly ApplicationAcceptanceEvidence[] {
+function evidence(revision: string, journeyCount: number): readonly ApplicationAcceptanceEvidence[] {
     const item = (dimension: ApplicationAcceptanceEvidence["dimension"], behavior: string, artifact: string,
         source: ApplicationAcceptanceEvidence["source"] = "IMPLEMENTATION"): ApplicationAcceptanceEvidence => ({
         evidenceId: `048-product:${dimension.toLowerCase()}:${revision}`, dimension, behavior,
         repository: REPOSITORY, commit: revision, artifact, passed: true, source
     });
     return [
-        item("ROUTE", "Seven connected Playbook journeys declare executable application routes.", MANIFEST),
+        item("ROUTE", `${journeyCount} canonical Playbook journeys declare executable application routes.`, MANIFEST),
         item("USER_INTERFACE", "Every connected journey declares desktop and mobile browser evidence.", MANIFEST),
         item("DURABLE_DATA", "Connected journey contracts assert owner-scoped durable data behavior.", MANIFEST),
         item("AUTHORITY", "Every mutating journey declares authenticated and approval-bound authority checks.", MANIFEST),
         item("PBOS_INTEGRATION", "The connected product remains bound to the Playbook PBOS connector.", MANIFEST),
-        item("ACCEPTANCE_TEST", "Seven executable browser journeys are composed into one exact-revision plan.", MANIFEST, "APPLICATION_TEST"),
+        item("ACCEPTANCE_TEST", `${journeyCount} executable browser journeys are composed into one exact-revision plan.`, MANIFEST, "APPLICATION_TEST"),
         item("ACCESSIBILITY", "Each journey requires a serious-and-critical accessibility audit.", MANIFEST, "APPLICATION_TEST"),
         item("SECURITY", "Anonymous denial and protected server configuration checks remain mandatory.", MANIFEST, "SECURITY_TEST")
     ];
 }
 
-function files(startingRevision: string, runId: string, packageSource: string): readonly RepositoryFileChange[] {
+function files(startingRevision: string, runId: string, packageSource: string,
+    journeyIds: readonly string[]): readonly RepositoryFileChange[] {
     const academic = playbookAcademicAcceptanceFiles(packageSource);
     const manifest = {
         schemaVersion: 1,
@@ -124,10 +116,12 @@ function files(startingRevision: string, runId: string, packageSource: string): 
         systemId: SYSTEM_ID,
         repository: REPOSITORY,
         startingRevision,
+        canonicalGraphRevision: startingRevision,
         productionRunId: runId,
         state: "IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION",
         runtimeAuthority: "PBOS_AUTONOMOUS_PRODUCTION_KERNEL",
-        journeys: journeyContracts.map(([specification, journeyId]) => ({ journeyId, specification })),
+        journeyIds,
+        journeys: journeyIds.map(journeyId => ({ journeyId, specification: playbookCanonicalJourneySpecification(journeyId) })),
         requiredViewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
         completionRule: "No journey is complete until exact-revision runtime, browser, accessibility, security and CI evidence pass."
     };
@@ -135,16 +129,15 @@ function files(startingRevision: string, runId: string, packageSource: string): 
         ...academic,
         { path: MANIFEST, content: `${JSON.stringify(manifest, null, 2)}\n` },
         { path: MEMO, content: `# PBOS Connected Playbook Product Acceptance\n\n` +
-            `Mission \`048-product-journeys\` composes seven independently owned journey contracts into one application process.\n\n` +
+            `Mission \`048-product-journeys\` composes ${journeyIds.length} canon-owned journey contracts into one application process.\n\n` +
             `PBOS must execute every contract against the same exact commit at desktop and mobile viewports. ` +
             `GitHub validation, runtime probes, browser journeys, accessibility evidence, security evidence, and human certification remain separate gates.\n` }
     ];
 }
 
-function assertContracts(sources: ReadonlyArray<Readonly<{ path: string; content: string }>>): void {
-    sources.forEach(({ path, content }, index) => {
-        const expected = journeyContracts[index]?.[1];
-        if (!expected || !content.includes(expected)) {
+function assertContracts(sources: ReadonlyArray<Readonly<{ journeyId: string; path: string; content: string }>>): void {
+    sources.forEach(({ journeyId, path, content }) => {
+        if (!content.includes(journeyId)) {
             throw new Error(`Connected product contract is missing or stale: ${path}. Complete its owning journey before aggregation.`);
         }
     });
@@ -180,11 +173,13 @@ export function playbookProductJourneysExecutor(
             const remainder = canonGraph.blockers.length > 20 ? ` (+${canonGraph.blockers.length - 20} more)` : "";
             throw new Error(`Playbook canon-to-product convergence is incomplete (${canonGraph.blockers.length} blockers): ${displayed}${remainder}`);
         }
-        const sources = await Promise.all(journeyContracts.map(async ([path]) => ({ path,
-            content: await dependencies.gateway.readFileAtRevision(reference, path, inspection.revision) })));
+        const sources = await Promise.all(canonGraph.productJourneyIds.map(async journeyId => {
+            const path = playbookCanonicalJourneySpecification(journeyId);
+            return { journeyId, path, content: await dependencies.gateway.readFileAtRevision(reference, path, inspection.revision) };
+        }));
         assertContracts(sources);
-        const changes = files(inspection.revision, context.run.runId, packageSource);
-        context.report("BUILDING", `Composing seven Playbook journeys on ${branch}.`);
+        const changes = files(inspection.revision, context.run.runId, packageSource, canonGraph.productJourneyIds);
+        context.report("BUILDING", `Composing canonical Playbook journey acceptance on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, changes);
         await dependencies.gateway.prepareDependencyLock(reference);
@@ -193,22 +188,23 @@ export function playbookProductJourneysExecutor(
         await dependencies.gateway.push(reference, branch);
         const pullRequest: PullRequestReference = await dependencies.gateway.openDraftPullRequest(reference, branch,
             "test: compose connected Playbook product acceptance",
-            `PBOS Genesis mission \`048-product-journeys\` binds seven browser journeys to one application revision.\n\n` +
+            `PBOS Genesis mission \`048-product-journeys\` binds ${canonGraph.productJourneyIds.length} canonical browser journeys to one application revision.\n\n` +
             `Starting revision: \`${inspection.revision}\`. Generated revision: \`${revision}\`. ` +
             `Functional completion and certification remain evidence-gated.`);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
-        const functionalAcceptancePlan = await playbookProductAcceptancePlan(dependencies.gateway, reference, branch, revision);
+        const functionalAcceptancePlan = await playbookProductAcceptancePlan(dependencies.gateway, reference, branch, revision,
+            canonGraph.productJourneyIds, new Map(sources.map(source => [source.journeyId, source.path])));
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId,
-                journeyCount: journeyContracts.length },
+            journeyCount: canonGraph.productJourneyIds.length },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`],
             files: { added: [MANIFEST, MEMO], modified: ["package.json", "package-lock.json", "tests/acceptance/pbos-academic.spec.ts"] },
             commands: [{ command: "compose connected Playbook product acceptance", exitCode: 0, durationMs: 0,
-                output: `${journeyContracts.length} journeys ${branch} ${pullRequest.url}` }],
+                output: `${canonGraph.productJourneyIds.length} journeys ${branch} ${pullRequest.url}` }],
             validations: [{ name: "Connected product acceptance published for independent validation", passed: true,
                 durationMs: 0, evidenceId: `pull-request:${pullRequest.number}` }],
             deferredValidation: { remediationRunId: remediation.runId, pullRequestUrl: pullRequest.url },
-            acceptanceEvidence: evidence(revision),
+            acceptanceEvidence: evidence(revision, canonGraph.productJourneyIds.length),
             functionalAcceptancePlan
         };
     };

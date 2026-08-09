@@ -7,6 +7,7 @@ import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, ProductionMiss
     ProtectedEnvironmentFile, ProtectedEnvironmentReadiness, ProtectedEnvironmentResolver } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
 import { playbookProductAcceptancePlan } from "./playbook-product-functional-acceptance";
+import { readPlaybookProductManifest } from "./playbook-readiness-manifests";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -58,11 +59,13 @@ export interface PlaybookWebStagingExecutorDependencies {
         explicitApprovalId?: string) => BuildAuthorityDecision;
 }
 
-function stagingFiles(startingRevision: string, runId: string): readonly RepositoryFileChange[] {
+function stagingFiles(startingRevision: string, runId: string,
+    product: Readonly<{ canonicalGraphRevision: string; journeyIds: readonly string[] }>): readonly RepositoryFileChange[] {
     return [
         { path: STAGING_MANIFEST, content: `${JSON.stringify({
             schemaVersion: 1, missionId: "048-web-staging", systemId: SYSTEM_ID, repository: REPOSITORY,
             startingRevision, productionRunId: runId, provider: "VERCEL", target: "preview",
+            productCanonicalGraphRevision: product.canonicalGraphRevision, productJourneyIds: product.journeyIds,
             state: "AUTHORIZED_PENDING_EXACT_REVISION_CI_AND_DEPLOYMENT",
             requiredConfigurationNames: requiredPreviewEnvironment,
             protectedConfigurationNames: previewOnlyEnvironment,
@@ -87,7 +90,7 @@ export function playbookWebStagingAcceptanceEvidence(revision: string): readonly
         item("DURABLE_DATA", "Remote journeys retain the connected product's durable staging data checks."),
         item("AUTHORITY", "Staging deployment requires explicit protected action approval."),
         item("PBOS_INTEGRATION", "The preview requires the isolated Playbook staging connector configuration."),
-        item("ACCEPTANCE_TEST", "Seven remote browser journeys remain executable after deployment.", "APPLICATION_TEST"),
+        item("ACCEPTANCE_TEST", "Every full-canonical-roadmap browser journey remains executable after deployment.", "APPLICATION_TEST"),
         item("ACCESSIBILITY", "Every remote journey retains its blocking accessibility audit.", "APPLICATION_TEST"),
         item("SECURITY", "Provider binding, configuration scope, and production exclusion fail closed.", "SECURITY_TEST"),
         item("PREVIEW", "An approval-bound exact-revision Vercel preview is prepared for provider deployment.")
@@ -96,8 +99,9 @@ export function playbookWebStagingAcceptanceEvidence(revision: string): readonly
 
 export async function playbookWebStagingAcceptancePlan(gateway: GitHubRepositoryGateway,
     reference: Parameters<typeof playbookProductAcceptancePlan>[1],
-    branch: string, revision: string, approvalId: string): Promise<FunctionalAcceptancePlan> {
-    const product = await playbookProductAcceptancePlan(gateway, reference, branch, revision);
+    branch: string, revision: string, approvalId: string,
+    journeyIds: readonly string[]): Promise<FunctionalAcceptancePlan> {
+    const product = await playbookProductAcceptancePlan(gateway, reference, branch, revision, journeyIds);
     return { ...product,
         planId: `playbook-web-staging:${revision}`,
         productNodeId: "THE-PLAYBOOK-WEB-STAGING",
@@ -133,10 +137,8 @@ export function playbookWebStagingExecutor(dependencies: PlaybookWebStagingExecu
             throw new Error(`Governed revision moved from ${context.run.startingCommit} to ${inspection.revision}; re-plan web staging.`);
         }
         const productManifest = await dependencies.gateway.readFileAtRevision(reference, PRODUCT_MANIFEST, inspection.revision);
-        if (!productManifest.includes("IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION") || !productManifest.includes('"journeys"')) {
-            throw new Error("Connected Playbook product acceptance is not present on the governed default branch.");
-        }
-        const changes = stagingFiles(inspection.revision, context.run.runId);
+        const product = readPlaybookProductManifest(productManifest);
+        const changes = stagingFiles(inspection.revision, context.run.runId, product);
         context.report("BUILDING", `Preparing protected exact-revision web staging on ${branch}.`);
         await dependencies.gateway.createBranch(reference, branch, inspection.revision);
         await dependencies.gateway.applyChange(reference, changes);
@@ -149,7 +151,7 @@ export function playbookWebStagingExecutor(dependencies: PlaybookWebStagingExecu
             `Production deployment and secret mutation are excluded. Generated revision: \`${revision}\`.`);
         const remediation = dependencies.remediation.start(SYSTEM_ID, pullRequest);
         const functionalAcceptancePlan = await playbookWebStagingAcceptancePlan(dependencies.gateway, reference, branch, revision,
-            dependencies.deploymentApprovalId);
+            dependencies.deploymentApprovalId, product.journeyIds);
         return {
             outputs: { branch, revision, pullRequest, remediationRunId: remediation.runId, deploymentProvider: "VERCEL" },
             evidenceIds: [`repository:${inspection.revision}`, `commit:${revision}`, `pull-request:${pullRequest.number}`,

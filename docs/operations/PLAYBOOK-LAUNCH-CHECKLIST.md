@@ -2,10 +2,14 @@
 
 ## Current gate
 
-The canon graph is now the production queue authority. PBOS compiled all 12 role
-journeys and bound all 93 visible routes to the shared design target without
-mislabeling those bindings as implementation. The governed Playbook revision is
-`17c8d7f78a088971b97e3e0a23fb89e51100c2b4`; 55 functional blockers remain.
+The full canon graph is now the only production queue authority. PBOS compiled
+23 digest-bound sources into 17 operating-system identities, 15 role-specific
+onboarding pathways, 15 phases, 58 traced requirements, and 93 visible routes.
+The governed Playbook revision is
+`17c8d7f78a088971b97e3e0a23fb89e51100c2b4`; 118 exact-revision blockers and
+221 explicitly unfinished phase checklist items remain.
+The 32 required OS/onboarding journey contracts are currently absent, so the
+whole product is not certifiable.
 
 The next eligible product mission is Phase 1, Identity & Authentication. PBOS
 will advance it through small, cohesive implementation packages. Every package
@@ -19,21 +23,30 @@ PR #67 remains **NOT CERTIFIABLE** and is preserved as defect evidence for the
 old narrow Preview. The product-wide defects discovered there remain open until
 their owning phase package passes the new acceptance path.
 
-## Canon-to-product traceability gate
+## Full-canonical restart gate
 
-- [x] Compile and digest-bind the 18 current engineering/product authority entry sources
+- [x] Compile and digest-bind the 23 current engineering/product authority entry sources
+- [x] Establish the explicit 17-OS canonical product boundary
+- [x] Establish all 15 role-specific onboarding pathways (14+ requirement satisfied)
+- [x] Replace the former seven-journey aggregate with 32 required OS/onboarding journey contracts
+- [x] Disable Playbook's legacy static readiness-queue fallback
+- [x] Prevent a blocker-free graph from independently declaring whole-product completion
+- [x] Prevent any phase, OS, onboarding, or domain mission from completing with remaining scoped work
+- [x] Repair multi-codepoint checklist status parsing so all 221 unfinished items are visible to PBOS
+- [x] Separate complete journey topology from incomplete journey behavior to eliminate the topology/implementation dependency deadlock
 - [x] Recompile the canon graph from the current governed Playbook revision on every readiness-queue synchronization
 - [x] Replace stale whole-product completion with dependency-ordered authority, journey, design, 15-phase, requirement, web, mobile, and ecosystem missions
 - [x] Require final Playbook product certification to depend on every canonical phase rather than the former seven-journey aggregate alone
 - [x] Emit exact canon authority, phase, requirement, route, and blocker counts in the launch terminal
 - [x] Register a bounded, iterative implementation adapter for all 15 generated canon phases without delegating commit, push, merge, deployment, or certification authority
-- [x] Require the implementation worker to read all 18 canonical entry sources before changing Playbook code
+- [x] Require the implementation worker to read all 23 canonical entry sources before changing Playbook code
 - [x] Require every phase increment to declare exact completed and remaining checklist items and refuse empty or false completion claims
 - [x] Enforce a 45-minute worker ceiling and emit same-terminal progress telemetry during implementation
 - [ ] Classify all 344 Playbook documentation/configuration artifacts as canonical, generated, historical, deprecated, duplicate, or conflicting
 - [ ] Register every canonical document with ID, version, authority, owner, dependencies, and content digest
 - [ ] Resolve every zero-byte canonical document through the approved documentation, governance, or hygiene track
-- [ ] Inventory every Playbook OS, role, route, API, component, data store, integration, and visible navigation entry
+- [x] Inventory all 17 Playbook OS identities and all 15 onboarding pathways
+- [ ] Inventory every API, component, data store, integration, and visible navigation entry
 - [ ] Map each canonical requirement to its owning Playbook OS and user journey
 - [ ] Map every journey to exact desktop/mobile routes, states, actions, APIs, durable data, and external dependencies
 - [x] Bind all 93 visible routes to the approved shared design-canon target while preserving route-specific approved canon IDs

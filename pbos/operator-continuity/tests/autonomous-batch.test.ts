@@ -3,6 +3,7 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
+import { ProductionRuntimeService } from "../../production-runtime";
 import { createPlaybookBlueprint } from "../../reference-systems";
 import { AutonomousBatchService } from "../index";
 
@@ -16,13 +17,11 @@ const session = {
 };
 
 describe("CIP-051 autonomous build batches", () => {
-    it("classifies CIP-050 isolation and final certification as human-certified platform artifacts", () => {
+    it("refuses to create a Playbook queue without the exact-revision full-canon graph", () => {
         const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-isolation-policy-")), "state.json"));
-        new AutonomousBatchService(state).prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1");
-        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "050-isolation"))
-            .toMatchObject({ approvalRequired: true, completionPolicy: { kind: "PLATFORM_ARTIFACT" } });
-        expect(state.missionQueue("PLAYBOOK-SYSTEM-001").find(item => item.missionId === "050-certification"))
-            .toMatchObject({ approvalRequired: true, completionPolicy: { kind: "PLATFORM_ARTIFACT" } });
+        expect(() => new AutonomousBatchService(state).prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1"))
+            .toThrow("legacy static journey queue is disabled");
+        expect(state.missionQueue("PLAYBOOK-SYSTEM-001")).toEqual([]);
     });
 
     it("persists at most ten authorized work packages and follows validation state", () => {
@@ -55,5 +54,114 @@ describe("CIP-051 autonomous build batches", () => {
         const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-batch-")), "state.json"));
         const service = new AutonomousBatchService(state);
         expect(() => service.start(session, {} as never, 11, {} as never, "run")).toThrow("between 1 and 10");
+    });
+
+    it("uses canon-derived mission planning when a Playbook canon graph is available", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-canon-")), "state.json"));
+        const service = new AutonomousBatchService(state);
+        const graph = { schemaVersion: 1, repository: "sgwalton87/playbook-platform", revision: "abcdef1",
+            sources: [{ path: "CODEX.md", contentLength: 1, sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }],
+            phases: Array.from({ length: 15 }, (_, index) => ({ phaseId: `PHASE-${String(index + 1).padStart(2, "0")}`,
+                title: `Phase ${index + 1}`, completion: 100, incompleteItems: [] })),
+            requirements: [{ requirementId: "CMP-01", requirement: "Compass", status: "IMPLEMENTED", sourcePath: "docs/INTELLIGENCE/PLAYBOOK_TRACEABILITY_MATRIX.md" }],
+            routes: [{ route: "/dashboard", implementationPath: "app/dashboard/page.tsx", canonStatus: "MAPPED", designCanonIds: ["PGSL-007"] }],
+            operatingSystems: [], onboardingPathways: [], productJourneyIds: [],
+            blockers: [],
+            certificationReady: true };
+        service.prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1", graph as any);
+        const items = state.missionQueue("PLAYBOOK-SYSTEM-001");
+        expect(items.find(item => item.missionId === "048-canon-authority")).toBeTruthy();
+        expect(items.find(item => item.missionId === "048-product-journeys")?.status).not.toBe("COMPLETE");
+        expect(items.find(item => item.missionId === "048-web-staging")?.dependencies).toEqual(["048-product-journeys"]);
+    });
+
+    it("does not accept a partial journey list as a fallback planning authority", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-fallback-canon-")), "state.json"));
+        const service = new AutonomousBatchService(state);
+        expect(() => service.prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1"))
+            .toThrow("complete exact-revision canonical product graph");
+    });
+
+    it("replaces stale static readiness queue state when canon graph planning is available", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-stale-readiness-")), "state.json"));
+        state.saveMissionQueue([{
+            missionId: "048-application-journey",
+            systemId: "PLAYBOOK-SYSTEM-001",
+            title: "legacy application journey",
+            dependencies: [],
+            status: "COMPLETE",
+            rationale: "legacy static queue",
+            approvalRequired: true,
+            evidenceIds: ["legacy:evidence"]
+        }, {
+            missionId: "048-product-journeys",
+            systemId: "PLAYBOOK-SYSTEM-001",
+            title: "legacy aggregate",
+            dependencies: [],
+            status: "COMPLETE",
+            rationale: "legacy static queue",
+            approvalRequired: true,
+            evidenceIds: ["legacy:evidence"]
+        }], "PLAYBOOK-SYSTEM-001");
+
+        const service = new AutonomousBatchService(state);
+        const graph = {
+            schemaVersion: 1,
+            repository: "sgwalton87/playbook-platform",
+            revision: "abcdef1",
+            sources: [{ path: "CODEX.md", contentLength: 1, sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }],
+            phases: Array.from({ length: 15 }, (_, index) => ({
+                phaseId: `PHASE-${String(index + 1).padStart(2, "0")}`,
+                title: `Phase ${index + 1}`,
+                completion: index === 0 ? 41 : 100,
+                incompleteItems: index === 0 ? ["unfinished"] : []
+            })),
+            requirements: [{ requirementId: "CMP-01", requirement: "Compass", status: "IMPLEMENTED", sourcePath: "docs/INTELLIGENCE/PLAYBOOK_TRACEABILITY_MATRIX.md" }],
+            routes: [{ route: "/dashboard", implementationPath: "app/dashboard/page.tsx", canonStatus: "MAPPED", designCanonIds: ["PGSL-007"] }],
+            operatingSystems: [], onboardingPathways: [], productJourneyIds: [],
+            blockers: ["PRODUCT_PHASE_INCOMPLETE:PHASE-01:41"],
+            certificationReady: false
+        };
+
+        service.prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1", graph as any);
+        const items = state.missionQueue("PLAYBOOK-SYSTEM-001");
+        expect(items.find(item => item.missionId === "048-application-journey")).toBeUndefined();
+        expect(items.find(item => item.missionId === "048-product-journeys")?.status).not.toBe("COMPLETE");
+    });
+
+    it("demotes stale COMPLETE mission status when dependent 048-domain packages are unresolved", () => {
+        const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-dependent-complete-")), "state.json"));
+        const service = new AutonomousBatchService(state);
+        const graph = {
+            schemaVersion: 1,
+            repository: "sgwalton87/playbook-platform",
+            revision: "abcdef1",
+            sources: [{ path: "CODEX.md", contentLength: 1,
+                sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" }],
+            phases: Array.from({ length: 15 }, (_, index) => ({
+                phaseId: `PHASE-${String(index + 1).padStart(2, "0")}`,
+                title: `Phase ${index + 1}`,
+                completion: 100,
+                incompleteItems: []
+            })),
+            requirements: [{ requirementId: "STORE-01",
+                requirement: "Google Play store release readiness is incomplete",
+                status: "MISSING",
+                sourcePath: "docs/INTELLIGENCE/PLAYBOOK_TRACEABILITY_MATRIX.md" }],
+            routes: [{ route: "/dashboard", implementationPath: "app/dashboard/page.tsx",
+                canonStatus: "MAPPED", designCanonIds: ["PGSL-007"] }],
+            operatingSystems: [], onboardingPathways: [], productJourneyIds: [],
+            blockers: [],
+            certificationReady: true
+        };
+
+        service.prepareReadinessQueue("PLAYBOOK-SYSTEM-001", "abcdef1", graph as any);
+
+        const items = state.missionQueue("PLAYBOOK-SYSTEM-001");
+        expect(items.find(item => item.missionId === "048-domain-store")?.status).toBe("BLOCKED");
+        expect(items.find(item => item.missionId === "048-product-journeys")?.status).not.toBe("COMPLETE");
+        expect(() => new ProductionRuntimeService(state)
+            .updateMissionStatus("PLAYBOOK-SYSTEM-001", "048-product-journeys", "COMPLETE"))
+            .toThrow("cannot complete before dependencies");
     });
 });

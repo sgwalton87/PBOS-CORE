@@ -75,7 +75,7 @@ Read AGENTS.md, CODEX.md, and every canonical authority below completely before 
 ${PLAYBOOK_CANON_SOURCES.map(path => `- ${path}`).join("\n")}
 Execute only mission ${request.missionId}: ${request.title}.
 Reason: ${request.rationale}
-Select the highest-priority dependency-complete group of unfinished checklist items in this phase that forms one cohesive, reviewable work package. Implement its actual application behavior end to end. Reuse existing architecture; do not create parallel runtimes, demo data, placeholders, false completion, secrets, production deployment, or unrelated changes.
+Complete the scoped mission as one cohesive, reviewable work package. Implement its actual application behavior end to end. Reuse existing architecture; do not create parallel runtimes, demo data, placeholders, false completion, secrets, production deployment, or unrelated changes.
 Run the repository's lint, tests, build, and relevant browser/mobile acceptance. Do not commit, push, open a PR, merge, or deploy.
 Create or update one Playwright acceptance spec that exercises real desktop and mobile behavior. When PBOS later runs it with PBOS_ACCEPTANCE_COMMIT, it must create these nonempty exact-revision artifacts:
 - ${artifactRoot}-desktop.png
@@ -83,9 +83,9 @@ Create or update one Playwright acceptance spec that exercises real desktop and 
 - ${artifactRoot}-trace.zip
 - ${artifactRoot}-accessibility.json
 - ${artifactRoot}.json with {"schemaVersion":1,"journeyId":"${journeyId}","commit":process.env.PBOS_ACCEPTANCE_COMMIT,"checks":[{"dimension":"ROUTE","passed":true,"detail":"executed evidence"}, ...]} for ROUTE, DURABLE_DATA, AUTHORITY, PBOS_INTEGRATION, and SECURITY.
-Update only the checklist items proven by this package and recalculate the phase percentage honestly. Do not mark the whole phase 100% unless no unfinished items remain. Write ${request.manifestPath} as JSON with:
+Update only canonical checklist or roadmap items proven by this package and recalculate affected percentages honestly. Do not set completionClaim true while any mission-scoped item remains. Write ${request.manifestPath} as JSON with:
 {"schemaVersion":1,"missionId":"${request.missionId}","completionClaim":true,"completedItems":["exact checklist item"],"remainingItems":["still unfinished"],"routes":["/concrete-route"],"browserSpec":"tests/acceptance/spec.ts","acceptance":[{"dimension":"ROUTE","behavior":"specific behavior","artifact":"path","source":"IMPLEMENTATION"}]}
-completionClaim means this bounded package—not the whole phase—is complete. completedItems must be nonempty and must exactly match checklist items moved to complete. Acceptance must contain all of: ${requiredDimensions.join(", ")}. Every artifact must exist. If no cohesive package can be completed, leave completionClaim false and explain blockers in the manifest. Never claim evidence you did not execute.`;
+completionClaim means the entire selected mission is functionally complete. completedItems must be nonempty. For phase missions they must exactly match checklist items moved to complete; for OS, onboarding, or domain missions they must name the exact canon-scoped behaviors completed. remainingItems must be empty whenever completionClaim is true. Acceptance must contain all of: ${requiredDimensions.join(", ")}. Every artifact must exist. If the mission cannot be completed, leave completionClaim false and explain blockers in the manifest. Never claim evidence you did not execute.`;
         const result = await this.process.run(["exec", "--ephemeral", "--json", "--sandbox", "workspace-write",
             "--config", 'approval_policy="never"', "--color", "never",
             "--cd", request.workingDirectory, prompt], request.workingDirectory,
@@ -126,7 +126,7 @@ function phaseItems(source: string, missionId: string): ReadonlyMap<string, stri
     const rest = source.slice(start);
     const next = rest.slice(1).search(/^# Phase \d+ — /m);
     const section = next < 0 ? rest : rest.slice(0, next + 1);
-    return new Map([...section.matchAll(/^- ([⬜🟨🟦🟥🟩])\s+(.+)$/gmu)].map(match => [match[2].trim(), match[1]]));
+    return new Map([...section.matchAll(/^- (⬜️?|🟨|🟦|🟥|🟩)\s+(.+)$/gmu)].map(match => [match[2].trim(), match[1]]));
 }
 
 function assertChecklistTransition(before: string, after: string, missionId: string, manifest: PhaseManifest): void {
@@ -162,8 +162,10 @@ async function assertManifestArtifacts(manifest: PhaseManifest, workingDirectory
 
 export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecutorDependencies): ProductionMissionExecutor {
     return async context => {
-        if (!/^048-phase-\d{2}$/.test(context.mission.missionId) || context.run.systemId !== SYSTEM_ID || context.run.repository !== REPOSITORY) {
-            throw new Error("The Playbook canon phase adapter is restricted to phase missions.");
+        const phaseMission = /^048-phase-\d{2}$/.test(context.mission.missionId);
+        const roadmapMission = /^048-(os|onboarding|domain)-[a-z0-9-]+$/.test(context.mission.missionId);
+        if ((!phaseMission && !roadmapMission) || context.run.systemId !== SYSTEM_ID || context.run.repository !== REPOSITORY) {
+            throw new Error("The Playbook canon implementation adapter is restricted to phase, OS, onboarding, and domain missions.");
         }
         if (dependencies.session.system.systemId !== SYSTEM_ID || dependencies.session.system.repository !== REPOSITORY) throw new Error("Session does not authorize Playbook phase execution.");
         const reference = governedBuildReference({ owner: "sgwalton87", name: "playbook-platform", defaultBranch: "main" }, context.run.startingBranch);
@@ -197,6 +199,9 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         if (manifest.schemaVersion !== 1 || manifest.missionId !== context.mission.missionId || !manifest.completionClaim) {
             throw new Error(`Canon phase remains incomplete: ${(manifest.blockers ?? ["completion claim withheld"]).join(", ")}.`);
         }
+        if (manifest.remainingItems.length) {
+            throw new Error(`Canon mission cannot complete with ${manifest.remainingItems.length} remaining item(s).`);
+        }
         const dimensions = new Set(manifest.acceptance.map(item => item.dimension));
         const missing = requiredDimensions.filter(dimension => !dimensions.has(dimension));
         if (missing.length || !manifest.completedItems?.length || !Array.isArray(manifest.remainingItems) ||
@@ -205,8 +210,10 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
             throw new Error(`Canon phase evidence contract incomplete: ${missing.join(", ")}.`);
         }
         await assertManifestArtifacts(manifest, workingDirectory);
-        const checklistAfter = await readFile(join(workingDirectory, MASTER_CHECKLIST), "utf8");
-        assertChecklistTransition(checklistBefore, checklistAfter, context.mission.missionId, manifest);
+        if (phaseMission) {
+            const checklistAfter = await readFile(join(workingDirectory, MASTER_CHECKLIST), "utf8");
+            assertChecklistTransition(checklistBefore, checklistAfter, context.mission.missionId, manifest);
+        }
         const substantive = publishablePaths.filter(path => path !== manifestPath && path !== MASTER_CHECKLIST);
         if (!substantive.length) throw new Error("Canon phase worker produced no substantive implementation or acceptance-test change.");
         const revision = await dependencies.gateway.commitWorkingDirectory(workingDirectory,

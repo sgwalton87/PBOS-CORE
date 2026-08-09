@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PLAYBOOK_LAUNCH_TASKS, PlaybookLaunchPlanCompiler } from "../index";
+import { PLAYBOOK_LAUNCH_TASKS, PlaybookLaunchPlanCompiler, playbookLaunchTaskDefinitions } from "../index";
 
 const proof = (taskId: string, overrides: Partial<import("../index").LaunchEvidence> = {}): import("../index").LaunchEvidence => {
-    const task = PLAYBOOK_LAUNCH_TASKS.find(item => item.taskId === taskId)!;
+    const task = playbookLaunchTaskDefinitions().find(item => item.taskId === taskId)
+        ?? PLAYBOOK_LAUNCH_TASKS.find(item => item.taskId === taskId)!;
     return { evidenceId: `evidence:${taskId}`, taskId, valid: true,
         evidenceType: task.gate === "AUTOMATED" ? "PLATFORM_ARTIFACT" : task.gate === "HUMAN_VALIDATION"
             ? "FUNCTIONAL_ACCEPTANCE" : task.gate === "HUMAN_APPROVAL" ? "HUMAN_APPROVAL" : "EXTERNAL_PROOF",
@@ -15,7 +16,7 @@ describe("CIP-046 through CIP-050 Playbook launch plan", () => {
     it("covers every CIP with explicit evidence and approval gates", () => {
         const compiler = new PlaybookLaunchPlanCompiler();
         const plan = compiler.compile([]);
-        expect(new Set(PLAYBOOK_LAUNCH_TASKS.map(task => task.cip))).toEqual(new Set(["CIP-046", "CIP-047", "CIP-048", "CIP-049", "CIP-050"]));
+        expect(new Set(plan.tasks.map(task => task.cip))).toEqual(new Set(["CIP-046", "CIP-047", "CIP-048", "CIP-049", "CIP-050"]));
         expect(plan.readyForPublicLaunch).toBe(false);
         expect(plan.tasks.some(task => task.gate === "HUMAN_APPROVAL")).toBe(true);
         expect(plan.tasks.some(task => task.gate === "EXTERNAL_ACCOUNT")).toBe(true);
@@ -38,18 +39,29 @@ describe("CIP-046 through CIP-050 Playbook launch plan", () => {
         expect(compiler.byCip(plan, "CIP-050")).toHaveLength(3);
     });
 
-    it("cannot certify connected product journeys from a generated integration layer alone", () => {
-        const journeyIds = ["048-academic-journey", "048-opportunity-journey", "048-application-journey",
-            "048-support-journey", "048-messaging-journey", "048-notification-journey"];
-        const aggregate = PLAYBOOK_LAUNCH_TASKS.find(task => task.taskId === "048-product-journeys");
+    it("cannot certify the product from the former seven-journey aggregate", () => {
+        const aggregate = playbookLaunchTaskDefinitions().find(task => task.taskId === "048-product-journeys");
         expect(aggregate?.title).toContain("Certify");
-        expect(aggregate?.dependencies).toEqual(journeyIds);
+        expect(aggregate?.dependencies).toHaveLength(32);
+        expect(aggregate?.dependencies).toEqual(expect.arrayContaining([
+            "048-onboarding-scholar", "048-onboarding-community-partner",
+            "048-os-scholar", "048-os-platform-admin"
+        ]));
         const plan = new PlaybookLaunchPlanCompiler().compile([
-            proof("048-scholar-slice", { evidenceId: "scholar" }),
-            proof("048-academic-journey", { evidenceId: "academic" })
+            proof("048-onboarding-scholar", { evidenceId: "scholar-onboarding" }),
+            proof("048-os-scholar", { evidenceId: "scholar-os" })
         ]);
         expect(plan.tasks.find(task => task.taskId === "048-product-journeys")?.state).toBe("BLOCKED");
         expect(plan.tasks.find(task => task.taskId === "049-mobile-foundation")?.state).toBe("BLOCKED");
+    });
+
+    it("requires dependency completion before a task can be marked complete", () => {
+        const plan = new PlaybookLaunchPlanCompiler().compile([
+            proof("048-web-staging", { evidenceId: "staging-evidence" })
+        ]);
+        expect(plan.tasks.find(task => task.taskId === "048-web-staging")?.state).toBe("BLOCKED");
+        expect(plan.tasks.find(task => task.taskId === "048-web-staging")?.blockedBy)
+            .toEqual(expect.arrayContaining(["048-product-journeys", "047-operations"]));
     });
 
     it("does not treat a boolean green flag as functional or launch evidence", () => {
@@ -63,8 +75,42 @@ describe("CIP-046 through CIP-050 Playbook launch plan", () => {
     it("accepts CIP-050 isolation only as a PBOS-owned platform artifact", () => {
         const compiler = new PlaybookLaunchPlanCompiler();
         const functional = compiler.compile([proof("050-isolation")]);
-        expect(functional.tasks.find(item => item.taskId === "050-isolation")?.state).not.toBe("COMPLETE");
+        expect(functional.tasks.find(item => item.taskId === "050-isolation")?.evidenceIds).toEqual([]);
         const platform = compiler.compile([proof("050-isolation", { evidenceType: "PLATFORM_ARTIFACT" })]);
-        expect(platform.tasks.find(item => item.taskId === "050-isolation")?.state).toBe("COMPLETE");
+        expect(platform.tasks.find(item => item.taskId === "050-isolation")?.evidenceIds).toEqual(["evidence:050-isolation"]);
+        expect(platform.tasks.find(item => item.taskId === "050-isolation")?.state).toBe("BLOCKED");
+    });
+
+    it("derives CIP-048 journey chain from canonical journey IDs when provided", () => {
+        const compiler = new PlaybookLaunchPlanCompiler();
+        const plan = compiler.compile([], { canon: {
+            productJourneyIds: ["SCHOLAR-ONBOARDING-TO-DASHBOARD", "TRANSCRIPT-TO-ACADEMIC-READINESS", "READINESS-TO-OPPORTUNITY"]
+        } });
+        expect(plan.tasks.some(task => task.taskId === "048-application-journey")).toBe(false);
+        expect(plan.tasks.find(task => task.taskId === "048-product-journeys")?.dependencies).toEqual([
+            "048-scholar-slice",
+            "048-academic-journey",
+            "048-opportunity-journey"
+        ]);
+        expect(plan.tasks.find(task => task.taskId === "048-opportunity-journey")?.dependencies).toEqual([
+            "048-academic-journey"
+        ]);
+        [
+            "048-product-journeys",
+            "048-web-staging",
+            "049-mobile-foundation",
+            "049-mobile-journeys",
+            "049-store-readiness",
+            "049-certification",
+            "050-platform-evidence",
+            "050-isolation",
+            "050-certification"
+        ].forEach(taskId => expect(plan.tasks.some(task => task.taskId === taskId)).toBe(true));
+    });
+
+    it("fails closed for unsupported canonical product journey IDs", () => {
+        const compiler = new PlaybookLaunchPlanCompiler();
+        expect(() => compiler.compile([], { canon: { productJourneyIds: ["UNSUPPORTED-JOURNEY"] } }))
+            .toThrow("Unsupported canonical product journey");
     });
 });
