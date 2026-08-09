@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { assertPlaybookFullCanonicalRoadmap, PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS,
-    PLAYBOOK_CANONICAL_OPERATING_SYSTEMS, PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS } from "./playbook-full-canonical-roadmap";
+    PLAYBOOK_CANONICAL_OPERATING_SYSTEMS, PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS,
+    playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
 
 export type PlaybookCanonStatus = "IMPLEMENTED" | "PARTIAL" | "MISSING" | "BLOCKED";
 
@@ -21,6 +22,7 @@ export interface PlaybookCanonPhase {
     readonly title: string;
     readonly completion: number;
     readonly incompleteItems: readonly string[];
+    readonly items?: readonly Readonly<{ label: string; status: string; missionId: string }>[];
 }
 
 export interface PlaybookCanonRoute {
@@ -113,8 +115,16 @@ function parsePhases(source: string): readonly PlaybookCanonPhase[] {
     return headings.map((match, index) => {
         const body = source.slice((match.index ?? 0) + match[0].length, headings[index + 1]?.index ?? source.length);
         const completion = Number(body.match(/^\*\*Completion:\*\*\s*(\d+)%/m)?.[1] ?? 0);
-        const incompleteItems = [...body.matchAll(/^- (⬜️?|🟨|🟦|🟥)\s+(.+)$/gmu)].map(item => item[2].trim());
-        return { phaseId: `PHASE-${match[2].padStart(2, "0")}`, title: match[3].trim(), completion, incompleteItems };
+        const phaseId = `PHASE-${match[2].padStart(2, "0")}`;
+        const occurrences = new Map<string, number>();
+        const items = [...body.matchAll(/^- (⬜️?|🟨|🟦|🟥|🟩)\s+(.+)$/gmu)].map(item => {
+            const label = item[2].trim(); const identity = label.toLowerCase();
+            const occurrence = (occurrences.get(identity) ?? 0) + 1;
+            occurrences.set(identity, occurrence);
+            return { label, status: item[1], missionId: playbookCanonChecklistItemMissionId(phaseId, label, occurrence) };
+        });
+        const incompleteItems = items.filter(item => item.status !== "🟩").map(item => item.label);
+        return { phaseId, title: match[3].trim(), completion, incompleteItems, items };
     });
 }
 
