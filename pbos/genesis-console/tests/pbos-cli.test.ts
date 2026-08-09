@@ -253,6 +253,9 @@ describe("partner-ready CLI durable state", () => {
         production.transition(run.runId, "STARTING", "Starting");
         production.transition(run.runId, "RUNNING", "Running");
         production.transition(run.runId, "VALIDATING", "Validating");
+        production.recordValidation(run.runId, "Exact revision lineage", true, 0,
+            `repository:${run.repository}@${run.currentCommit}`);
+        production.recordValidation(run.runId, "Manifest lineage", true, 0, "ecosystem-report:report-1");
         run = production.transition(run.runId, "AWAITING_APPROVAL", "Validated");
         const io = new ApprovalIO("yes");
 

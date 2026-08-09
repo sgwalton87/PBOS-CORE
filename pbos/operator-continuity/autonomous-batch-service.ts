@@ -5,24 +5,8 @@ import { GenesisStateRepository } from "../genesis-state";
 import { PullRequestReference } from "../platform";
 import { RemediationState } from "../validation-automation";
 import { AutonomousBuildBatch, AutonomousBatchState, BatchTelemetryEvent, BatchTelemetryReporter, BatchTelemetryType } from "./contracts";
-import { ApplicationAcceptanceDimension, FunctionalAcceptanceVerifier, MissionCompletionPolicy, ProductionRuntimeService } from "../production-runtime";
-import { PLAYBOOK_LAUNCH_TASKS } from "../launch-readiness/playbook-launch-plan";
+import { ProductionRuntimeService } from "../production-runtime";
 import { PlaybookCanonMissionPlanner, PlaybookCanonProductGraph } from "../application-readiness";
-
-const FUNCTIONAL_DIMENSIONS: readonly ApplicationAcceptanceDimension[] = [
-    "ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "ACCEPTANCE_TEST",
-    "ACCESSIBILITY", "SECURITY", "INDEPENDENT_VALIDATION"
-];
-
-function completionPolicy(task: (typeof PLAYBOOK_LAUNCH_TASKS)[number]): MissionCompletionPolicy {
-    if (["048-repository-gap-analysis", "048-foundation", "049-mobile-foundation", "050-platform-evidence", "050-isolation", "050-certification"].includes(task.taskId)) {
-        return { kind: "PLATFORM_ARTIFACT", requiredDimensions: [], acceptanceCriteria: task.acceptanceCriteria };
-    }
-    const previewRequired = ["048-web-staging", "049-store-readiness", "049-certification"].includes(task.taskId);
-    return { kind: "FUNCTIONAL_APPLICATION",
-        requiredDimensions: previewRequired ? [...FUNCTIONAL_DIMENSIONS, "PREVIEW"] : FUNCTIONAL_DIMENSIONS,
-        acceptanceCriteria: task.acceptanceCriteria };
-}
 
 export class AutonomousBatchService implements BatchTelemetryReporter {
     constructor(private readonly state: GenesisStateRepository, private readonly production = new ProductionRuntimeService(state)) {}
@@ -165,45 +149,13 @@ export class AutonomousBatchService implements BatchTelemetryReporter {
     prepareReadinessQueue(systemId: string, governedRevision: string,
         canonGraph?: PlaybookCanonProductGraph): import("../production-runtime").MissionQueueItem | undefined {
         if (systemId !== "PLAYBOOK-SYSTEM-001") return undefined;
-        if (canonGraph) {
-            if (canonGraph.revision !== governedRevision) {
-                throw new Error(`Playbook canon graph revision ${canonGraph.revision} does not match governed revision ${governedRevision}.`);
-            }
-            const items = new PlaybookCanonMissionPlanner().compile(canonGraph, this.state.missionQueue(systemId));
-            this.production.reconcileQueue(systemId, items);
-            return this.production.snapshot().nextMission;
+        if (!canonGraph) {
+            throw new Error("Playbook readiness planning requires the complete exact-revision canonical product graph; the legacy static journey queue is disabled.");
         }
-        const readinessTasks = PLAYBOOK_LAUNCH_TASKS.filter(task => ["CIP-048", "CIP-049", "CIP-050"].includes(task.cip));
-        const ids = new Set(readinessTasks.map(task => task.taskId));
-        const existing = new Map(this.state.missionQueue(systemId).map(item => [item.missionId, item]));
-        const foundation = existing.get("playbook-capability-foundation");
-        const items: import("../production-runtime").MissionQueueItem[] = [
-            { missionId: "playbook-capability-foundation", systemId, title: "Certified Playbook capability foundation",
-                dependencies: [], status: foundation?.status ?? "COMPLETE", rationale: `Seven capabilities proven at ${governedRevision}.`,
-                approvalRequired: false, evidenceIds: foundation?.evidenceIds ?? [`repository:${governedRevision}`] },
-            ...readinessTasks.map(task => {
-                const prior = existing.get(task.taskId);
-                const policy = completionPolicy(task);
-                let status = prior?.status ?? "QUEUED" as const;
-                if (status === "COMPLETE" && policy.kind === "FUNCTIONAL_APPLICATION") {
-                    const run = [...this.state.productionRuns()].reverse().find(item =>
-                        item.systemId === systemId && item.selectedMission === task.title && item.status === "CERTIFIED");
-                    try {
-                        if (!run) throw new Error("missing certified production run");
-                        new FunctionalAcceptanceVerifier().assertCertificationEvidence({ ...prior!, completionPolicy: policy },
-                            { ...run, acceptanceEvidence: run.acceptanceEvidence ?? [] });
-                    } catch {
-                        status = "QUEUED";
-                    }
-                }
-                return { missionId: task.taskId, systemId, title: task.title,
-                    dependencies: [...new Set(task.dependencies.length
-                    ? task.dependencies.map(dependency => ids.has(dependency) ? dependency : "playbook-capability-foundation")
-                    : ["playbook-capability-foundation"])],
-                    status, rationale: prior?.rationale ?? "Awaiting dependency reconciliation.",
-                    approvalRequired: task.gate !== "AUTOMATED", evidenceIds: prior?.evidenceIds ?? [], completionPolicy: policy };
-            })
-        ];
+        if (canonGraph.revision !== governedRevision) {
+            throw new Error(`Playbook canon graph revision ${canonGraph.revision} does not match governed revision ${governedRevision}.`);
+        }
+        const items = new PlaybookCanonMissionPlanner().compile(canonGraph, this.state.missionQueue(systemId));
         this.production.reconcileQueue(systemId, items);
         return this.production.snapshot().nextMission;
     }

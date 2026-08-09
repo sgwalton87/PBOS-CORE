@@ -1,4 +1,9 @@
 import { LaunchCip, LaunchEvidence, LaunchReadinessPlan, LaunchTask, LaunchTaskDefinition } from "./contracts";
+import { PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS, PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS } from "../application-readiness/playbook-full-canonical-roadmap";
+
+interface CanonLaunchContext {
+    readonly productJourneyIds: readonly string[];
+}
 
 const criteria = (...items: string[]): readonly string[] => items;
 
@@ -58,26 +63,132 @@ export const PLAYBOOK_LAUNCH_TASKS: readonly LaunchTaskDefinition[] = [
         dependencies: ["050-isolation"], gate: "HUMAN_APPROVAL", acceptanceCriteria: criteria("Mission Control renders separate Open desktop web app and Open mobile app actions", "Playbook certification is independently approved", "Bulletproof certification is independently approved", "Public web and store submissions retain separate approvals") }
 ];
 
-const order = new Map(PLAYBOOK_LAUNCH_TASKS.map((task, index) => [task.taskId, index]));
+const journeyTaskByJourneyId: Readonly<Record<string, string>> = {
+    "SCHOLAR-ONBOARDING-TO-DASHBOARD": "048-scholar-slice",
+    "TRANSCRIPT-TO-ACADEMIC-READINESS": "048-academic-journey",
+    "READINESS-TO-OPPORTUNITY": "048-opportunity-journey",
+    "OPPORTUNITY-TO-APPLICATION": "048-application-journey",
+    "APPLICATION-TO-AUTHORIZED-SUPPORT": "048-support-journey",
+    "AUTHORIZED-SUPPORT-MESSAGING": "048-messaging-journey",
+    "EVENT-TO-ACKNOWLEDGED-NOTIFICATION": "048-notification-journey"
+};
+
+const launchTaskById = new Map(PLAYBOOK_LAUNCH_TASKS.map(task => [task.taskId, task]));
+const staticOrder = new Map(PLAYBOOK_LAUNCH_TASKS.map((task, index) => [task.taskId, index]));
+const REQUIRED_LAUNCH_TASK_IDS = [
+    "048-product-journeys",
+    "048-web-staging",
+    "049-mobile-foundation",
+    "049-mobile-journeys",
+    "049-store-readiness",
+    "049-certification",
+    "050-platform-evidence",
+    "050-isolation",
+    "050-certification"
+] as const;
+
+function assertTask(taskId: string): LaunchTaskDefinition {
+    const task = launchTaskById.get(taskId);
+    if (!task) throw new Error(`Missing static launch task definition: ${taskId}`);
+    return task;
+}
+
+function deriveLaunchTasks(canon?: CanonLaunchContext): readonly LaunchTaskDefinition[] {
+    const activeCanon = canon ?? { productJourneyIds: PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS };
+
+    const journeyTaskIds = activeCanon.productJourneyIds.map(journeyId => {
+        const taskId = journeyTaskByJourneyId[journeyId];
+        if (taskId) return taskId;
+        if (journeyId.startsWith("ONBOARDING-")) return `048-onboarding-${journeyId.slice("ONBOARDING-".length).toLowerCase()}`;
+        if (journeyId.startsWith("OS-")) return `048-os-${journeyId.slice("OS-".length).toLowerCase()}`;
+        throw new Error(`Unsupported canonical product journey for launch planning: ${journeyId}`);
+    });
+    if (!journeyTaskIds.length) {
+        throw new Error("Canonical launch planning requires at least one declared product journey ID.");
+    }
+    if (new Set(journeyTaskIds).size !== journeyTaskIds.length) {
+        throw new Error("Canonical launch planning requires unique product journey IDs.");
+    }
+
+    const onboardingIds = new Set(PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS
+        .map(item => item.pathwayId.replaceAll("_", "-").toLowerCase()));
+    const canonicalDefinitions = journeyTaskIds.map(taskId => {
+        const staticTask = launchTaskById.get(taskId);
+        if (staticTask) return staticTask;
+        if (taskId.startsWith("048-onboarding-")) {
+            return { taskId, cip: "CIP-048" as const, title: `Complete ${taskId.slice("048-onboarding-".length)} onboarding`,
+                dependencies: ["048-foundation"], gate: "HUMAN_VALIDATION" as const,
+                acceptanceCriteria: criteria("Role-specific onboarding persists canonical identity and records",
+                    "Verification, authority, recovery, desktop, and mobile acceptance pass") };
+        }
+        const osId = taskId.slice("048-os-".length);
+        const onboardingId = onboardingIds.has(osId) ? `048-onboarding-${osId}` : "048-foundation";
+        return { taskId, cip: "CIP-048" as const, title: `Complete ${osId} operating system`,
+            dependencies: [onboardingId], gate: "HUMAN_VALIDATION" as const,
+            acceptanceCriteria: criteria("Role-specific OS navigation, data, actions, and authority are functional",
+                "Responsive design, accessibility, security, recovery, desktop, and mobile acceptance pass") };
+    });
+    const uniqueCanonicalDefinitions = canonicalDefinitions.filter((task, index, tasks) =>
+        tasks.findIndex(candidate => candidate.taskId === task.taskId) === index);
+    const dynamicCip048 = [
+        assertTask("048-repository-gap-analysis"),
+        assertTask("048-foundation"),
+        ...uniqueCanonicalDefinitions,
+        { ...assertTask("048-product-journeys"), dependencies: [...new Set(journeyTaskIds)] },
+        assertTask("048-web-staging")
+    ];
+
+    const taskIdsInOrder = new Set(dynamicCip048.map(task => task.taskId));
+    const remaining = PLAYBOOK_LAUNCH_TASKS.filter(task => task.cip !== "CIP-048" && !taskIdsInOrder.has(task.taskId));
+    return [...PLAYBOOK_LAUNCH_TASKS.filter(task => ["CIP-046", "CIP-047"].includes(task.cip)), ...dynamicCip048, ...remaining];
+}
+
+export function playbookLaunchTaskDefinitions(options?: Readonly<{ canon?: CanonLaunchContext }>): readonly LaunchTaskDefinition[] {
+    const tasks = deriveLaunchTasks(options?.canon);
+    const taskIds = new Set(tasks.map(task => task.taskId));
+    const missing = REQUIRED_LAUNCH_TASK_IDS.filter(taskId => !taskIds.has(taskId));
+    if (missing.length) {
+        throw new Error(`Launch task definition is missing required readiness tasks: ${missing.join(", ")}`);
+    }
+    return tasks;
+}
+
+function launchOrder(tasks: readonly LaunchTaskDefinition[]): ReadonlyMap<string, number> {
+    return new Map(tasks.map((task, index) => [task.taskId, index]));
+}
 
 export class PlaybookLaunchPlanCompiler {
-    compile(evidence: readonly LaunchEvidence[]): LaunchReadinessPlan {
+    compile(evidence: readonly LaunchEvidence[], options?: Readonly<{ canon?: CanonLaunchContext }>): LaunchReadinessPlan {
+        const taskDefinitions = playbookLaunchTaskDefinitions(options);
+        const order = launchOrder(taskDefinitions);
         const valid = new Map<string, string[]>();
-        for (const task of PLAYBOOK_LAUNCH_TASKS) {
+        for (const task of taskDefinitions) {
             const candidates = evidence.filter(item => item.taskId === task.taskId && this.validEvidence(item, task));
             const proven = new Set(candidates.flatMap(item => item.acceptanceCriteria));
             if (task.acceptanceCriteria.every(criterion => proven.has(criterion))) {
                 valid.set(task.taskId, candidates.map(item => item.evidenceId));
             }
         }
-        const complete = new Set(valid.keys());
-        const tasks: LaunchTask[] = PLAYBOOK_LAUNCH_TASKS.map(task => {
+        const complete = new Set<string>();
+        let advanced = true;
+        while (advanced) {
+            advanced = false;
+            for (const task of taskDefinitions) {
+                if (!valid.has(task.taskId) || complete.has(task.taskId)) continue;
+                if (task.dependencies.every(dependency => complete.has(dependency))) {
+                    complete.add(task.taskId);
+                    advanced = true;
+                }
+            }
+        }
+        const tasks: LaunchTask[] = taskDefinitions.map(task => {
             const blockedBy = task.dependencies.filter(dependency => !complete.has(dependency));
             return { ...task, evidenceIds: valid.get(task.taskId) ?? [], blockedBy,
                 state: complete.has(task.taskId) ? "COMPLETE" : blockedBy.length ? "BLOCKED" : "READY" };
         });
         const nextTask = tasks.filter(task => task.state === "READY")
-            .sort((left, right) => (order.get(left.taskId) ?? 0) - (order.get(right.taskId) ?? 0))[0];
+            .sort((left, right) => (order.get(left.taskId) ?? staticOrder.get(left.taskId) ?? 0)
+                - (order.get(right.taskId) ?? staticOrder.get(right.taskId) ?? 0))[0];
         return { systemId: "PLAYBOOK-SYSTEM-001", tasks, nextTask,
             readyForPublicLaunch: tasks.every(task => task.state === "COMPLETE") };
     }

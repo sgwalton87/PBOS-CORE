@@ -273,7 +273,9 @@ export class GenesisTerminal {
         }
         const available = Math.min(plan.workPackages.length, 10);
         if (available === 0) {
-            const nextMission = this.batches?.prepareReadinessQueue?.(session.system.systemId, plan.repositoryRevision);
+            // Capability inspection is not sufficient authority to construct the
+            // Playbook product queue. The normal PBOS run path compiles the full
+            // exact-revision canonical graph before selecting a mission.
             this.io.write("No incomplete capability work packages were discovered.");
             this.io.write("");
             this.io.write("APPLICATION READINESS REVIEW");
@@ -286,9 +288,9 @@ export class GenesisTerminal {
             this.io.write("2. CIP-049 — Shared mobile foundation, native journeys, store preparation, and release certification");
             this.io.write("3. CIP-050 — Independent multi-platform evidence and ecosystem certification");
             this.io.write("Readiness state: READY_FOR_GAP_ANALYSIS");
-            this.io.write(`NEXT MISSION: ${nextMission?.title ?? "Compile journey-level web and mobile gaps into governed implementation packages"}`);
-            this.io.write(`SELECTION REASON: ${nextMission?.rationale ?? "The certified capability foundation satisfies the readiness-review dependency."}`);
-            this.io.write(`APPROVAL REQUIRED: ${nextMission?.approvalRequired ? "YES" : "NO"}`);
+            this.io.write("NEXT MISSION: Compile the complete exact-revision Playbook canonical graph");
+            this.io.write("SELECTION REASON: Capability evidence cannot substitute for the 17-OS and role-onboarding product authority graph.");
+            this.io.write("APPROVAL REQUIRED: NO");
             this.io.write("Historical PR certification is complete and is not current session work.");
             return "READINESS_REVIEW";
         }

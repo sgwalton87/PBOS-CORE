@@ -920,8 +920,15 @@ async function reconcileFailedWebStagingEvidence(services: ReturnType<typeof run
     if (inspection.revision !== failed.currentCommit) {
         throw new Error(`Web-staging recovery lineage moved from ${failed.currentCommit} to ${inspection.revision}.`);
     }
+    const productManifestSource = await services.gateway.readFileAtRevision(reference,
+        "pbos/readiness/048-product-journeys.json", failed.currentCommit);
+    const productManifest = JSON.parse(productManifestSource) as { journeyIds?: unknown };
+    if (!Array.isArray(productManifest.journeyIds) ||
+        !productManifest.journeyIds.every(item => typeof item === "string")) {
+        throw new Error("Failed web-staging evidence recovery cannot resolve canonical product journey lineage.");
+    }
     const plan = await playbookWebStagingAcceptancePlan(services.gateway, reference, failed.currentBranch,
-        failed.currentCommit, approval.approvalId);
+        failed.currentCommit, approval.approvalId, productManifest.journeyIds);
     services.production.recoverFailedFunctionalImplementationValidation(failed.runId, remediation.runId,
         playbookWebStagingAcceptanceEvidence(failed.currentCommit), plan);
     stdout.write(`[RECOVERY] Restored the exact web-staging evidence checkpoint on existing PR ${remediation.pullRequest.url}.\n`);
@@ -1170,6 +1177,12 @@ async function runNextProductionMission(target?: string): Promise<number> {
     for (let phase = 1; phase <= 15; phase += 1) {
         const missionId = `048-phase-${String(phase).padStart(2, "0")}`;
         adapters.register("PLAYBOOK-SYSTEM-001", missionId, () => playbookCanonPhaseExecutor({ gateway: services.gateway,
+            remediation: services.remediation, session,
+            authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
+        { producesFunctionalAcceptancePlan: true });
+    }
+    for (const mission of candidates.filter(item => /^048-(os|onboarding|domain)-[a-z0-9-]+$/.test(item.missionId))) {
+        adapters.register("PLAYBOOK-SYSTEM-001", mission.missionId, () => playbookCanonPhaseExecutor({ gateway: services.gateway,
             remediation: services.remediation, session,
             authorize: (action, risk, branch) => services.control.authorizeAction(session.sessionId, action, risk, branch) }),
         { producesFunctionalAcceptancePlan: true });

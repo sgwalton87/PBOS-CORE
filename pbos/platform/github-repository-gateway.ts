@@ -38,11 +38,13 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const revision = (await this.commands.run("git", ["rev-parse", governedBase], cwd)).stdout.trim();
         const files = (await this.commands.run("git", ["ls-tree", "-r", "--name-only", revision], cwd)).stdout.split("\n").filter(Boolean);
         const status = (await this.commands.run("git", ["status", "--porcelain"], cwd)).stdout.trim();
+        const productJourneyFindings = await this.productJourneyFindings(cwd, revision, files);
         const findings = [`TRACKED_FILES:${files.length}`, `GOVERNED_BASE:${governedBase}`, status ? "WORKTREE_DIRTY" : "WORKTREE_CLEAN",
             files.includes("package.json")
                 ? files.includes("package-lock.json") ? "DEPENDENCY_LOCK:PRESENT" : "DEPENDENCY_LOCK:MISSING"
                 : "DEPENDENCY_MANIFEST:NOT_APPLICABLE",
-            ...this.capabilityFindings(files)];
+            ...this.capabilityFindings(files),
+            ...productJourneyFindings];
         return { repository, revision, findings, inspectedAt: new Date(), files };
     }
 
@@ -59,6 +61,35 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
         const cwd = await this.checkout(repository);
         await this.commands.run("git", ["switch", "-c", branch, baseRevision], cwd);
         return branch;
+    }
+
+    /** Creates a tracked-files-only branch worktree so implementation workers cannot read checkout-local secrets. */
+    async createIsolatedBranch(repository: RepositoryReference, branch: string, baseRevision: string): Promise<string> {
+        this.assertBranch(branch);
+        if (!/^[a-f0-9]{7,40}$/i.test(baseRevision)) throw new Error("Isolated worktrees require an exact base revision.");
+        const checkout = await this.checkout(repository);
+        const root = resolve(this.workspaceRoot, ".worktrees");
+        await mkdir(root, { recursive: true });
+        const name = `${repository.owner}--${repository.name}--${branch.replaceAll("/", "--")}`;
+        const target = resolve(root, name);
+        if (!target.startsWith(`${root}${sep}`)) throw new Error("Isolated worktree path escaped the PBOS workspace.");
+        await this.commands.run("git", ["worktree", "add", "-b", branch, target, baseRevision], checkout);
+        return target;
+    }
+
+    async commitWorkingDirectory(workingDirectory: string, message: string, paths: readonly string[]): Promise<string> {
+        if (!message.trim() || paths.length === 0) throw new Error("Commit requires a message and explicit paths.");
+        paths.forEach(path => this.safePath(workingDirectory, path));
+        await this.commands.run("git", ["add", "--", ...paths], workingDirectory);
+        const identity = this.commitIdentity;
+        const identityArgs = identity ? ["-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`] : [];
+        await this.commands.run("git", [...identityArgs, "commit", "-m", message], workingDirectory);
+        return (await this.commands.run("git", ["rev-parse", "HEAD"], workingDirectory)).stdout.trim();
+    }
+
+    async pushWorkingDirectory(workingDirectory: string, branch: string): Promise<void> {
+        this.assertBranch(branch);
+        await this.commands.run("git", ["push", "-u", "origin", branch], workingDirectory);
     }
 
     async propose(inspection: RepositoryInspection, summary: string, changedPaths: readonly string[]): Promise<RepositoryChangeProposal> {
@@ -217,5 +248,21 @@ export class GitHubRepositoryGateway implements RepositoryGateway {
             files.includes("supabase/migrations/202608050002_pbos_scholar_foundation.sql")) present.add("IDENTITY");
         if (files.includes("pbos/generated/domain/education/scholar-journey.ts")) present.add("WORKFLOWS");
         return [...present].sort().map(capability => `CAPABILITY:${capability}:PRESENT`);
+    }
+
+    private async productJourneyFindings(cwd: string, revision: string, files: readonly string[]): Promise<readonly string[]> {
+        const manifestPath = "pbos/readiness/048-canon-journeys.json";
+        if (!files.includes(manifestPath)) return [];
+        try {
+            const content = (await this.commands.run("git", ["show", `${revision}:${manifestPath}`], cwd)).stdout;
+            const parsed = JSON.parse(content) as { productJourneys?: Array<{ journeyId?: unknown }> };
+            const journeyIds = (parsed.productJourneys ?? []).flatMap(item => {
+                const journeyId = typeof item?.journeyId === "string" ? item.journeyId.trim() : "";
+                return /^[A-Z0-9-]+$/.test(journeyId) ? [journeyId] : [];
+            });
+            return [...new Set(journeyIds)].sort().map(journeyId => `PRODUCT_JOURNEY_ID:${journeyId}:PRESENT`);
+        } catch {
+            return [];
+        }
     }
 }

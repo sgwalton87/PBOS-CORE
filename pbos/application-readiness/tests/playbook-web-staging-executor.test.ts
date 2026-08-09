@@ -45,7 +45,8 @@ describe("CIP-048 protected web-staging adapter", () => {
     it("prepares a deferred exact-revision Vercel deployment without deploying production", async () => {
         const generated = new Map<string, string>(); const approvals: Array<{ action: string; approval?: string }> = [];
         const gateway = { inspectRepository: async () => ({ revision: "def1234" }),
-            readFileAtRevision: async () => '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","journeys":[]}',
+            readFileAtRevision: async () => '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","canonicalGraphRevision":"def1234",' +
+                '"journeyIds":["SCHOLAR-ONBOARDING-TO-DASHBOARD"],"journeys":[{"journeyId":"SCHOLAR-ONBOARDING-TO-DASHBOARD"}]}',
             workingDirectory: async () => "/tmp/playbook-web", createBranch: async () => undefined,
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
                 files.forEach(file => generated.set(file.path, file.content)); return files.map(file => file.path); },
@@ -66,6 +67,7 @@ describe("CIP-048 protected web-staging adapter", () => {
         expect(result.acceptanceEvidence).toContainEqual(expect.objectContaining({ dimension: "PREVIEW", passed: true,
             commit: "abc1234" }));
         expect(generated.get("pbos/readiness/048-web-staging.json")).toContain("AUTHORIZED_PENDING_EXACT_REVISION_CI_AND_DEPLOYMENT");
+        expect(generated.get("pbos/readiness/048-web-staging.json")).toContain('"productCanonicalGraphRevision": "def1234"');
     });
 
     it("refuses to inspect without explicit staging authority", async () => {
@@ -73,5 +75,16 @@ describe("CIP-048 protected web-staging adapter", () => {
             deploymentApprovalId: "", authorize: action => ({ decisionId: action, grantId: "grant", action,
                 allowed: true, reason: "authorized", decidedAt: new Date() }), remediation: { start: () => { throw new Error("not reached"); } } });
         await expect(executor({ run, mission, report: () => undefined })).rejects.toThrow("explicit durable operator approval");
+    });
+
+    it("refuses web staging when the product manifest lacks canonical lineage", async () => {
+        const gateway = { inspectRepository: async () => ({ revision: "def1234" }),
+            readFileAtRevision: async () => '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","journeys":[]}'
+        } as unknown as GitHubRepositoryGateway;
+        const executor = playbookWebStagingExecutor({ gateway, session, deploymentApprovalId: "staging-approval",
+            authorize: action => ({ decisionId: action, grantId: "grant", action, allowed: true,
+                reason: "authorized", decidedAt: new Date() }), remediation: { start: () => { throw new Error("not reached"); } } });
+        await expect(executor({ run, mission, report: () => undefined }))
+            .rejects.toThrow("Connected Playbook product acceptance is not present on the governed default branch.");
     });
 });
