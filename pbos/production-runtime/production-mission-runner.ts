@@ -73,7 +73,10 @@ export class ProductionMissionRunner {
         const completed: ProductionRun[] = [];
         let parentRunId: string | undefined;
         for (let index = 0; index < maximumMissions; index += 1) {
-            const mission = new GovernedMissionQueue().next(this.state.missionQueue(request.systemId));
+            const recovering = this.runtime.activeRun(request.repository);
+            const mission = recovering?.status === "RECOVERING"
+                ? this.state.missionQueue(request.systemId).find(item => item.title === recovering.selectedMission)
+                : new GovernedMissionQueue().next(this.state.missionQueue(request.systemId));
             if (!mission) return { runs: completed, stopReason: "NO_ELIGIBLE_MISSION" };
             if (mission.approvalRequired && !(request.approvedMissionIds ?? []).includes(mission.missionId)) {
                 return { runs: completed, stopReason: "APPROVAL_REQUIRED", nextMission: mission };
@@ -82,23 +85,40 @@ export class ProductionMissionRunner {
             if (!executor) return { runs: completed, stopReason: "NO_EXECUTION_ADAPTER", nextMission: mission };
 
             this.report("MISSION_SELECTED", `${mission.title} — ${mission.rationale}`);
-            let run = this.runtime.begin({ systemId: request.systemId, actorId: request.actorId,
-                authorizationArtifactId: request.authorizationArtifactId, repository: request.repository,
-                branch: request.branch, commit: request.commit, objective: mission.title, mission: mission.title,
-                rationale: mission.rationale, dependencies: mission.dependencies, parentRunId,
-                triggerSource: parentRunId ? "CONTINUATION" : request.triggerSource ?? "CLI",
-                autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS" });
+            let run: ProductionRun;
+            let plan: ProductionExecutionPlan;
+            if (recovering?.status === "RECOVERING") {
+                if (recovering.systemId !== request.systemId || recovering.selectedMission !== mission.title ||
+                    recovering.startingCommit !== request.commit || recovering.actorId !== request.actorId ||
+                    recovering.resumeCheckpoint !== "EXECUTION") {
+                    throw new Error(`Recovering run ${recovering.runId} does not match the selected execution mission lineage.`);
+                }
+                run = this.runtime.resume(recovering.runId, request.actorId);
+                if (run.status !== "RUNNING") {
+                    throw new Error(`Recovering execution run ${run.runId} resumed into unexpected status ${run.status}.`);
+                }
+                plan = run.executionPlan ?? this.plan(run.runId, mission);
+                if (!run.executionPlan) this.runtime.recordExecutionPlan(run.runId, plan);
+                this.report("RUN_RECOVERING", `Resuming ${mission.title} in existing run ${run.runId}.`);
+            } else {
+                run = this.runtime.begin({ systemId: request.systemId, actorId: request.actorId,
+                    authorizationArtifactId: request.authorizationArtifactId, repository: request.repository,
+                    branch: request.branch, commit: request.commit, objective: mission.title, mission: mission.title,
+                    rationale: mission.rationale, dependencies: mission.dependencies, parentRunId,
+                    triggerSource: parentRunId ? "CONTINUATION" : request.triggerSource ?? "CLI",
+                    autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS" });
+                this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", {
+                    missionId: mission.missionId, buildChannelId: request.buildChannel.channelId,
+                    operatingSystemId: request.buildChannel.operatingSystemId,
+                    connectorId: request.buildChannel.connectorId,
+                    domainRegistrationIds: request.buildChannel.domainRegistrationIds
+                });
+                this.runtime.transition(run.runId, "STARTING", "Authorized mission execution is starting.");
+                plan = this.plan(run.runId, mission);
+                this.runtime.recordExecutionPlan(run.runId, plan);
+                this.runtime.transition(run.runId, "RUNNING", "Mission execution started.");
+            }
             this.runtime.updateMissionStatus(request.systemId, mission.missionId, "ACTIVE");
-            this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", {
-                missionId: mission.missionId, buildChannelId: request.buildChannel.channelId,
-                operatingSystemId: request.buildChannel.operatingSystemId,
-                connectorId: request.buildChannel.connectorId,
-                domainRegistrationIds: request.buildChannel.domainRegistrationIds
-            });
-            this.runtime.transition(run.runId, "STARTING", "Authorized mission execution is starting.");
-            const plan = this.plan(run.runId, mission);
-            this.runtime.recordExecutionPlan(run.runId, plan);
-            this.runtime.transition(run.runId, "RUNNING", "Mission execution started.");
             const stage = this.runtime.startStage(run.runId, "EXECUTION", mission.title, { planId: plan.planId, missionId: mission.missionId });
             this.report("RUNNING", `${mission.title} is active (run ${run.runId}).`);
 

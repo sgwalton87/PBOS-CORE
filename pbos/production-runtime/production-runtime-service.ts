@@ -356,6 +356,34 @@ export class ProductionRuntimeService {
         return updated;
     }
 
+    normalizeFunctionalAcceptanceRequiredEnvironment(runId: string,
+        requiredEnvironmentVariables: readonly string[]): ProductionRun {
+        const run = this.requireRun(runId);
+        const current = run.functionalAcceptancePlan;
+        const required = [...new Set(requiredEnvironmentVariables.filter(name => name.trim()))].sort();
+        if (!current || required.length === 0) return run;
+        const merge = (names?: readonly string[]) => [...new Set([...(names ?? []), ...required])].sort();
+        const launch = { ...current.launch,
+            requiredEnvironmentVariables: merge(current.launch.requiredEnvironmentVariables) };
+        const browserJourneys = current.browserJourneys.map(journey => ({ ...journey,
+            command: { ...journey.command,
+                requiredEnvironmentVariables: merge(journey.command.requiredEnvironmentVariables) } }));
+        const changed = JSON.stringify(launch.requiredEnvironmentVariables) !==
+            JSON.stringify(current.launch.requiredEnvironmentVariables ?? []) || browserJourneys.some((journey, index) =>
+                JSON.stringify(journey.command.requiredEnvironmentVariables) !==
+                JSON.stringify(current.browserJourneys[index].command.requiredEnvironmentVariables ?? []));
+        if (!changed) return run;
+        const plan: FunctionalAcceptancePlan = { ...current, launch, browserJourneys };
+        const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
+            lastHeartbeatAt: this.now().toISOString() };
+        this.state.saveProductionRun(updated);
+        this.event(updated, "FUNCTIONAL_ACCEPTANCE_ENVIRONMENT_NORMALIZED",
+            "Durable functional commands were bound to their declared protected configuration names.", {
+                requiredEnvironmentVariables: required
+            });
+        return updated;
+    }
+
     recordValidation(runId: string, name: string, passed: boolean, durationMs: number, evidenceId: string): ProductionRun {
         if (!name.trim() || !evidenceId.trim() || durationMs < 0) throw new Error("Validation evidence is incomplete.");
         const run = this.heartbeat(runId);
@@ -612,7 +640,9 @@ export class ProductionRuntimeService {
             ? this.state.productionStages(runId).find(stage => stage.stageId === run.activeStageId) : undefined;
         const validationStages: readonly StageType[] = ["VALIDATION", "PREREQUISITE", "APPLICATION_LAUNCH",
             "RUNTIME_VERIFICATION", "BROWSER_JOURNEY", "NATIVE_JOURNEY", "ACCEPTANCE", "PREVIEW"];
-        const target: ProductionStatus = activeStage && !validationStages.includes(activeStage.type) ? "RUNNING" : "VALIDATING";
+        const checkpoint = activeStage?.type ?? run.resumeCheckpoint;
+        const target: ProductionStatus = checkpoint && !validationStages.includes(checkpoint as StageType)
+            ? "RUNNING" : "VALIDATING";
         const resumed = this.transition(runId, target, "Authorized run resumed from its durable checkpoint.", { actorId });
         if (target === "VALIDATING" && !activeStage) {
             this.startStage(runId, "VALIDATION", `Resume validation for ${run.selectedMission}`, {
@@ -747,6 +777,21 @@ export class ProductionRuntimeService {
             }
         }
         return recovered;
+    }
+
+    recoverFailedExecution(runId: string, reason: string): ProductionRun {
+        const run = this.requireRun(runId);
+        const failedExecution = [...this.state.productionStages(runId)].reverse()
+            .find(stage => stage.type === "EXECUTION" && stage.status === "FAILED");
+        if (run.status !== "FAILED" || !failedExecution || !reason.trim()) {
+            throw new Error(`Run ${runId} is not eligible for execution-checkpoint recovery.`);
+        }
+        const recovering = this.transition(runId, "RECOVERING", reason, {
+            checkpoint: "EXECUTION", failedStageId: failedExecution.stageId
+        });
+        const updated = { ...recovering, activeStageId: undefined, resumeCheckpoint: "EXECUTION" };
+        this.state.saveProductionRun(updated);
+        return updated;
     }
 
     health(): RuntimeHealthReport {

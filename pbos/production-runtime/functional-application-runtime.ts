@@ -209,6 +209,25 @@ function isDependencyBootstrap(command: FunctionalRuntimeCommand): boolean {
         (executable === "corepack" && ["pnpm", "yarn"].includes(action) && command.args[1] === "install");
 }
 
+async function dependencyBootstrapIsCurrent(
+    command: FunctionalRuntimeCommand, workingDirectory: string): Promise<boolean> {
+    const executable = command.command.split("/").at(-1);
+    if (executable !== "npm" || command.args[0] !== "ci") return false;
+    const hiddenLock = join(workingDirectory, "node_modules", ".package-lock.json");
+    const repositoryLock = await exists(join(workingDirectory, "npm-shrinkwrap.json"))
+        ? join(workingDirectory, "npm-shrinkwrap.json")
+        : join(workingDirectory, "package-lock.json");
+    if (!await exists(hiddenLock) || !await exists(repositoryLock)) return false;
+    const [installed, locked, manifest] = await Promise.all([
+        stat(hiddenLock), stat(repositoryLock), stat(join(workingDirectory, "package.json"))
+    ]);
+    // npm owns node_modules/.package-lock.json and rewrites it only after a
+    // successful install. If it is newer than both dependency inputs, the
+    // exact worktree is already prepared and a recovery must not consume disk
+    // by destructively reinstalling the same tree.
+    return installed.mtimeMs >= locked.mtimeMs && installed.mtimeMs >= manifest.mtimeMs;
+}
+
 const DEPENDENCY_BOOTSTRAP_TIMEOUT_MS = 900_000;
 const DEPENDENCY_PREPARATION_HEADROOM_BYTES = 1024 * 1024 * 1024;
 
@@ -492,7 +511,15 @@ export class FunctionalApplicationRuntime {
             screens: canonicalJourneys.map(journey => journey.visualCanon!.screenId),
             manifests: canonicalJourneys.map(journey => journey.visualCanon!.manifestPath)
         });
-        const prerequisites = await resolveFunctionalPrerequisites(plan);
+        const resolvedPrerequisites = await resolveFunctionalPrerequisites(plan);
+        const prerequisites: FunctionalRuntimeCommand[] = [];
+        const reusedPrerequisites: FunctionalRuntimeCommand[] = [];
+        for (const prerequisite of resolvedPrerequisites) {
+            if (isDependencyBootstrap(prerequisite) &&
+                await dependencyBootstrapIsCurrent(prerequisite, plan.workingDirectory)) {
+                reusedPrerequisites.push(prerequisite);
+            } else prerequisites.push(prerequisite);
+        }
         const preparationFloor = minimumFreeBytes +
             (prerequisites.some(isDependencyBootstrap) ? DEPENDENCY_PREPARATION_HEADROOM_BYTES : 0);
         if (availableBytes < preparationFloor) {
@@ -525,9 +552,10 @@ export class FunctionalApplicationRuntime {
                 `${minimumFreeBytes} bytes are required but only ${postPreparationBytes} remain.`);
         }
         if (!usesDeployedPreview) await assertLocalLaunchExecutable(plan);
-        report("PREREQUISITES_VERIFIED", { total: prerequisites.length,
-            commands: prerequisites.map(item => `${item.command} ${item.args.join(" ")}`),
-            recoveredFromDurablePlan: prerequisites.length > (plan.prerequisites?.length ?? 0) });
+        report("PREREQUISITES_VERIFIED", { total: resolvedPrerequisites.length,
+            commands: resolvedPrerequisites.map(item => `${item.command} ${item.args.join(" ")}`),
+            reused: reusedPrerequisites.map(item => `${item.command} ${item.args.join(" ")}`),
+            recoveredFromDurablePlan: resolvedPrerequisites.length > (plan.prerequisites?.length ?? 0) });
         const application = usesDeployedPreview
             ? { logs: () => "", stop: async () => undefined }
             : await this.launcher.launch(plan, runtimeEnvironment);
