@@ -21,7 +21,8 @@ describe("CIP-049 native journey adapter", () => {
                 ? '{"name":"playbook-platform","private":true,"scripts":{}}'
                 : path === "apps/mobile/package.json"
                     ? '{"name":"@playbook-system-001/mobile","private":true,"scripts":{},"dependencies":{}}'
-                    : '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION"}',
+                    : '{"state":"IMPLEMENTED_PENDING_INDEPENDENT_VALIDATION","targets":["IOS","ANDROID"],' +
+                        '"productCanonicalGraphRevision":"abc1234","productJourneyIds":["SCHOLAR-ONBOARDING-TO-DASHBOARD"]}',
             workingDirectory: async () => "/private/tmp/playbook-native-acceptance",
             createBranch: async () => undefined,
             applyChange: async (_reference: unknown, files: readonly { path: string; content: string }[]) => {
@@ -48,6 +49,7 @@ describe("CIP-049 native journey adapter", () => {
         expect(generated.get("app/api/pbos/mobile/scholar/route.ts")).toContain("scholar_dashboard_projections");
         expect(generated.get("apps/mobile/scripts/native-acceptance.mjs")).toContain('"--platform", "ios"');
         expect(generated.get("pbos/readiness/049-mobile-journeys.json")).toContain("BOUNDED_IDEMPOTENT_QUEUE");
+        expect(generated.get("pbos/readiness/049-mobile-journeys.json")).toContain('"productCanonicalGraphRevision": "abc1234"');
         expect(result.functionalAcceptancePlan?.nativeJourneys?.[0]).toMatchObject({
             journeyId: "PLAYBOOK-MOBILE-SCHOLAR-JOURNEYS", platforms: ["IOS", "ANDROID"]
         });
