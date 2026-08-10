@@ -9,6 +9,7 @@ describe("Playbook full canonical roadmap", () => {
         expect(PLAYBOOK_CANONICAL_OPERATING_SYSTEMS).toHaveLength(17);
         expect(PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS.length).toBeGreaterThanOrEqual(14);
         expect(new Set(PLAYBOOK_CANONICAL_OPERATING_SYSTEMS.map(item => item.osId)).size).toBe(17);
+        expect(new Set(PLAYBOOK_CANONICAL_OPERATING_SYSTEMS.map(item => item.route)).size).toBe(17);
         expect(new Set(PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS.map(item => item.pathwayId)).size)
             .toBe(PLAYBOOK_CANONICAL_ONBOARDING_PATHWAYS.length);
         expect(PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS).toHaveLength(32);
