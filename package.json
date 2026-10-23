@@ -32,6 +32,7 @@
     "pbos:build:playbook": "tsx pbos/genesis-console/entrypoint.ts build playbook",
     "pbos:migrate:playbook": "tsx pbos/genesis-console/entrypoint.ts migrate playbook",
     "pbos:build:bulletproof": "tsx pbos/genesis-console/entrypoint.ts build bulletproof",
+    "pbos:preflight:production-connector": "tsx pbos/tools/production-connector-preflight.ts",
     "pbos:activate:playbook": "tsx pbos/tools/playbook-staging-activation.ts",
     "pbos:verify:playbook-recovery": "tsx pbos/tools/playbook-staging-recovery.ts",
     "pbos:evidence:playbook-lifecycle": "tsx pbos/tools/playbook-staging-lifecycle.ts",
