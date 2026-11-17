@@ -1,0 +1,51 @@
+name: PBOS Core Read-Only Preflight
+
+on:
+  pull_request:
+    paths:
+      - "pbos/**"
+      - "packages/**"
+      - "bin/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - ".github/workflows/pbos-core-readonly-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pbos-preflight-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-certification-preflight:
+    name: Typecheck, tests and build (no runtime authority)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CI: "true"
+      PBOS_STATE_HOME: "${{ runner.temp }}/pbos-isolated-preflight"
+    steps:
+      - name: Checkout exact candidate revision
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit and integration tests
+        run: npm run test:run
+      - name: Build
+        run: npm run build
+      - name: Record no-authority boundary
+        run: |
+          echo "Source validation only; no authenticated operator state was inspected."
+          echo "No PBOS live mission, production connector, or deployment was started."
