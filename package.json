@@ -20,6 +20,7 @@
     "pbos:status": "tsx pbos/genesis-console/entrypoint.ts status",
     "pbos:constitution": "tsx pbos/genesis-console/entrypoint.ts constitution",
     "pbos:doctor": "tsx pbos/genesis-console/entrypoint.ts doctor",
+    "pbos:preflight:readonly": "tsx pbos/tools/operator-readonly-preflight.ts",
     "pbos:memo": "tsx pbos/genesis-console/entrypoint.ts memo",
     "pbos:watch": "tsx pbos/genesis-console/entrypoint.ts watch",
     "pbos:portal": "tsx pbos/consumer-portal/server.ts",
