@@ -1,15 +1,10 @@
 name: PBOS Core Read-Only Preflight
 
 on:
+  push:
+    branches:
+      - chore/pbos-core-readonly-ci-preflight-20261117
   pull_request:
-    paths:
-      - "pbos/**"
-      - "packages/**"
-      - "bin/**"
-      - "package.json"
-      - "package-lock.json"
-      - "tsconfig*.json"
-      - ".github/workflows/pbos-core-readonly-preflight.yml"
   workflow_dispatch:
 
 permissions:
