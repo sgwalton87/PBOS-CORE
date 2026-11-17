@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 25
     env:
       CI: "true"
-      PBOS_STATE_HOME: "${{ runner.temp }}/pbos-isolated-preflight"
+      PBOS_STATE_HOME: "/tmp/pbos-isolated-preflight"
     steps:
       - name: Checkout exact candidate revision
         uses: actions/checkout@v4
