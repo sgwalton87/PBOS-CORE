@@ -3,7 +3,7 @@ name: PBOS Core Read-Only Preflight
 on:
   push:
     branches:
-      - chore/pbos-core-readonly-ci-preflight-20261117
+      - main
   pull_request:
   workflow_dispatch:
 
