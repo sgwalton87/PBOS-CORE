@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { OperatorIdentityService } from "../../genesis-state";
-import { inspectExistingOperatorRuntime } from "../operator-readonly-preflight";
+import { compareReadOnlyStateDigests, inspectExistingOperatorRuntime } from "../operator-readonly-preflight";
 
 describe("read-only existing PBOS operator preflight", () => {
     it("does not create or bootstrap missing runtime files", () => {
@@ -31,7 +32,25 @@ describe("read-only existing PBOS operator preflight", () => {
             integrityValid: true, activeRuns: 0, activeLeases: 0, queuedMissions: 0,
             approvalGranted: false });
         expect(JSON.stringify(report)).not.toContain(enrollment.credential);
+        expect(report.stateFilesUnchanged).toBe(true);
+        expect(report.stateFingerprint).toBe(createHash("sha256").update(readFileSync(statePath)).digest("hex"));
         paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]));
+    });
+
+    it("blocks a changed state file instead of presenting an inspection as stable", () => {
+        const first = ["a", "b", "c"];
+        expect(compareReadOnlyStateDigests(first, ["a", "b", "c"])).toEqual({
+            unchanged: true, stateFingerprint: "c"
+        });
+        expect(compareReadOnlyStateDigests(first, ["a", "changed", "c"])).toEqual({
+            unchanged: false, stateFingerprint: null
+        });
+        expect(compareReadOnlyStateDigests(first, ["a", "b", "changed"])).toEqual({
+            unchanged: false, stateFingerprint: null
+        });
+        expect(compareReadOnlyStateDigests(first, ["a", "b"])).toEqual({
+            unchanged: false, stateFingerprint: null
+        });
     });
 
     it("blocks invalid credentials without changing operator state", () => {
