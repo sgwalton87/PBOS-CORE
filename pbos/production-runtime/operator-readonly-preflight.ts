@@ -26,6 +26,19 @@ function blocked(missingFiles: readonly string[] = []): OperatorPreflightReport 
 }
 
 /**
+ * Compare the three files in stable order: profile, operators, genesis-state.
+ * A content hash is redacted evidence of a candidate state, not proof of host identity.
+ */
+export function compareReadOnlyStateDigests(before: readonly string[], after: readonly string[]): Readonly<{
+    unchanged: boolean;
+    stateFingerprint: string | null;
+}> {
+    const unchanged = before.length === 3 && after.length === 3 &&
+        before.every((digest, index) => digest === after[index]);
+    return { unchanged, stateFingerprint: unchanged ? after[2] : null };
+}
+
+/**
  * Inspect an EXISTING operator state without initialization, recovery,
  * persistence, repository operations, or disclosure of credentials.
  * An INSPECTED result is evidence of observation only, never execution approval.
@@ -57,7 +70,7 @@ export function inspectExistingOperatorRuntime(stateHome: string): OperatorPrefl
         // Detect concurrent edits to any identity or mission state inspected.
         // A stable hash does not establish that this is the ORIGINAL operator host.
         const after = statePaths.map(sha256);
-        const unchanged = before.every((digest, index) => digest === after[index]);
+        const { unchanged, stateFingerprint } = compareReadOnlyStateDigests(before, after);
         return {
             status: integrity.valid && unchanged ? "INSPECTED" : "BLOCKED",
             missingFiles: [],
@@ -67,7 +80,7 @@ export function inspectExistingOperatorRuntime(stateHome: string): OperatorPrefl
             activeRuns: active.length,
             activeLeases: state.executionLeases().filter(lease => lease.status === "ACTIVE").length,
             queuedMissions: state.missionQueue().length,
-            stateFingerprint: unchanged ? after[2] : null,
+            stateFingerprint,
             stateFilesUnchanged: unchanged,
             approvalGranted: false
         };
