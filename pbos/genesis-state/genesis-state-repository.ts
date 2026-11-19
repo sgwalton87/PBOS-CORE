@@ -113,9 +113,18 @@ export class GenesisStateRepository {
         return [...(this.store.read().productionEvents ?? [])].filter(event => !runId || event.runId === runId)
             .sort((left, right) => left.sequence - right.sequence);
     }
-    appendProductionEvent(event: ProductionEvent): void {
-        if ((this.store.read().productionEvents ?? []).some(item => item.eventId === event.eventId)) return;
-        this.store.update(state => ({ ...state, productionEvents: [...(state.productionEvents ?? []), event] }));
+    /**
+     * Allocate an event sequence inside the durable store's cross-process lock.
+     * Allocating before this transaction lets two writers observe the same last event.
+     * Never rewrite existing history, including legacy duplicate sequences.
+     */
+    appendProductionEvent(event: Omit<ProductionEvent, "sequence">): void {
+        this.store.update(state => {
+            const events = state.productionEvents ?? [];
+            if (events.some(item => item.eventId === event.eventId)) return state;
+            const lastSequence = events.reduce((maximum, item) => Math.max(maximum, item.sequence), 0);
+            return { ...state, productionEvents: [...events, { ...event, sequence: lastSequence + 1 }] };
+        });
     }
     productionRecoveryEpochs(runId?: string): readonly ProductionRecoveryEpoch[] {
         return [...(this.store.read().productionRecoveryEpochs ?? [])]

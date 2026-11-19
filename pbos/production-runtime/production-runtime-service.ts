@@ -919,8 +919,7 @@ export class ProductionRuntimeService {
     }
     private event(run: ProductionRun, type: string, summary: string, payload: Readonly<Record<string, unknown>>,
         severity: ProductionEvent["severity"] = "INFO", parentEntityId = run.runId): void {
-        const events = this.state.productionEvents();
-        const event: ProductionEvent = { eventId: randomUUID(), sequence: (events.at(-1)?.sequence ?? 0) + 1, type,
+        const event: Omit<ProductionEvent, "sequence"> = { eventId: randomUUID(), type,
             timestamp: this.now().toISOString(), runId: run.runId, parentEntityId, actorId: run.actorId, severity,
             status: run.status, summary, payload: this.redactPayload(payload), repository: run.repository,
             branch: run.currentBranch, commit: run.currentCommit, correlationId: run.runId, traceId: run.parentRunId };
