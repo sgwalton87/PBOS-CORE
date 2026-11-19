@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -42,7 +42,6 @@ describe("PBOS production event sequence allocation", () => {
         first.appendProductionEvent(event("a"));
         first.appendProductionEvent(event("b"));
         const state = JSON.parse(readFileSync(path, "utf8"));
-        const { writeFileSync } = require("node:fs") as typeof import("node:fs");
         state.productionEvents[1].sequence = 1;
         writeFileSync(path, JSON.stringify(state), "utf8");
         second.appendProductionEvent(event("c"));
