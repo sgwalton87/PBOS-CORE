@@ -26,8 +26,11 @@ jobs:
     timeout-minutes: 30
     env:
       CI: "true"
-      PBOS_STATE_HOME: ${{ runner.temp }}/mb02-disposable-state
     steps:
+      - name: Configure disposable state home
+        shell: bash
+        run: |
+          echo "PBOS_STATE_HOME=${RUNNER_TEMP}/mb02-disposable-state" >> "$GITHUB_ENV"
       - name: Validate exact candidate revision
         shell: bash
         env:
