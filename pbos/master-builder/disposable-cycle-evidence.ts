@@ -23,6 +23,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   Readonly<{ complete: boolean; findings: readonly string[]; digest: string }> {
   const findings: string[] = [];
   const { mission, stages, proposal } = evidence;
+  const sourceSha = mission.sourceSha.toLowerCase();
   if (!mission.missionId.trim() || !mission.stateNamespace.trim() ||
       !/^[A-Za-z0-9._-]+$/.test(mission.missionId) ||
       !/^[A-Za-z0-9._-]+$/.test(mission.stateNamespace) ||
@@ -37,7 +38,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   STAGES.forEach((stage, index) => {
     const record = stages[index];
     if (!record || record.stage !== stage || !record.passed ||
-        !record.evidenceId.trim() || record.revision !== mission.sourceSha ||
+        !record.evidenceId.trim() || record.revision.toLowerCase() !== sourceSha ||
         !Number.isFinite(Date.parse(record.recordedAt))) {
       findings.push(`Unverified lifecycle stage: ${stage}`);
     }
@@ -50,10 +51,10 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   if (new Set(stages.map(item => item.evidenceId)).size !== stages.length) {
     findings.push("Lifecycle evidence identifiers must be unique.");
   }
-  if (proposal.repository !== mission.repository || proposal.baseSha !== mission.sourceSha ||
+  if (proposal.repository !== mission.repository || proposal.baseSha.toLowerCase() !== sourceSha ||
       !/^disposable\/[A-Za-z0-9._/-]+$/.test(proposal.branch) ||
       !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
-      proposal.headSha === proposal.baseSha) {
+      proposal.headSha.toLowerCase() === proposal.baseSha.toLowerCase()) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
   }
   if (proposal.url) {
