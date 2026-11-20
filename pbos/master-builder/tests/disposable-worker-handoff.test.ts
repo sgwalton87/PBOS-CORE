@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OperatorIdentityService } from "../../genesis-state/operator-identity";
 import type { MasterBuilderMissionBinding } from "../mission-binding-gate";
 import { disposableMissionApprovalScope } from "../signed-approval-evidence";
+import { CodexCanonPhaseImplementationAgent } from "../../application-readiness/playbook-canon-phase-executor";
 import { executeAuthorizedDisposableWorker } from "../disposable-worker-handoff";
 
 describe("disposable existing Codex worker admission", () => {
@@ -52,6 +53,19 @@ describe("disposable existing Codex worker admission", () => {
       expect(await executeAuthorizedDisposableWorker(agent, identities, signed, mission,
         request, worktree, new Date())).toEqual({ summary: "bounded worker result" });
       expect(execute).toHaveBeenCalledTimes(1);
+      const commands: string[][] = [];
+      const existingAgent = new CodexCanonPhaseImplementationAgent({
+        run: async (args, cwd) => {
+          expect(cwd).toBe(worktreePath);
+          commands.push([...args]);
+          return { stdout: "isolated worker process rehearsal", stderr: "" };
+        },
+      });
+      expect(await executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
+        request, worktree, new Date())).toEqual({ summary: "isolated worker process rehearsal" });
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "workspace-write"]));
+      expect(commands[0].at(-1)).toContain("Do not commit, push, open a PR, merge, or deploy");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
