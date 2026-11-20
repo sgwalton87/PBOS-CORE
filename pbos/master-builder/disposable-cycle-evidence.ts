@@ -24,6 +24,11 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   const findings: string[] = [];
   const { mission, stages, proposal } = evidence;
   const sourceSha = mission.sourceSha.toLowerCase();
+  // Treat imported runner evidence as untrusted, even when TypeScript types claim otherwise.
+  if (!Array.isArray(stages) || !proposal || typeof proposal !== "object") {
+    return { complete: false, findings: ["Lifecycle stages or proposal are missing."],
+      digest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex") };
+  }
   if (!mission.missionId.trim() || !mission.stateNamespace.trim() ||
       !/^[A-Za-z0-9._-]+$/.test(mission.missionId) ||
       !/^[A-Za-z0-9._-]+$/.test(mission.stateNamespace) ||
@@ -38,22 +43,25 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   STAGES.forEach((stage, index) => {
     const record = stages[index];
     if (!record || record.stage !== stage || !record.passed ||
-        !record.evidenceId.trim() || record.revision.toLowerCase() !== sourceSha ||
-        !Number.isFinite(Date.parse(record.recordedAt))) {
+        typeof record.evidenceId !== "string" || !record.evidenceId.trim() ||
+        typeof record.revision !== "string" || record.revision.toLowerCase() !== sourceSha ||
+        typeof record.recordedAt !== "string" || !Number.isFinite(Date.parse(record.recordedAt))) {
       findings.push(`Unverified lifecycle stage: ${stage}`);
     }
-    const timestamp = record ? Date.parse(record.recordedAt) : NaN;
+    const timestamp = record && typeof record.recordedAt === "string" ? Date.parse(record.recordedAt) : NaN;
     if (!Number.isFinite(timestamp) || timestamp < previousTimestamp) {
       findings.push(`Lifecycle timestamps are invalid or out of order at: ${stage}`);
     }
     if (Number.isFinite(timestamp)) previousTimestamp = timestamp;
   });
-  if (new Set(stages.map(item => item.evidenceId)).size !== stages.length) {
+  if (new Set(stages.map(item => item?.evidenceId)).size !== stages.length) {
     findings.push("Lifecycle evidence identifiers must be unique.");
   }
-  if (proposal.repository !== mission.repository || proposal.baseSha.toLowerCase() !== sourceSha ||
+  if (proposal.repository !== mission.repository ||
+      typeof proposal.baseSha !== "string" || proposal.baseSha.toLowerCase() !== sourceSha ||
       !/^disposable\/[A-Za-z0-9._/-]+$/.test(proposal.branch) ||
       !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
+      typeof proposal.headSha !== "string" ||
       proposal.headSha.toLowerCase() === proposal.baseSha.toLowerCase()) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
   }
