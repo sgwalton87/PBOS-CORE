@@ -1,0 +1,64 @@
+name: Master Builder MB-02 Disposable Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Exact 40-character PBOS-CORE commit to test (no production access)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mb02-disposable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-worker-preflight:
+    if: github.ref_type == 'branch' && github.ref_name == 'feat/master-builder-readonly-gate'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+      PBOS_STATE_HOME: ${{ runner.temp }}/mb02-disposable-state
+    steps:
+      - name: Validate exact candidate revision
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          [[ "$REQUESTED_SHA" =~ ^[a-fA-F0-9]{40}$ ]] || exit 1
+          echo "Candidate SHA format verified"
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Assert exact revision
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Create and verify disposable detached worktree
+        shell: bash
+        run: |
+          git worktree add --detach "${{ runner.temp }}/mb02-worktree" HEAD
+          test "$(git -C "${{ runner.temp }}/mb02-worktree" rev-parse HEAD)" = "$(git rev-parse HEAD)"
+          test -z "$(git -C "${{ runner.temp }}/mb02-worktree" status --porcelain)"
+      - name: Run bounded worker admission tests
+        run: npx vitest run pbos/master-builder/tests/disposable-worker-handoff.test.ts pbos/master-builder/tests/disposable-runner-integration.test.ts
+      - name: Record evidence boundary
+        run: |
+          echo "MB-02 worktree and injected-worker validation only." >> "$GITHUB_STEP_SUMMARY"
+          echo "No live Codex worker was launched; no autonomous build certified." >> "$GITHUB_STEP_SUMMARY"
+          echo "No production or original Genesis access was granted." >> "$GITHUB_STEP_SUMMARY"
