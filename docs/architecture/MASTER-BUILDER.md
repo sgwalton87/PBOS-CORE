@@ -52,3 +52,9 @@ The Master Builder™ is a **product capability of the existing PBOS autonomous 
 `signed-approval-evidence.ts` accepts the **existing** `OperatorIdentityService.verify(approval, action, resource, at)` contract. It returns no evidence when the existing verifier denies or throws, when approval is absent, or when the context is not disposable. It never issues approvals, reads signing keys, or constructs a parallel identity system.
 
 **Boundary:** This verifies the signature only for the supplied action/resource. The authoritative runtime must establish the correct action/resource and bind it to the exact mission, repository, commit, and namespace; caller-selected strings are not independent proof of scope. The complete end-to-end signed approval integration remains unverified.
+
+## Existing Playbook Canon product graph integration
+
+`canon-graph-evidence.ts` consumes `PlaybookCanonProductGraphCompiler` output from `pbos/application-readiness/playbook-canon-product-graph.ts` rather than compiling a second Canon. It checks repository identity, exact 40-character source SHA, source digest provenance, compiler blockers and certification readiness. It never changes Canon or grants execution authority.
+
+**Important:** `certificationReady` is a strict product-wide certification condition; an incomplete Playbook graph must be reported as blocked, not silently treated as complete. This strict certification gate must not be confused with a separate mission-scoped build permission; future mission-scoped Canon checks must use an independently defined existing authority, not weaken this certification result. Existing outstanding Playbook Canon findings therefore remain blockers to certification.
