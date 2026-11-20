@@ -1,6 +1,10 @@
 name: Master Builder MB-02 Disposable Worker
 
 on:
+  pull_request:
+    paths:
+      - "pbos/master-builder/**"
+      - ".github/workflows/master-builder-mb02-disposable.yml"
   workflow_dispatch:
     inputs:
       source_sha:
@@ -17,7 +21,7 @@ concurrency:
 
 jobs:
   isolated-worker-preflight:
-    if: github.ref_type == 'branch' && github.ref_name == 'feat/master-builder-readonly-gate'
+    if: github.event_name == 'pull_request' || (github.ref_type == 'branch' && github.ref_name == 'feat/master-builder-readonly-gate')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -27,7 +31,7 @@ jobs:
       - name: Validate exact candidate revision
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.source_sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
         run: |
           [[ "$REQUESTED_SHA" =~ ^[a-fA-F0-9]{40}$ ]] || exit 1
           echo "Candidate SHA format verified"
