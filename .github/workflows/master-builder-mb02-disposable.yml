@@ -44,7 +44,7 @@ jobs:
       - name: Assert exact revision
         shell: bash
         env:
-          REQUESTED_SHA: ${{ inputs.source_sha }}
+          REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
       - name: Configure Node
