@@ -23,6 +23,13 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   Readonly<{ complete: boolean; findings: readonly string[]; digest: string }> {
   const findings: string[] = [];
   const { mission, stages, proposal } = evidence;
+  if (!mission || typeof mission.sourceSha !== "string" ||
+      typeof mission.missionId !== "string" ||
+      typeof mission.stateNamespace !== "string" ||
+      typeof mission.repository !== "string") {
+    return { complete: false, findings: ["Mission identity is missing or malformed."],
+      digest: createHash("sha256").update(JSON.stringify(evidence)).digest("hex") };
+  }
   const sourceSha = mission.sourceSha.toLowerCase();
   // Treat imported runner evidence as untrusted, even when TypeScript types claim otherwise.
   if (!Array.isArray(stages) || !proposal || typeof proposal !== "object") {
@@ -59,13 +66,17 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   }
   if (proposal.repository !== mission.repository ||
       typeof proposal.baseSha !== "string" || proposal.baseSha.toLowerCase() !== sourceSha ||
+      typeof proposal.branch !== "string" ||
       !/^disposable\/[A-Za-z0-9._/-]+$/.test(proposal.branch) ||
       !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
       typeof proposal.headSha !== "string" ||
       proposal.headSha.toLowerCase() === proposal.baseSha.toLowerCase()) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
   }
-  if (proposal.url) {
+  if (proposal.url !== undefined && proposal.url !== null) {
+    if (typeof proposal.url !== "string") {
+      findings.push("Proposal URL must be a string.");
+    } else {
     try {
       const url = new URL(proposal.url);
       if (url.protocol !== "https:" || url.hostname !== "github.com" ||
@@ -75,6 +86,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
       }
     } catch {
       findings.push("Proposal URL is invalid.");
+    }
     }
   }
   const digest = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
