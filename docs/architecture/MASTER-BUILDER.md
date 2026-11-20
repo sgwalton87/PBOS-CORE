@@ -46,3 +46,9 @@ The Master Builder™ is a **product capability of the existing PBOS autonomous 
 `existing-runtime-compatibility.ts` reads registry **coverage** without calling an executor factory, checks candidate/runner request alignment, and requires one-mission/no-continuation disposable rehearsal bounds. It **never invokes** `ProductionMissionRunner.run`. A string authorization artifact is not proof of signature verification. No runtime authority is delegated to the preview.
 
 **Open integration gap:** bind actual signed-approval and Canon evidence to the preview, ensure exact mission/revision identity across queue/runner/kernel, and perform the first disposable end-to-end run with durable evidence. Original Genesis integrity remains blocked pending separately approved recovery.
+
+## Signed approval verifier reuse (MB-01)
+
+`signed-approval-evidence.ts` accepts the **existing** `OperatorIdentityService.verify(approval, action, resource, at)` contract. It returns no evidence when the existing verifier denies or throws, when approval is absent, or when the context is not disposable. It never issues approvals, reads signing keys, or constructs a parallel identity system.
+
+**Boundary:** This verifies the signature only for the supplied action/resource. The authoritative runtime must establish the correct action/resource and bind it to the exact mission, repository, commit, and namespace; caller-selected strings are not independent proof of scope. The complete end-to-end signed approval integration remains unverified.
