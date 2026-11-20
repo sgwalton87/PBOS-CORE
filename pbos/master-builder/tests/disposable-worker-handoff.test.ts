@@ -66,6 +66,10 @@ describe("disposable existing Codex worker admission", () => {
       expect(commands).toHaveLength(1);
       expect(commands[0]).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "workspace-write"]));
       expect(commands[0].at(-1)).toContain("Do not commit, push, open a PR, merge, or deploy");
+      writeFileSync(join(worktreePath, "untracked.txt"), "dirty");
+      await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
+        request, worktree, new Date())).rejects.toThrow(/clean before worker launch/);
+      expect(commands).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
