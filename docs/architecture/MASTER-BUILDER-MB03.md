@@ -1,0 +1,79 @@
+# MB-03 — Repeatable Governed Engineering: Remote Runtime Contract
+
+**Status:** DESIGN ONLY — no runtime execution authority.  
+**Parent:** The Master Builder™ in PBOS-CORE.  
+**Tracking:** #95. **Dependencies:** draft #93 (foundation), draft #94 (single disposable-cycle proposal).  
+**Base:** `feat/master-builder-readonly-gate` at `2ccbb1576dfb64e22a0ad1f9cb7daa389f52b956`.
+
+## Evidence baseline and limits
+
+One local MB-02 disposable cycle was reported as signed, executed, independently reviewed locally, and proposed at `dad63ac2ce8420b3474669c7ada1f4d5528f40c9`. GitHub verifies the one-file/four-line PR #94 diff and passing exact-head CI (runs 44833978664 and 44834000505). The local Codex process receipt, operator signature, ledger and reviewer artifacts are **not remotely independently attested**. PR #94 remains a draft; owner sign-off is not a GitHub independent review. The MB-02 workflow is **preflight only**, not an autonomous worker.
+
+## Authority separation
+
+1. **Mission selection:** reuse `GovernedMissionQueue`. Selection is not permission.
+2. **Authorization:** reuse `OperatorIdentityService` and the existing mission-scoped `master-builder:disposable-mission` verification contract. Signature must bind mission ID, repository, exact source SHA, environment/namespace, allowed paths, expiration and approved action. No approval creation inside worker code, no fallback to a string token, no cross-mission reuse.
+3. **Execution:** reuse `ProductionMissionRunner`, `ProductionRuntimeService`, and the registered existing Codex agent. A remote worker may execute only a verified lease for one mission in an exact-SHA detached disposable worktree. No second orchestration engine.
+4. **Verification:** separate worker results from an independent read-only verifier. The worker must not approve its own diff, evidence, or CI.
+5. **Proposal:** only a draft PR against an explicitly pinned nonproduction base. Human review and independent CI precede any later promotion; no automatic merge or deploy.
+
+## Remote worker admission protocol
+
+Fail closed unless all conditions are independently observed:
+- Runner identity and short-lived job identity are authenticated; job has least-privilege repository read access, no production cloud tokens, no original Genesis mount, no signing key and no persistent Git write credentials.
+- Mission approval signature is checked against **exact** mission scope and current time; revocation/expiry is rechecked immediately before process spawn.
+- Repository remote, exact 40-character source SHA, Git worktree registration, separate gitdir/common-dir, canonical path, clean status and expected disposable namespace all match.
+- Allowed paths are normalized and validated **before** process launch; reject empty scopes, `.`, `..`, absolute paths, path separators that escape the repository, Git administrative paths, and any symlink traversal. Reject renames involving any out-of-scope source or destination.
+- Claim one atomic lease keyed by mission ID + approval digest + source SHA + attempt. A duplicate invocation cannot start a second worker.
+- Invoke the existing Codex agent with a Core-compatible, one-file bounded prompt. The Playbook Canon/browser-artifact prompt must not silently expand this mission's scope.
+- On failure, timeout, cancellation, lost heartbeat or incomplete evidence, mark the attempt blocked. Do not silently retry or relaunch.
+
+## Durable event and evidence protocol
+
+Append-only, timestamped, hash-linked records for **SELECT, PLAN, BUILD, TEST, VERIFY, DOCUMENT, PROPOSE**, each containing: mission/attempt ID, actor/runner identity, source SHA, approval digest, previous-event digest, stage input/output digests, artifact location, and completion status. Never store credentials, signing material or raw environment dumps.
+
+- SELECT: authoritative queue decision and dependency state.
+- PLAN: persisted runner plan, scoped files, timeout, test commands and lease.
+- BUILD: Codex process invocation receipt (exit status, run ID, start/end, executable version), immutable stdout/stderr digests and changed-path manifest. A CLI transcript is **not** a provider attestation.
+- TEST: commands, exit codes, tool versions and immutable log digests.
+- VERIFY: independent source/worktree reattestation, symlink/rename/path checks, diff hash, approval recheck, Genesis isolation and policy result. Preserve failed verifications; never overwrite history.
+- DOCUMENT: evidence index, known limitations, recovery instructions and reviewer decision.
+- PROPOSE: exact commit SHA, draft PR URL, base SHA, diff hash and CI run IDs/results. No PR means PROPOSE is incomplete.
+
+Store non-secret evidence in durable, access-controlled artifacts with retention and immutable digest references; redact sensitive data before upload. A local file path is not a remotely available artifact.
+
+## Recovery and idempotency contract
+
+| Condition | Required behavior |
+| --- | --- |
+| Duplicate trigger, same attempt | Return existing attempt/evidence; **never spawn** a second worker |
+| Duplicate mission, different attempt | Block until separate fresh authorization and explicit operator decision |
+| Lease expired or worker interrupted | Mark interrupted, preserve evidence, quarantine worktree; no automatic continuation |
+| Approval expired or revoked | Block admission and resume; never reuse approval |
+| Source SHA or base branch drift | Block; re-plan and obtain fresh approval |
+| Worker produces out-of-scope diff | Reject, preserve audit receipt and quarantine; never propose |
+| Test or verifier failure | Preserve failed stage, block proposal; repair only through separately authorized action |
+| PR created but CI pending | Await exact-head CI, do not certify |
+| CI failure | Block certification and preserve run URL and logs |
+
+A resume may perform **read-only verification** of an existing immutable attempt. Resuming BUILD requires a fresh approved attempt and atomic lease. Avoid interpreting GitHub job success as evidence that a Codex process ran.
+
+## MB-03 acceptance matrix
+
+- [ ] Two **distinct** legitimately signed disposable missions executed by a remote Codex worker using the existing runner; each has a unique lease and process receipt.
+- [ ] Both missions produce independently verifiable exact-head CI, immutable seven-stage evidence and reviewable draft proposals.
+- [ ] Repeated trigger produces zero duplicate worker processes.
+- [ ] Interrupted worker rehearsal preserves evidence and does not silently restart.
+- [ ] Revoked/expired/cross-mission approval, wrong SHA, symlink traversal, out-of-scope rename, dirty worktree, and missing evidence all fail closed.
+- [ ] Remote artifact access and retention independently reviewed; no signing key or production credential exposed.
+- [ ] Human certification recorded separately. No merge, deployment, or original Genesis mutation.
+
+## Implementation sequence
+
+**A — Reviewable contracts and tests:** extract local Core-compatible adapter/recovery harness for independent review; implement admission and duplicate/recovery negative tests against existing runner and identity service. This can proceed via GitHub draft PRs without local Codex.
+
+**B — Remote credentialed rehearsal:** provision a reviewed, isolated remote worker with short-lived credentials and approved signing flow. Explicit operator action required; GitHub Actions workflow must not launch worker merely because a PR is opened.
+
+**C — Two end-to-end missions and review:** run separate authorized disposable attempts, capture immutable artifacts, verify exact-head CI and draft PRs, rehearse interruption, obtain independent review and record certification.
+
+**Stop condition:** until B and C succeed, MB-03 remains **NOT CERTIFIED**. This document grants no new execution authority.
