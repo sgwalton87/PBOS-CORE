@@ -20,6 +20,10 @@ This first version intentionally requires **synthetic state** and an **isolated 
 
 Unknown evidence fails closed. Each failed condition yields a stable reason code. The caller is responsible for obtaining evidence from authoritative components rather than inventing booleans.
 
+## MB-01 operator evidence adapter
+
+`pbos/master-builder/operator-evidence-adapter.ts` consumes the existing `OperatorPreflightReport` type. It maps observed Genesis integrity, authenticated operator state, digest stability, and active run/lease counts to the pure gate. It fails closed when counts or integrity results are unavailable. It does not infer approvals, Canon completion, isolation, or synthetic state from preflight. This is a typed adapter, not a verified end-to-end evidence collector; no mission has run.
+
 ## Next engineering milestone (MB-02)
 
 Connect the evaluator to **read-only** existing verifier/Canon/approval/lease adapters, with tests proving that the adapters cannot initialize or write state. Then rehearse a single approved mission in disposable Genesis with the existing bounded Codex worker, exact-head CI, draft PR publication and evidence collection. Do not activate original Genesis, merge, deploy, or amend Canon.
