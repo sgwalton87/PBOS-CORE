@@ -36,3 +36,14 @@ Required: original snapshot hash, duplicate event identity+offset report (redact
 
 ## Important design note
 `productionEvents()` sorts only by `sequence` today; equal historical sequences need a separately validated deterministic playback contract. The present append method intentionally does not rewrite old events. A "fix" that just renumbers all existing events is not approved.
+
+## Implemented offline diagnostic (candidate branch only)
+Run after obtaining a separately approved *offline copy* and confirming it is not inside the active PBOS state directory:
+
+```bash
+npx tsx pbos/tools/genesis-event-copy-diagnostic.ts --copy /path/to/verified-genesis-snapshot.json
+```
+
+The tool is read-only and emits aggregate event counts, collision offsets, an input SHA-256, and an explicit `mutation: NONE` / `recovery_authorized: false` result. It refuses symlinked inputs, directories, files over 64 MiB and files inside `PBOS_STATE_HOME` when that directory is configured. It does not collect or print event IDs or payloads. Exit code `0` means no identity/sequence collisions in the supplied copy, `3` means collisions detected, and `2` means invalid input or refusal. **None of these codes certifies historical recovery or the 107 capabilities.**
+
+The diagnostic reads a caller-provided copy only and cannot establish that it is a genuine immutable snapshot. An operator must independently verify custody and hashes against the authoritative source before trusting results. A filename containing “snapshot” is not evidence of immutability.
