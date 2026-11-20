@@ -58,3 +58,24 @@ The Master Builder™ is a **product capability of the existing PBOS autonomous 
 `canon-graph-evidence.ts` consumes `PlaybookCanonProductGraphCompiler` output from `pbos/application-readiness/playbook-canon-product-graph.ts` rather than compiling a second Canon. It checks repository identity, exact 40-character source SHA, source digest provenance, compiler blockers and certification readiness. It never changes Canon or grants execution authority.
 
 **Important:** `certificationReady` is a strict product-wide certification condition; an incomplete Playbook graph must be reported as blocked, not silently treated as complete. This strict certification gate must not be confused with a separate mission-scoped build permission; future mission-scoped Canon checks must use an independently defined existing authority, not weaken this certification result. Existing outstanding Playbook Canon findings therefore remain blockers to certification.
+
+
+## MB-02 execution and evidence acceptance (pending live Codex)
+
+MB-02 remains **NOT CERTIFIED** until a disposable execution demonstrates:
+1. SELECT — existing GovernedMissionQueue selects exactly one eligible, scoped mission.
+2. PLAN — existing ProductionMissionRunner persists the mission plan and evidence.
+3. BUILD — existing CodexCanonPhaseImplementationAgent edits a Git-attested disposable worktree; capture before/after SHA and changed-file manifest.
+4. TEST — run mission-specific tests and record commands, exit codes, and logs.
+5. VERIFY — independently check exact SHA, allowed paths, isolation, functional acceptance and no original Genesis mutation.
+6. DOCUMENT — record the decision, test results, trace IDs, rollback instructions and digest.
+7. PROPOSE — create a reviewable, non-merged disposable change proposal with an exact head SHA.
+
+`inspectDisposableCycleEvidence` validates the **shape and consistency** of submitted stage records. It does **not** authenticate evidence IDs, verify a remote PR, attest tests, or authorize deployment. External evidence must be checked against trusted GitHub/runner records before declaring certification.
+
+### Operator handoff
+- The GitHub workflow `master-builder-mb02-disposable.yml` is a disposable preflight, **not** a live Codex launch.
+- Do not supply production connector credentials, production PBOS state, or original Genesis paths.
+- Provision Codex credentials through the approved secret store only; never paste credentials into a PR, logs, or workflow inputs.
+- Live Codex must run through the existing bounded implementation agent in a fresh disposable worktree with an explicit signed mission approval and an independently verified source revision.
+- Require a human review of the proposed changes before any merge or deployment.
