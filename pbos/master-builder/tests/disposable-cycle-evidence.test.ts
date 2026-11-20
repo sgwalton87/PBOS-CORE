@@ -25,6 +25,16 @@ describe("MB-02 structural evidence completeness", () => {
     expect(result.findings).toEqual([]);
     expect(result.digest).toMatch(/^[a-f0-9]{64}$/);
   });
+  it("rejects malformed imported evidence without throwing", () => {
+    const original = fixture();
+    expect(inspectDisposableCycleEvidence({ ...original, stages: [
+      ...original.stages.slice(0, 2), null, ...original.stages.slice(3),
+    ] } as unknown as MasterBuilderCycleEvidence).complete).toBe(false);
+    expect(inspectDisposableCycleEvidence({ ...original, proposal: {
+      ...original.proposal, headSha: null,
+    } } as unknown as MasterBuilderCycleEvidence).complete).toBe(false);
+    expect(inspectDisposableCycleEvidence({ ...original, stages: null } as unknown as MasterBuilderCycleEvidence).complete).toBe(false);
+  });
   it("rejects missing, failed, duplicated and unbound evidence", () => {
     const original = fixture();
     expect(inspectDisposableCycleEvidence({ ...original, stages: original.stages.slice(0, -1) }).complete).toBe(false);
