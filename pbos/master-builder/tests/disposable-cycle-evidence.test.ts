@@ -27,6 +27,7 @@ describe("MB-02 structural evidence completeness", () => {
   });
   it("rejects malformed imported evidence without throwing", () => {
     const original = fixture();
+    expect(inspectDisposableCycleEvidence(null as unknown as MasterBuilderCycleEvidence).complete).toBe(false);
     expect(inspectDisposableCycleEvidence({ ...original, mission: null } as unknown as MasterBuilderCycleEvidence).complete).toBe(false);
     expect(inspectDisposableCycleEvidence({ ...original, proposal: {
       ...original.proposal, url: 17,
