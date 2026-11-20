@@ -19,14 +19,14 @@ export async function runAuthorizedDisposableMission(
   now: Date,
 ): Promise<ProductionMissionSequence> {
   if (mission.environment !== "DISPOSABLE" ||
-      request.repository !== mission.repository || request.commit !== mission.sourceSha ||
+      request.repository !== mission.repository || request.commit.toLowerCase() !== mission.sourceSha.toLowerCase() ||
       request.authorizationArtifactId !== approval?.approvalId ||
       request.actorId !== approval?.operatorId ||
       request.approvedMissionIds?.length !== 1 ||
       request.approvedMissionIds[0] !== mission.missionId ||
       request.maximumMissions !== 1 || request.autonomousContinuation !== false ||
       request.triggerSource === "CONTINUATION" ||
-      !request.branch.startsWith("disposable/") ||
+      !/^disposable\/[A-Za-z0-9._/-]+$/.test(request.branch) ||
       request.buildChannel.repository !== mission.repository) {
     throw new Error("Master Builder disposable mission runner request violates exact approval boundary.");
   }
