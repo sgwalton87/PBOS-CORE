@@ -43,7 +43,9 @@ export async function inspectDisposableWorkerChanges(
       gitDir === commonDir || normalizedRemote !== `https://github.com/${repository}`) {
     blockers.push("Post-worker repository identity or revision changed.");
   }
-  const porcelain = await git("status", "--porcelain=v1", "-z", "--untracked-files=all");
+  // Preserve leading status columns and NUL delimiters; trim() corrupts porcelain records.
+  const porcelain = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    { cwd: canonical, timeout: 10_000, maxBuffer: 1024 * 1024 })).stdout;
   const entries = porcelain.split("\0").filter(Boolean);
   const changedPaths: string[] = [];
   for (let i = 0; i < entries.length; i++) {
