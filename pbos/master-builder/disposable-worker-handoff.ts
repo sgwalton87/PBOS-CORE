@@ -1,4 +1,5 @@
 import type { CanonPhaseImplementationAgent, CanonPhaseImplementationRequest } from "../application-readiness/playbook-canon-phase-executor";
+import { attestDisposableWorktree } from "./disposable-worktree-proof";
 import type { VerifiableApproval } from "../genesis-state/operator-identity";
 import type { MasterBuilderMissionBinding } from "./mission-binding-gate";
 import { inspectScopedDisposableMissionApproval, type ExistingApprovalVerifier } from "./signed-approval-evidence";
@@ -28,5 +29,6 @@ export async function executeAuthorizedDisposableWorker(
   if (!inspectScopedDisposableMissionApproval(verifier, approval, mission, now)) {
     throw new Error("Master Builder worker requires a valid mission-scoped signed approval.");
   }
+  await attestDisposableWorktree(worktree.path, mission.repository, mission.sourceSha);
   return agent.execute(request);
 }
