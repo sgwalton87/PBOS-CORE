@@ -1,0 +1,83 @@
+name: Master Builder MB-02 Disposable Worker
+
+on:
+  pull_request:
+    paths:
+      - "pbos/master-builder/**"
+      - ".github/workflows/master-builder-mb02-disposable.yml"
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Exact 40-character PBOS-CORE commit to test (no production access)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mb02-disposable-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  isolated-worker-preflight:
+    if: github.event_name == 'pull_request' || (github.ref_type == 'branch' && github.ref_name == 'feat/master-builder-readonly-gate')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: "true"
+    steps:
+      - name: Configure disposable state home
+        shell: bash
+        run: |
+          echo "PBOS_STATE_HOME=${RUNNER_TEMP}/mb02-disposable-state" >> "$GITHUB_ENV"
+      - name: Validate exact candidate revision
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
+        run: |
+          [[ "$REQUESTED_SHA" =~ ^[a-fA-F0-9]{40}$ ]] || exit 1
+          echo "Candidate SHA format verified"
+      - name: Checkout without persisted credentials
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
+      - name: Assert exact revision
+        shell: bash
+        env:
+          REQUESTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+      - name: Create and verify disposable detached worktree
+        shell: bash
+        run: |
+          git worktree add --detach "${{ runner.temp }}/mb02-worktree" HEAD
+          test "$(git -C "${{ runner.temp }}/mb02-worktree" rev-parse HEAD)" = "$(git rev-parse HEAD)"
+          test -z "$(git -C "${{ runner.temp }}/mb02-worktree" status --porcelain)"
+      - name: Run bounded worker admission tests
+        run: npx vitest run pbos/master-builder/tests/disposable-worker-handoff.test.ts pbos/master-builder/tests/disposable-runner-integration.test.ts
+      - name: Confirm Codex runtime prerequisites without exposing credentials
+        shell: bash
+        env:
+          CODEX_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          if [ "$CODEX_API_KEY_PRESENT" = "true" ]; then
+            echo "A GitHub Actions Codex API credential is configured." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BLOCKED: No GitHub Actions Codex API credential detected. Live worker execution cannot be certified." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "No credential contents were printed or passed to a process."
+      - name: Record evidence boundary
+        run: |
+          echo "MB-02 worktree and injected-worker validation only." >> "$GITHUB_STEP_SUMMARY"
+          echo "No live Codex worker was launched; no autonomous build certified." >> "$GITHUB_STEP_SUMMARY"
+          echo "No production or original Genesis access was granted." >> "$GITHUB_STEP_SUMMARY"
