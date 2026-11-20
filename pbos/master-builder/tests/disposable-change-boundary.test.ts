@@ -26,6 +26,8 @@ describe("MB-02 post-worker change scope", () => {
       const check = () => inspectDisposableWorkerChanges(worktree,
         "sgwalton87/playbook-platform", sha, ["allowed"]);
       expect((await check()).accepted).toBe(false);
+      expect((await inspectDisposableWorkerChanges(worktree,
+        "sgwalton87/playbook-platform", "invalid", ["allowed"])).accepted).toBe(false);
       writeFileSync(join(worktree, "allowed", "fixture.txt"), "changed");
       expect((await check()).accepted).toBe(true);
       writeFileSync(join(worktree, "outside.txt"), "unapproved");
