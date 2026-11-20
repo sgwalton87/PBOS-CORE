@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { realpath } from "node:fs/promises";
 import { resolve } from "node:path";
-import { attestDisposableWorktree } from "./disposable-worktree-proof";
 
 const exec = promisify(execFile);
 export type DisposableChangeInspection = Readonly<{
@@ -59,7 +58,8 @@ export async function inspectDisposableWorkerChanges(
       else blockers.push("Malformed rename/copy status entry.");
     }
     if (code.includes("!") || code.includes("U") ||
-        !allowedPaths.some(allowed => path === allowed || path.startsWith(`${allowed}/`))) {
+        changedPaths.slice(-2).some(changed =>
+          !allowedPaths.some(allowed => changed === allowed || changed.startsWith(`${allowed}/`)))) {
       blockers.push(`Out-of-scope or conflicted change: ${path}`);
     }
   }
