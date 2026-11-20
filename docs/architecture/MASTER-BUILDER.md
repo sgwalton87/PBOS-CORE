@@ -29,3 +29,20 @@ Unknown evidence fails closed. Each failed condition yields a stable reason code
 Connect the evaluator to **read-only** existing verifier/Canon/approval/lease adapters, with tests proving that the adapters cannot initialize or write state. Then rehearse a single approved mission in disposable Genesis with the existing bounded Codex worker, exact-head CI, draft PR publication and evidence collection. Do not activate original Genesis, merge, deploy, or amend Canon.
 
 See PBOS-CORE issue #91 and separate recovery issue #92. Core drafts #89/#90 and Platform draft #318 remain independent review gates.
+
+## Compatibility with the existing autonomous builder
+
+The Master Builder™ is a **product capability of the existing PBOS autonomous stack**, not a competing executor. Its MB-01 files are read-only observation/eligibility layers. Existing components retain their authority:
+
+| Existing component | Authority retained |
+| --- | --- |
+| `GovernedMissionQueue` | Dependency reconciliation and deterministic mission selection |
+| `ProductionMissionAdapterRegistry` | Explicit registered executor availability and functional-plan capabilities |
+| `ProductionMissionRunner` | Bounded mission sequencing, approvals list, build-channel identity, run lifecycle and continuation |
+| `ProductionRuntimeService` | Genesis-backed events, leases, transitions, repair budgets and evidence |
+| `AutonomousProductionKernel` | Functional application verification and acceptance/certification readiness |
+| Canon compiler and signed identity/approval services | Canon evidence and approval authority; NOT replaced by caller booleans |
+
+`existing-runtime-compatibility.ts` reads registry **coverage** without calling an executor factory, checks candidate/runner request alignment, and requires one-mission/no-continuation disposable rehearsal bounds. It **never invokes** `ProductionMissionRunner.run`. A string authorization artifact is not proof of signature verification. No runtime authority is delegated to the preview.
+
+**Open integration gap:** bind actual signed-approval and Canon evidence to the preview, ensure exact mission/revision identity across queue/runner/kernel, and perform the first disposable end-to-end run with durable evidence. Original Genesis integrity remains blocked pending separately approved recovery.
