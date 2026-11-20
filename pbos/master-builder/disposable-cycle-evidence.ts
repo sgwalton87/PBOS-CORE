@@ -22,6 +22,10 @@ const STAGES: readonly MasterBuilderCycleStage[] =
 export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvidence):
   Readonly<{ complete: boolean; findings: readonly string[]; digest: string }> {
   const findings: string[] = [];
+  if (!evidence || typeof evidence !== "object") {
+    return { complete: false, findings: ["Cycle evidence is missing."],
+      digest: createHash("sha256").update("null").digest("hex") };
+  }
   const { mission, stages, proposal } = evidence;
   if (!mission || typeof mission.sourceSha !== "string" ||
       typeof mission.missionId !== "string" ||
