@@ -27,6 +27,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
     findings.push("Mission is not bound to a disposable exact revision.");
   }
   if (stages.length !== STAGES.length) findings.push("Missing or extra lifecycle stages.");
+  let previousTimestamp = -Infinity;
   STAGES.forEach((stage, index) => {
     const record = stages[index];
     if (!record || record.stage !== stage || !record.passed ||
@@ -34,6 +35,11 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
         !Number.isFinite(Date.parse(record.recordedAt))) {
       findings.push(`Unverified lifecycle stage: ${stage}`);
     }
+    const timestamp = record ? Date.parse(record.recordedAt) : NaN;
+    if (!Number.isFinite(timestamp) || timestamp < previousTimestamp) {
+      findings.push(`Lifecycle timestamps are invalid or out of order at: ${stage}`);
+    }
+    if (Number.isFinite(timestamp)) previousTimestamp = timestamp;
   });
   if (new Set(stages.map(item => item.evidenceId)).size !== stages.length) {
     findings.push("Lifecycle evidence identifiers must be unique.");
@@ -43,6 +49,18 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
       !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
       proposal.headSha === proposal.baseSha) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
+  }
+  if (proposal.url) {
+    try {
+      const url = new URL(proposal.url);
+      if (url.protocol !== "https:" || url.hostname !== "github.com" ||
+          !url.pathname.startsWith(`/${mission.repository}/pull/`) ||
+          !/^\\d+$/.test(url.pathname.slice(`/${mission.repository}/pull/`.length))) {
+        findings.push("Proposal URL is not an exact GitHub pull request for the mission repository.");
+      }
+    } catch {
+      findings.push("Proposal URL is invalid.");
+    }
   }
   const digest = createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
   return { complete: findings.length === 0, findings, digest };
