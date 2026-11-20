@@ -23,6 +23,12 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
   Readonly<{ complete: boolean; findings: readonly string[]; digest: string }> {
   const findings: string[] = [];
   const { mission, stages, proposal } = evidence;
+  if (!mission.missionId.trim() || !mission.stateNamespace.trim() ||
+      !/^[A-Za-z0-9._-]+$/.test(mission.missionId) ||
+      !/^[A-Za-z0-9._-]+$/.test(mission.stateNamespace) ||
+      !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(mission.repository)) {
+    findings.push("Mission identity or repository is invalid.");
+  }
   if (mission.environment !== "DISPOSABLE" || !/^[a-f0-9]{40}$/i.test(mission.sourceSha)) {
     findings.push("Mission is not bound to a disposable exact revision.");
   }
@@ -45,7 +51,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
     findings.push("Lifecycle evidence identifiers must be unique.");
   }
   if (proposal.repository !== mission.repository || proposal.baseSha !== mission.sourceSha ||
-      !proposal.branch.startsWith("disposable/") ||
+      !/^disposable\/[A-Za-z0-9._/-]+$/.test(proposal.branch) ||
       !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
       proposal.headSha === proposal.baseSha) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
