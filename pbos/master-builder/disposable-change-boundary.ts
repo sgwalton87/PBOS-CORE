@@ -58,6 +58,9 @@ export async function inspectDisposableWorkerChanges(
     const code = entry.slice(0, 2);
     const path = entry.slice(3);
     changedPaths.push(path);
+    if (path === ".git" || path.startsWith(".git/")) {
+      blockers.push("Worker may not modify Git administrative files.");
+    }
     if (code.includes("R") || code.includes("C")) {
       const originalPath = entries[++i];
       if (originalPath) changedPaths.push(originalPath);
@@ -65,7 +68,8 @@ export async function inspectDisposableWorkerChanges(
     }
     const recordPaths = code.includes("R") || code.includes("C")
       ? changedPaths.slice(-2) : [path];
-    if (code.includes("!") || code.includes("U") ||
+    if (recordPaths.some(changed => changed === ".git" || changed.startsWith(".git/")) ||
+        code.includes("!") || code.includes("U") ||
         recordPaths.some(changed =>
           !allowedPaths.some(allowed => changed === allowed || changed.startsWith(`${allowed}/`)))) {
       blockers.push(`Out-of-scope or conflicted change: ${path}`);
