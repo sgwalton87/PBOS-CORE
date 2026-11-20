@@ -63,8 +63,10 @@ export async function inspectDisposableWorkerChanges(
       if (originalPath) changedPaths.push(originalPath);
       else blockers.push("Malformed rename/copy status entry.");
     }
+    const recordPaths = code.includes("R") || code.includes("C")
+      ? changedPaths.slice(-2) : [path];
     if (code.includes("!") || code.includes("U") ||
-        changedPaths.slice(-2).some(changed =>
+        recordPaths.some(changed =>
           !allowedPaths.some(allowed => changed === allowed || changed.startsWith(`${allowed}/`)))) {
       blockers.push(`Out-of-scope or conflicted change: ${path}`);
     }
