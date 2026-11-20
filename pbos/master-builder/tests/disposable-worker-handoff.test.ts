@@ -49,6 +49,15 @@ describe("disposable existing Codex worker admission", () => {
         .rejects.toThrow(/worktree/);
       await expect(executeAuthorizedDisposableWorker(agent, identities, signed, mission,
         request, { ...worktree, isolated: false }, new Date())).rejects.toThrow(/worktree/);
+      await expect(executeAuthorizedDisposableWorker(agent, identities,
+        { ...signed, signature: "0".repeat(64) }, mission, request, worktree, new Date()))
+        .rejects.toThrow(/signed approval/);
+      await expect(executeAuthorizedDisposableWorker(agent, identities, signed, mission,
+        request, worktree, new Date(Date.now() + 60 * 60 * 1000)))
+        .rejects.toThrow(/signed approval/);
+      await expect(executeAuthorizedDisposableWorker(agent, identities, signed, mission,
+        { ...request, revision: "f".repeat(40) }, worktree, new Date()))
+        .rejects.toThrow(/worktree/);
       expect(execute).not.toHaveBeenCalled();
       expect(await executeAuthorizedDisposableWorker(agent, identities, signed, mission,
         request, worktree, new Date())).toEqual({ summary: "bounded worker result" });
