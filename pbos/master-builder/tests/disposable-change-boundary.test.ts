@@ -39,6 +39,8 @@ describe("MB-02 post-worker change scope", () => {
       const renamed = await check();
       expect(renamed.accepted).toBe(false);
       expect(renamed.changedPaths).toContain("outside-renamed.txt");
+      expect((await inspectDisposableWorkerChanges(worktree,
+        "sgwalton87/playbook-platform", sha, [".git"])).accepted).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
