@@ -55,7 +55,7 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
       const url = new URL(proposal.url);
       if (url.protocol !== "https:" || url.hostname !== "github.com" ||
           !url.pathname.startsWith(`/${mission.repository}/pull/`) ||
-          !/^\\d+$/.test(url.pathname.slice(`/${mission.repository}/pull/`.length))) {
+          !/^[0-9]+$/.test(url.pathname.slice(`/${mission.repository}/pull/`.length))) {
         findings.push("Proposal URL is not an exact GitHub pull request for the mission repository.");
       }
     } catch {
