@@ -68,8 +68,8 @@ export function inspectDisposableCycleEvidence(evidence: MasterBuilderCycleEvide
       typeof proposal.baseSha !== "string" || proposal.baseSha.toLowerCase() !== sourceSha ||
       typeof proposal.branch !== "string" ||
       !/^disposable\/[A-Za-z0-9._/-]+$/.test(proposal.branch) ||
-      !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
       typeof proposal.headSha !== "string" ||
+      !/^[a-f0-9]{40}$/i.test(proposal.headSha) ||
       proposal.headSha.toLowerCase() === proposal.baseSha.toLowerCase()) {
     findings.push("Proposal is not a distinct disposable revision of the selected source.");
   }
