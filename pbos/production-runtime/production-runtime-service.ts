@@ -30,6 +30,12 @@ const ACTIVE: readonly ProductionStatus[] = ["PLANNING", "AUTHORIZED", "QUEUED",
 const LEASE_REQUIRED: readonly ProductionStatus[] = ["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING", "GENERATING_PREVIEW", "RECOVERING"];
 export const DEFAULT_PRODUCTION_REPAIR_LIMIT = 5;
 
+export interface ProductionIntegrityFailureCounts {
+    readonly nonIncreasingEventSequences: number;
+    readonly eventsWithMissingRuns: number;
+    readonly runsWithoutActiveLeases: number;
+}
+
 export class ProductionRuntimeService {
     constructor(private readonly state: GenesisStateRepository, private readonly leaseTtlMs = 30_000,
         private readonly now: () => Date = () => new Date()) {}
@@ -750,17 +756,33 @@ export class ProductionRuntimeService {
         return this.transition(runId, "CANCELLED", "Run cancelled by an authorized operator.", { actorId });
     }
 
-    verifyIntegrity(): Readonly<{ valid: boolean; errors: readonly string[]; checkedAt: string }> {
+    verifyIntegrity(): Readonly<{ valid: boolean; errors: readonly string[]; checkedAt: string;
+        failureCounts: ProductionIntegrityFailureCounts }> {
         const errors: string[] = [];
         const events = this.state.productionEvents();
+        const runs = this.state.productionRuns();
+        const runIds = new Set(runs.map(run => run.runId));
+        let nonIncreasingEventSequences = 0;
+        let eventsWithMissingRuns = 0;
+        let runsWithoutActiveLeases = 0;
         events.forEach((event, index) => {
-            if (index > 0 && event.sequence <= events[index - 1].sequence) errors.push(`Event sequence is not increasing at ${event.eventId}.`);
-            if (!this.state.productionRun(event.runId)) errors.push(`Event ${event.eventId} references missing run ${event.runId}.`);
+            if (index > 0 && event.sequence <= events[index - 1].sequence) {
+                nonIncreasingEventSequences++;
+                errors.push(`Event sequence is not increasing at ${event.eventId}.`);
+            }
+            if (!runIds.has(event.runId)) {
+                eventsWithMissingRuns++;
+                errors.push(`Event ${event.eventId} references missing run ${event.runId}.`);
+            }
         });
-        this.state.productionRuns().filter(run => LEASE_REQUIRED.includes(run.status)).forEach(run => {
-            if (!this.activeLease(run.runId)) errors.push(`Active run ${run.runId} has no active execution lease.`);
-        });
-        return { valid: errors.length === 0, errors, checkedAt: this.now().toISOString() };
+        for (const run of runs.filter(item => LEASE_REQUIRED.includes(item.status))) {
+            if (!this.activeLease(run.runId)) {
+                runsWithoutActiveLeases++;
+                errors.push(`Active run ${run.runId} has no active execution lease.`);
+            }
+        }
+        return { valid: errors.length === 0, errors, checkedAt: this.now().toISOString(),
+            failureCounts: { nonIncreasingEventSequences, eventsWithMissingRuns, runsWithoutActiveLeases } };
     }
 
     recoverStaleRuns(): readonly ProductionRun[] {
