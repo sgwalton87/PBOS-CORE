@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { VerifiableApproval } from "../../genesis-state/operator-identity";
-import { inspectSignedMissionApproval } from "../signed-approval-evidence";
+import { inspectSignedMissionApproval, inspectScopedDisposableMissionApproval, disposableMissionApprovalScope } from "../signed-approval-evidence";
 import type { MasterBuilderMissionBinding } from "../mission-binding-gate";
 
 const now = new Date("2026-11-20T00:00:00Z");
@@ -40,6 +40,34 @@ describe("Master Builder existing signed-approval verifier adapter", () => {
       ...context, mission: { ...mission, environment: "PRODUCTION" },
     }, now)).toBeNull();
     expect(inspectSignedMissionApproval({ verify }, approval, { ...context, action: "" }, now)).toBeNull();
+    expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe("exact mission-scoped existing operator approval", () => {
+  it("binds the signature verification resource to mission, repo, commit and namespace", () => {
+    const scope = disposableMissionApprovalScope(mission);
+    const verify = vi.fn((candidate: VerifiableApproval, action: string, resource: string) =>
+      candidate.action === action && candidate.resource === resource);
+    const signed = { ...approval, action: scope.action, resource: scope.resource };
+    const result = inspectScopedDisposableMissionApproval({ verify }, signed, mission, now);
+    expect(result?.verifiedByAuthority).toBe(true);
+    expect(verify).toHaveBeenCalledWith(signed, scope.action, scope.resource, now);
+    expect(inspectScopedDisposableMissionApproval({ verify }, signed, {
+      ...mission, sourceSha: "b".repeat(40),
+    }, now)).toBeNull();
+    expect(inspectScopedDisposableMissionApproval({ verify }, signed, {
+      ...mission, stateNamespace: "other-disposable-state",
+    }, now)).toBeNull();
+  });
+  it("rejects wildcard and production mission scopes before verifier invocation", () => {
+    const verify = vi.fn(() => true);
+    expect(inspectScopedDisposableMissionApproval({ verify }, approval, {
+      ...mission, missionId: "*",
+    }, now)).toBeNull();
+    expect(inspectScopedDisposableMissionApproval({ verify }, approval, {
+      ...mission, environment: "PRODUCTION",
+    }, now)).toBeNull();
     expect(verify).not.toHaveBeenCalled();
   });
 });
