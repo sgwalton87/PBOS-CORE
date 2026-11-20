@@ -3,15 +3,17 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { OperatorIdentityService } from "../../genesis-state";
+import { GenesisStateRepository, OperatorIdentityService } from "../../genesis-state";
 import { compareReadOnlyStateDigests, inspectExistingOperatorRuntime } from "../operator-readonly-preflight";
+import { ProductionRuntimeService } from "../production-runtime-service";
 
 describe("read-only existing PBOS operator preflight", () => {
     it("does not create or bootstrap missing runtime files", () => {
         const directory = mkdtempSync(join(tmpdir(), "pbos-preflight-missing-"));
         const report = inspectExistingOperatorRuntime(directory);
         expect(report).toMatchObject({ status: "BLOCKED", operatorAuthenticated: false,
-            missingFiles: ["profile.json", "operators.json", "genesis-state.json"], approvalGranted: false });
+            missingFiles: ["profile.json", "operators.json", "genesis-state.json"],
+            integrityFailureCounts: null, approvalGranted: false });
         expect(() => readFileSync(join(directory, "genesis-state.json"))).toThrow();
     });
 
@@ -30,10 +32,43 @@ describe("read-only existing PBOS operator preflight", () => {
         const report = inspectExistingOperatorRuntime(directory);
         expect(report).toMatchObject({ status: "INSPECTED", operatorAuthenticated: true,
             integrityValid: true, activeRuns: 0, activeLeases: 0, queuedMissions: 0,
+            integrityFailureCounts: { nonIncreasingEventSequences: 0, eventsWithMissingRuns: 0, runsWithoutActiveLeases: 0 },
             approvalGranted: false });
         expect(JSON.stringify(report)).not.toContain(enrollment.credential);
         expect(report.stateFilesUnchanged).toBe(true);
         expect(report.stateFingerprint).toBe(createHash("sha256").update(readFileSync(statePath)).digest("hex"));
+        paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]));
+    });
+
+    it("reports counts for each integrity failure without exposing identifiers or changing any state", () => {
+        const directory = mkdtempSync(join(tmpdir(), "pbos-preflight-integrity-"));
+        const operatorsPath = join(directory, "operators.json");
+        const profilePath = join(directory, "profile.json");
+        const statePath = join(directory, "genesis-state.json");
+        const enrollment = new OperatorIdentityService(operatorsPath).enroll("test-org", "Test Operator");
+        writeFileSync(profilePath, JSON.stringify({ operatorId: enrollment.operator.operatorId,
+            credential: enrollment.credential, organizationId: "test-org" }), { mode: 0o600 });
+        const runtime = new ProductionRuntimeService(new GenesisStateRepository(statePath));
+        const run = runtime.begin({ systemId: "fixture-system", actorId: enrollment.operator.operatorId,
+            authorizationArtifactId: "fixture-authorization", repository: "test/repository", branch: "main",
+            commit: "abcdef0", objective: "Fixture integrity failure", mission: "fixture-mission", rationale: "Test fixture" });
+        const state = JSON.parse(readFileSync(statePath, "utf8"));
+        state.productionEvents[1].sequence = state.productionEvents[0].sequence;
+        state.productionEvents[1].runId = "missing-fixture-run";
+        state.executionLeases = [];
+        writeFileSync(statePath, JSON.stringify(state));
+        const paths = [profilePath, operatorsPath, statePath];
+        const before = paths.map(path => readFileSync(path));
+
+        const report = inspectExistingOperatorRuntime(directory);
+
+        expect(report).toMatchObject({ status: "BLOCKED", operatorAuthenticated: true,
+            integrityValid: false, stateFilesUnchanged: true, approvalGranted: false,
+            integrityFailureCounts: { nonIncreasingEventSequences: 1, eventsWithMissingRuns: 1, runsWithoutActiveLeases: 1 } });
+        const output = JSON.stringify(report);
+        for (const privateValue of [run.runId, state.productionEvents[1].eventId, "missing-fixture-run", enrollment.credential]) {
+            expect(output).not.toContain(privateValue);
+        }
         paths.forEach((path, index) => expect(readFileSync(path)).toEqual(before[index]));
     });
 
@@ -65,7 +100,7 @@ describe("read-only existing PBOS operator preflight", () => {
         const path = join(directory, "operators.json");
         const before = readFileSync(path);
         expect(inspectExistingOperatorRuntime(directory)).toMatchObject({
-            status: "BLOCKED", operatorAuthenticated: false, approvalGranted: false
+            status: "BLOCKED", operatorAuthenticated: false, integrityFailureCounts: null, approvalGranted: false
         });
         expect(readFileSync(path)).toEqual(before);
     });

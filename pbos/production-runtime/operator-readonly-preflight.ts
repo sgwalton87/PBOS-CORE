@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GenesisStateRepository, OperatorIdentityService } from "../genesis-state";
-import { ProductionRuntimeService } from "../production-runtime";
+import { ProductionRuntimeService, type ProductionIntegrityFailureCounts } from "./production-runtime-service";
 
 export type OperatorPreflightReport = Readonly<{
     status: "INSPECTED" | "BLOCKED";
     missingFiles: readonly string[];
     operatorAuthenticated: boolean;
     integrityValid: boolean | null;
+    integrityFailureCounts: ProductionIntegrityFailureCounts | null;
     runtimeHealth: string | null;
     activeRuns: number | null;
     activeLeases: number | null;
@@ -20,7 +21,7 @@ export type OperatorPreflightReport = Readonly<{
 
 function blocked(missingFiles: readonly string[] = []): OperatorPreflightReport {
     return { status: "BLOCKED", missingFiles, operatorAuthenticated: false,
-        integrityValid: null, runtimeHealth: null, activeRuns: null, activeLeases: null,
+        integrityValid: null, integrityFailureCounts: null, runtimeHealth: null, activeRuns: null, activeLeases: null,
         queuedMissions: null, stateFingerprint: null, stateFilesUnchanged: null,
         approvalGranted: false };
 }
@@ -67,6 +68,8 @@ export function inspectExistingOperatorRuntime(stateHome: string): OperatorPrefl
         const active = state.productionRuns().filter(run =>
             ["AUTHORIZED", "QUEUED", "STARTING", "RUNNING", "VALIDATING", "REPAIRING",
                 "GENERATING_PREVIEW", "AWAITING_APPROVAL", "RECOVERING"].includes(run.status));
+        const activeLeases = state.executionLeases().filter(lease => lease.status === "ACTIVE").length;
+        const queuedMissions = state.missionQueue().length;
         // Detect concurrent edits to any identity or mission state inspected.
         // A stable hash does not establish that this is the ORIGINAL operator host.
         const after = statePaths.map(sha256);
@@ -76,10 +79,11 @@ export function inspectExistingOperatorRuntime(stateHome: string): OperatorPrefl
             missingFiles: [],
             operatorAuthenticated: true,
             integrityValid: integrity.valid,
+            integrityFailureCounts: unchanged ? integrity.failureCounts : null,
             runtimeHealth: health.health,
             activeRuns: active.length,
-            activeLeases: state.executionLeases().filter(lease => lease.status === "ACTIVE").length,
-            queuedMissions: state.missionQueue().length,
+            activeLeases,
+            queuedMissions,
             stateFingerprint,
             stateFilesUnchanged: unchanged,
             approvalGranted: false
