@@ -21,6 +21,10 @@ export async function inspectDisposableWorkerChanges(
   allowedPaths: readonly string[],
 ): Promise<DisposableChangeInspection> {
   const blockers: string[] = [];
+  if (!/^[a-f0-9]{40}$/i.test(sourceSha) ||
+      !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/.test(repository)) {
+    return { accepted: false, changedPaths: [], blockers: ["Invalid repository or source revision."] };
+  }
   const canonical = await realpath(worktreePath);
   if (canonical !== resolve(worktreePath) || !allowedPaths.length ||
       allowedPaths.some(path => !path || path.startsWith("/") ||
