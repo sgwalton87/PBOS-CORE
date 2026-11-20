@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +66,20 @@ describe("disposable existing Codex worker admission", () => {
       expect(commands).toHaveLength(1);
       expect(commands[0]).toEqual(expect.arrayContaining(["exec", "--ephemeral", "--sandbox", "workspace-write"]));
       expect(commands[0].at(-1)).toContain("Do not commit, push, open a PR, merge, or deploy");
+      const editedAgent = new CodexCanonPhaseImplementationAgent({
+        run: async (args, cwd) => {
+          expect(args).toContain("workspace-write");
+          writeFileSync(join(cwd, "README.md"), "Disposable worker edited this fixture\\n");
+          return { stdout: "isolated edit completed", stderr: "" };
+        },
+      });
+      expect(await executeAuthorizedDisposableWorker(editedAgent, identities, signed, mission,
+        request, worktree, new Date())).toEqual({ summary: "isolated edit completed" });
+      expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toContain("edited this fixture");
+      expect(readFileSync(join(source, "README.md"), "utf8")).toBe("Disposable test only\\n");
+      await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
+        request, worktree, new Date())).rejects.toThrow(/clean before worker launch/);
+      expect(commands).toHaveLength(1);
       writeFileSync(join(worktreePath, "untracked.txt"), "dirty");
       await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
         request, worktree, new Date())).rejects.toThrow(/clean before worker launch/);
