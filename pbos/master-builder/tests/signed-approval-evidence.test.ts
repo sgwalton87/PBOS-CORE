@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { OperatorIdentityService } from "../../genesis-state/operator-identity";
 import type { VerifiableApproval } from "../../genesis-state/operator-identity";
 import { inspectSignedMissionApproval, inspectScopedDisposableMissionApproval, disposableMissionApprovalScope } from "../signed-approval-evidence";
 import type { MasterBuilderMissionBinding } from "../mission-binding-gate";
@@ -69,5 +73,30 @@ describe("exact mission-scoped existing operator approval", () => {
       ...mission, environment: "PRODUCTION",
     }, now)).toBeNull();
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe("real existing operator HMAC approval integration (disposable only)", () => {
+  it("verifies genuine signature and rejects tampering and mission reuse", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pbos-master-builder-approval-"));
+    try {
+      const identities = new OperatorIdentityService(join(dir, "operators.json"));
+      const { operator, credential } = identities.enroll("disposable-org", "Test operator");
+      const authenticated = identities.authenticate(operator.operatorId, credential);
+      const scope = disposableMissionApprovalScope(mission);
+      const signed = identities.approve(authenticated, scope.action, scope.resource, 30);
+      const verified = inspectScopedDisposableMissionApproval(identities, signed, mission, new Date());
+      expect(verified).toMatchObject({ missionId: mission.missionId, verifiedByAuthority: true });
+      expect(inspectScopedDisposableMissionApproval(identities,
+        { ...signed, signature: "0".repeat(signed.signature.length) }, mission, new Date())).toBeNull();
+      expect(inspectScopedDisposableMissionApproval(identities, signed,
+        { ...mission, repository: "test/another" }, new Date())).toBeNull();
+      expect(inspectScopedDisposableMissionApproval(identities, signed,
+        { ...mission, sourceSha: "b".repeat(40) }, new Date())).toBeNull();
+      expect(inspectScopedDisposableMissionApproval(identities, signed,
+        mission, new Date(Date.parse(signed.expiresAt) + 1000))).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
