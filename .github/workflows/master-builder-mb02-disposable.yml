@@ -65,6 +65,10 @@ jobs:
           test -z "$(git -C "${{ runner.temp }}/mb02-worktree" status --porcelain)"
       - name: Run bounded worker admission tests
         run: npx vitest run pbos/master-builder/tests/disposable-worker-handoff.test.ts pbos/master-builder/tests/disposable-runner-integration.test.ts
+      - name: Assert disposable state home remains unused
+        if: ${{ always() }}
+        shell: bash
+        run: test ! -e "$PBOS_STATE_HOME" && test ! -L "$PBOS_STATE_HOME"
       - name: Confirm Codex runtime prerequisites without exposing credentials
         shell: bash
         env:
