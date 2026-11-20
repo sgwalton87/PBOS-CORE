@@ -73,10 +73,18 @@ describe("Master Builder handoff to existing runner", () => {
       evidence, mission, { ...approval, verifiedByAuthority: false }, now);
     expect(result.blockers).toContain("RUNNER_APPROVAL_NOT_INDEPENDENTLY_VERIFIED");
   });
-  it("blocks an unregistered executor and active lease", () => {
-    const result = previewExistingRunnerHandoff([item], new ProductionMissionAdapterRegistry(),
+  it("blocks an active lease before selecting any candidate", () => {
+    const result = previewExistingRunnerHandoff([item], registry,
       request, { ...evidence, existingActiveLease: true }, mission, approval, now);
     expect(result.blockers).toContain("ACTIVE_LEASE_PRESENT");
+    expect(result.status).toBe("BLOCKED");
+    expect(result.executionAuthorized).toBe(false);
+  });
+  it("blocks a missing existing execution adapter for an otherwise eligible mission", () => {
+    const result = previewExistingRunnerHandoff([item], new ProductionMissionAdapterRegistry(),
+      request, evidence, mission, approval, now);
     expect(result.blockers).toContain("NO_EXISTING_EXECUTION_ADAPTER");
+    expect(result.status).toBe("BLOCKED");
+    expect(result.executionAuthorized).toBe(false);
   });
 });
