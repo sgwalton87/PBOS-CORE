@@ -20,9 +20,10 @@ export interface PlaybookCanonRequirement {
 export interface PlaybookCanonPhase {
     readonly phaseId: string;
     readonly title: string;
-    readonly completion: number;
+    readonly completion: number | null;
     readonly incompleteItems: readonly string[];
     readonly items?: readonly Readonly<{ label: string; status: string; missionId: string }>[];
+    readonly summary?: Readonly<{ status: string; evidence: string }>;
 }
 
 export interface PlaybookCanonRoute {
@@ -110,7 +111,51 @@ const routeFromPage = (path: string): string => {
     return route.replace(/\/\([^/]+\)/g, "");
 };
 
-function parsePhases(source: string): readonly PlaybookCanonPhase[] {
+function markdownSection(source: string, heading: string): string | undefined {
+    const sections = source.replace(/\r\n/g, "\n").split(/^## /m).slice(1);
+    const section = sections.find(text => text.split("\n", 1)[0].trim() === heading);
+    return section?.slice(section.indexOf("\n") + 1);
+}
+
+function tableRows(section: string, headers: readonly string[], blocker: string, blockers: string[]): readonly string[][] {
+    const cells = section.split("\n").map(line => line.trim())
+        .filter(line => line.startsWith("|") && line.endsWith("|"))
+        .map(line => line.slice(1, -1).split(/(?<!\\)\|/).map(cell => cell.trim()));
+    const [header, divider, ...rows] = cells;
+    if (!header || header.length !== headers.length || !headers.every((name, index) => name === header[index]) ||
+        divider?.length !== headers.length || !divider.every(cell => /^:?-{3,}:?$/.test(cell))) {
+        blockers.push(`${blocker}_TABLE_INVALID`);
+        return [];
+    }
+    return rows.filter((row, index) => {
+        if (row.length === headers.length && row.every(Boolean)) return true;
+        blockers.push(`${blocker}_ROW_INVALID:${index + 1}`);
+        return false;
+    });
+}
+
+export function parsePlaybookCanonPhases(source: string, blockers: string[]): readonly PlaybookCanonPhase[] {
+    const phaseStatus = markdownSection(source, "Phase status");
+    if (phaseStatus !== undefined) {
+        const phases = new Map<string, PlaybookCanonPhase>();
+        for (const [label, status, evidence] of tableRows(phaseStatus, ["Phase", "Current state", "Reconciled truth"],
+            "PRODUCT_PHASE_SUMMARY", blockers)) {
+            const heading = label.match(/^(\d{1,2})\s+(.+)$/);
+            if (!heading || Number(heading[1]) < 1 || Number(heading[1]) > 15) {
+                blockers.push(`PRODUCT_PHASE_SUMMARY_ID_INVALID:${label}`);
+                continue;
+            }
+            const phaseId = `PHASE-${heading[1].padStart(2, "0")}`;
+            if (phases.has(phaseId)) {
+                blockers.push(`PRODUCT_PHASE_SUMMARY_DUPLICATE:${phaseId}`);
+                continue;
+            }
+            // The current-state table supplies phase identity and qualitative evidence only.
+            phases.set(phaseId, { phaseId, title: heading[2], completion: null,
+                incompleteItems: [], items: [], summary: { status, evidence } });
+        }
+        return [...phases.values()];
+    }
     const headings = [...source.matchAll(/^# (Phase (\d+) — ([^\n]+))$/gm)];
     return headings.map((match, index) => {
         const body = source.slice((match.index ?? 0) + match[0].length, headings[index + 1]?.index ?? source.length);
@@ -154,25 +199,37 @@ function parseRouteMap(source: string): ReadonlyMap<string, Readonly<{ feature: 
 }
 
 function routesFromCell(value: string): readonly string[] {
-    const markdownRoute = value.match(/`(\/[A-Za-z0-9/_-]*)`/)?.[1];
-    if (markdownRoute) return [markdownRoute];
+    const markdownRoutes = [...new Set([...value.matchAll(/`(\/[A-Za-z0-9/_-]*)`/g)].map(match => match[1]))];
+    if (markdownRoutes.length) return markdownRoutes;
     return [...new Set([...value.matchAll(/(\/[a-z0-9][a-z0-9/_-]*)/g)].map(match => match[1])
         .filter(route => !["/navigation", "/onboarding"].includes(route)))];
 }
 
 function parseRoleJourneys(source: string): Readonly<{ roles: readonly PlaybookCanonRoleJourney[]; blockers: readonly string[] }> {
-    const section = source.split(/^## Role journey index$/m)[1]?.split(/^## /m)[0] ?? "";
+    const canonical = markdownSection(source, "Canonical role index");
+    const section = markdownSection(source, "Role journey index") ?? "";
     const roles: PlaybookCanonRoleJourney[] = [];
     const blockers: string[] = [];
-    for (const line of section.split(/\r?\n/)) {
-        if (!line.startsWith("|")) continue;
-        const cells = line.split("|").slice(1, -1).map(cell => cell.trim());
-        if (cells.length !== 7 || cells[0] === "Role" || /^-+$/.test(cells[0])) continue;
-        const candidateRoutes = routesFromCell(cells[3]);
+    const rows = canonical === undefined
+        ? section.split("\n").filter(line => line.startsWith("|"))
+            .map(line => line.split("|").slice(1, -1).map(cell => cell.trim()))
+            .filter(cells => cells.length === 7 && cells[0] !== "Role" && !/^-+$/.test(cells[0]))
+            .map(cells => [cells[0], cells[3], cells[6]])
+        : tableRows(canonical, ["Role", "OS destination", "Authority / verification truth", "Current state",
+            "Primary remaining evidence"], "CANON_ROLE_INDEX", blockers).map(cells => [cells[0], cells[1], cells[3]]);
+    const seen = new Set<string>();
+    for (const [role, route, status] of rows) {
+        const identity = role.toUpperCase();
+        if (seen.has(identity)) {
+            blockers.push(`CANON_ROLE_JOURNEY_DUPLICATE:${role}`);
+            continue;
+        }
+        seen.add(identity);
+        const candidateRoutes = routesFromCell(route);
         const osRoute = candidateRoutes[0];
-        if (!osRoute) blockers.push(`CANON_ROLE_JOURNEY_OS_ROUTE_INVALID:${cells[0]}`);
-        if (candidateRoutes.length > 1) blockers.push(`CANON_ROLE_JOURNEY_OS_ROUTE_AMBIGUOUS:${cells[0]}:${candidateRoutes.join(",")}`);
-        roles.push({ role: cells[0], osRoute, status: cells[6].toUpperCase() });
+        if (!osRoute) blockers.push(`CANON_ROLE_JOURNEY_OS_ROUTE_INVALID:${role}`);
+        if (candidateRoutes.length > 1) blockers.push(`CANON_ROLE_JOURNEY_OS_ROUTE_AMBIGUOUS:${role}:${candidateRoutes.join(",")}`);
+        roles.push({ role, osRoute, status: status.toUpperCase() });
     }
     if (!roles.length) blockers.push("CANON_ROLE_JOURNEYS_UNAVAILABLE");
     return { roles, blockers };
@@ -309,14 +366,16 @@ export class PlaybookCanonProductGraphCompiler {
         }
 
         const master = sourceByPath.get("docs/MASTER_CHECKLIST.md") ?? "";
-        const phases = parsePhases(master);
+        const phases = parsePlaybookCanonPhases(master, blockers);
         if (!phases.length) blockers.push("PRODUCT_PHASES_UNAVAILABLE");
         for (let index = 1; index <= 15; index += 1) {
             const phaseId = `PHASE-${String(index).padStart(2, "0")}`;
             if (!phases.some(phase => phase.phaseId === phaseId)) blockers.push(`PRODUCT_PHASE_MISSING:${phaseId}`);
         }
         phases.forEach(phase => {
-            if (phase.completion < 100 || phase.incompleteItems.length) {
+            if (phase.completion === null) {
+                blockers.push(`PRODUCT_PHASE_ITEM_EVIDENCE_UNAVAILABLE:${phase.phaseId}:${phase.summary?.status ?? "UNKNOWN"}`);
+            } else if (phase.completion < 100 || phase.incompleteItems.length) {
                 blockers.push(`PRODUCT_PHASE_INCOMPLETE:${phase.phaseId}:${phase.completion}`);
             }
         });
