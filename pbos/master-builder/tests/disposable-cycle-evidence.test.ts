@@ -36,6 +36,13 @@ describe("MB-02 structural evidence completeness", () => {
       ...original.proposal, branch: "main" } }).complete).toBe(false);
     expect(inspectDisposableCycleEvidence({ ...original, proposal: {
       ...original.proposal, headSha: sha } }).complete).toBe(false);
+    expect(inspectDisposableCycleEvidence({ ...original, stages: original.stages.map((stage, i) =>
+      ({ ...stage, recordedAt: i === 3 ? "2026-11-19T00:00:00.000Z" :
+        "2026-11-20T00:00:00.000Z" })) }).complete).toBe(false);
+    expect(inspectDisposableCycleEvidence({ ...original, proposal: {
+      ...original.proposal, url: "https://github.com/untrusted/other/pull/9" } }).complete).toBe(false);
+    expect(inspectDisposableCycleEvidence({ ...original, proposal: {
+      ...original.proposal, url: "https://github.com/sgwalton87/playbook-platform/pull/9" } }).complete).toBe(true);
     expect(inspectDisposableCycleEvidence({ ...original, mission: {
       ...original.mission, environment: "PRODUCTION" } }).complete).toBe(false);
   });
