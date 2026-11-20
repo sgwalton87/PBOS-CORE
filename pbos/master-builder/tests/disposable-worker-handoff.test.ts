@@ -93,6 +93,12 @@ describe("disposable existing Codex worker admission", () => {
       await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
         request, worktree, new Date())).rejects.toThrow(/clean before worker launch/);
       expect(commands).toHaveLength(1);
+      rmSync(join(worktreePath, "untracked.txt"));
+      execFileSync("git", ["-C", worktreePath, "checkout", "--", "README.md"]);
+      execFileSync("git", ["-C", source, "remote", "set-url", "origin", "https://github.com/untrusted/other.git"]);
+      await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
+        request, worktree, new Date())).rejects.toThrow(/origin/);
+      expect(commands).toHaveLength(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
