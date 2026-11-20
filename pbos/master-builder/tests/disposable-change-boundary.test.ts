@@ -34,6 +34,11 @@ describe("MB-02 post-worker change scope", () => {
       const rejected = await check();
       expect(rejected.accepted).toBe(false);
       expect(rejected.blockers.join(" ")).toContain("outside.txt");
+      rmSync(join(worktree, "outside.txt"));
+      execFileSync("git", ["-C", worktree, "mv", "allowed/fixture.txt", "outside-renamed.txt"]);
+      const renamed = await check();
+      expect(renamed.accepted).toBe(false);
+      expect(renamed.changedPaths).toContain("outside-renamed.txt");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
