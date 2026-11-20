@@ -21,6 +21,7 @@ export async function runAuthorizedDisposableMission(
   if (mission.environment !== "DISPOSABLE" ||
       request.repository !== mission.repository || request.commit !== mission.sourceSha ||
       request.authorizationArtifactId !== approval?.approvalId ||
+      request.actorId !== approval?.operatorId ||
       request.approvedMissionIds?.length !== 1 ||
       request.approvedMissionIds[0] !== mission.missionId ||
       request.maximumMissions !== 1 || request.autonomousContinuation !== false ||
