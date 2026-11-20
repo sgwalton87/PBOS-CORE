@@ -62,6 +62,17 @@ jobs:
           test -z "$(git -C "${{ runner.temp }}/mb02-worktree" status --porcelain)"
       - name: Run bounded worker admission tests
         run: npx vitest run pbos/master-builder/tests/disposable-worker-handoff.test.ts pbos/master-builder/tests/disposable-runner-integration.test.ts
+      - name: Confirm Codex runtime prerequisites without exposing credentials
+        shell: bash
+        env:
+          CODEX_API_KEY_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+        run: |
+          if [ "$CODEX_API_KEY_PRESENT" = "true" ]; then
+            echo "A GitHub Actions Codex API credential is configured." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BLOCKED: No GitHub Actions Codex API credential detected. Live worker execution cannot be certified." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo "No credential contents were printed or passed to a process."
       - name: Record evidence boundary
         run: |
           echo "MB-02 worktree and injected-worker validation only." >> "$GITHUB_STEP_SUMMARY"
