@@ -8,6 +8,7 @@ import { ProductionMissionRunner } from "../../production-runtime/production-mis
 import { ProductionRuntimeService } from "../../production-runtime/production-runtime-service";
 import { ProductionMissionAdapterRegistry } from "../../production-runtime/mission-adapter-registry";
 import { disposableMissionApprovalScope, inspectScopedDisposableMissionApproval } from "../signed-approval-evidence";
+import { runAuthorizedDisposableMission } from "../disposable-authorized-runner";
 import type { MasterBuilderMissionBinding } from "../mission-binding-gate";
 
 describe("disposable existing PBOS mission runner integration", () => {
@@ -43,7 +44,7 @@ describe("disposable existing PBOS mission runner integration", () => {
         }));
       const request = {
         systemId, actorId: actor.operatorId, authorizationArtifactId: signed.approvalId,
-        repository: mission.repository, branch: "disposable-only", commit: mission.sourceSha,
+        repository: mission.repository, branch: "disposable/mission-1", commit: mission.sourceSha,
         approvedMissionIds: [mission.missionId], maximumMissions: 1, autonomousContinuation: false,
         buildChannel: {
           channelId: "disposable-channel", systemId, operatingSystemId: "disposable-os",
@@ -51,8 +52,14 @@ describe("disposable existing PBOS mission runner integration", () => {
           domainRegistrationIds: ["disposable-domain"],
         },
       };
-      const sequence = await new ProductionMissionRunner(state, runtime)
-        .run(request, candidate => registry.resolve(candidate));
+      await expect(runAuthorizedDisposableMission(
+        new ProductionMissionRunner(state, runtime), identities, signed,
+        { ...mission, missionId: "another-mission" }, request,
+        candidate => registry.resolve(candidate), new Date())).rejects.toThrow(/approval|signature/i);
+      expect(state.productionRuns()).toHaveLength(0);
+      const sequence = await runAuthorizedDisposableMission(
+        new ProductionMissionRunner(state, runtime), identities, signed, mission, request,
+        candidate => registry.resolve(candidate), new Date());
       expect(sequence.stopReason).toBe("APPROVAL_REQUIRED");
       expect(sequence.runs).toHaveLength(1);
       expect(sequence.runs[0].status).toBe("AWAITING_APPROVAL");
