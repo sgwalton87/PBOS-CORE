@@ -60,7 +60,7 @@ describe("disposable existing PBOS mission runner integration", () => {
       expect(state.productionEvents(sequence.runs[0].runId).length).toBeGreaterThan(0);
       expect(state.missionQueue(systemId).find(candidate => candidate.missionId === mission.missionId)?.status)
         .toBe("ACTIVE");
-      expect(state.executionLeases().at(-1)?.status).toBe("ACTIVE");
+      expect(state.executionLeases().at(-1)?.status).toBe("RELEASED");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
