@@ -57,6 +57,11 @@ describe("disposable existing PBOS mission runner integration", () => {
         { ...mission, missionId: "another-mission" }, request,
         candidate => registry.resolve(candidate), new Date())).rejects.toThrow(/approval|signature/i);
       expect(state.productionRuns()).toHaveLength(0);
+      await expect(runAuthorizedDisposableMission(
+        new ProductionMissionRunner(state, runtime), identities, signed, mission,
+        { ...request, actorId: "different-operator" },
+        candidate => registry.resolve(candidate), new Date())).rejects.toThrow(/approval boundary/i);
+      expect(state.productionRuns()).toHaveLength(0);
       const sequence = await runAuthorizedDisposableMission(
         new ProductionMissionRunner(state, runtime), identities, signed, mission, request,
         candidate => registry.resolve(candidate), new Date());
