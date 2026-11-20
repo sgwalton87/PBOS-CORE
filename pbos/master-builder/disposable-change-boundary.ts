@@ -38,7 +38,7 @@ export async function inspectDisposableWorkerChanges(
     git("rev-parse", "--path-format=absolute", "--git-common-dir"),
     git("remote", "get-url", "origin"),
   ]);
-  const normalizedRemote = remote.replace(/\\.git$/, "").replace(/^git@github\\.com:/, "https://github.com/");
+  const normalizedRemote = remote.replace(/[.]git$/, "").replace(/^git@github[.]com:/, "https://github.com/");
   if (root !== canonical || head.toLowerCase() !== sourceSha.toLowerCase() ||
       gitDir === commonDir || normalizedRemote !== `https://github.com/${repository}`) {
     blockers.push("Post-worker repository identity or revision changed.");
