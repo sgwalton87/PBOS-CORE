@@ -40,6 +40,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || inputs.source_sha }}
       - name: Assert exact revision
         shell: bash
         env:
