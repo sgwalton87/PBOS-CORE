@@ -7,7 +7,7 @@ import { OperatorIdentityService } from "../../genesis-state/operator-identity";
 import type { MasterBuilderMissionBinding } from "../mission-binding-gate";
 import { disposableMissionApprovalScope } from "../signed-approval-evidence";
 import { CodexCanonPhaseImplementationAgent } from "../../application-readiness/playbook-canon-phase-executor";
-import { executeAuthorizedDisposableWorker } from "../disposable-worker-handoff";
+import { executeAuthorizedDisposableWorker, executeAndInspectAuthorizedDisposableWorker } from "../disposable-worker-handoff";
 
 describe("disposable existing Codex worker admission", () => {
   it("rejects unsigned, cross-mission, and nonisolated handoffs before calling the worker", async () => {
@@ -85,6 +85,15 @@ describe("disposable existing Codex worker admission", () => {
       expect(await executeAuthorizedDisposableWorker(editedAgent, identities, signed, mission,
         request, worktree, new Date())).toEqual({ summary: "isolated edit completed" });
       expect(readFileSync(join(worktreePath, "README.md"), "utf8")).toContain("edited this fixture");
+      await expect(executeAndInspectAuthorizedDisposableWorker(
+        editedAgent, identities, signed, mission, request, worktree,
+        ["allowed"], new Date())).rejects.toThrow(/clean before worker launch/);
+      execFileSync("git", ["-C", worktreePath, "checkout", "--", "README.md"]);
+      const inspected = await executeAndInspectAuthorizedDisposableWorker(
+        editedAgent, identities, signed, mission, request, worktree,
+        ["README.md"], new Date());
+      expect(inspected.inspection.accepted).toBe(true);
+      expect(inspected.inspection.changedPaths).toContain("README.md");
       expect(readFileSync(join(source, "README.md"), "utf8")).toBe("Disposable test only\\n");
       await expect(executeAuthorizedDisposableWorker(existingAgent, identities, signed, mission,
         request, worktree, new Date())).rejects.toThrow(/clean before worker launch/);
