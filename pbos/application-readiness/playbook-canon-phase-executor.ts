@@ -8,8 +8,7 @@ import { ApplicationAcceptanceDimension, ApplicationAcceptanceEvidence, Function
     ProductionMissionExecutor } from "../production-runtime";
 import { ResumableRemediationEngine } from "../validation-automation";
 import { PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT, playbookScholarProtectedEnvironmentFiles } from "./playbook-functional-acceptance";
-import { PLAYBOOK_CANON_SOURCES } from "./playbook-canon-product-graph";
-import { playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
+import { PLAYBOOK_CANON_SOURCES, parsePlaybookCanonPhases } from "./playbook-canon-product-graph";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -121,19 +120,13 @@ function publishablePath(path: string): boolean {
 }
 
 function phaseItems(source: string, missionId: string): readonly Readonly<{ label: string; status: string; missionId: string }>[] {
-    const phaseNumber = Number.parseInt(missionId.match(/^048-phase-(\d{2})/)?.[1] ?? "", 10);
-    const start = source.search(new RegExp(`^# Phase ${phaseNumber} — `, "m"));
-    if (start < 0) throw new Error(`Canon phase ${phaseNumber} is missing from ${MASTER_CHECKLIST}.`);
-    const rest = source.slice(start);
-    const next = rest.slice(1).search(/^# Phase \d+ — /m);
-    const section = next < 0 ? rest : rest.slice(0, next + 1);
-    const phaseId = `PHASE-${String(phaseNumber).padStart(2, "0")}`; const occurrences = new Map<string, number>();
-    return [...section.matchAll(/^- (⬜️?|🟨|🟦|🟥|🟩)\s+(.+)$/gmu)].map(match => {
-        const label = match[2].trim(); const identity = label.toLowerCase();
-        const occurrence = (occurrences.get(identity) ?? 0) + 1;
-        occurrences.set(identity, occurrence);
-        return { label, status: match[1], missionId: playbookCanonChecklistItemMissionId(phaseId, label, occurrence) };
-    });
+    const phaseId = `PHASE-${missionId.match(/^048-phase-(\d{2})/)?.[1]}`;
+    const blockers: string[] = [];
+    const phase = parsePlaybookCanonPhases(source, blockers).find(item => item.phaseId === phaseId);
+    if (blockers.length || !phase?.items?.length) {
+        throw new Error(`${phaseId} has no usable item-level checklist evidence in ${MASTER_CHECKLIST}.`);
+    }
+    return phase.items;
 }
 
 function assertChecklistTransition(before: string, after: string, missionId: string, manifest: PhaseManifest): void {
@@ -194,6 +187,7 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         const inspection = await dependencies.gateway.inspectRepository(reference);
         if (inspection.revision !== context.run.startingCommit) throw new Error("Governed Playbook revision advanced; re-plan phase execution.");
         const checklistBefore = await dependencies.gateway.readFileAtRevision(reference, MASTER_CHECKLIST, inspection.revision);
+        if (phaseMission) phaseItems(checklistBefore, context.mission.missionId);
         const workingDirectory = await dependencies.gateway.createIsolatedBranch(reference, branch, inspection.revision);
         const manifestPath = `pbos/readiness/${context.mission.missionId}.json`;
         context.report("IMPLEMENTING", `PBOS implementation worker is executing ${context.mission.title} inside ${branch}.`);
