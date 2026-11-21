@@ -90,8 +90,20 @@ resource "google_secret_manager_secret" "connector_trust" {
   }
 }
 
+resource "google_secret_manager_secret" "playbook_bootstrap" {
+  secret_id = "playbook-connector-bootstrap-production"
+
+  replication {
+    auto {}
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "google_secret_manager_secret_iam_member" "runtime_trust" {
-  secret_id = google_secret_manager_secret.connector_trust.id
+  secret_id = google_secret_manager_secret.connector_trust.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.runtime.email}"
 }

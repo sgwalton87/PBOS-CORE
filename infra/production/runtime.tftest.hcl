@@ -14,8 +14,12 @@ run "foundation_has_no_cloud_run_service_or_secret_payload" {
   }
 
   assert {
-    condition     = google_secret_manager_secret.connector_trust.secret_id == "pbos-connector-trust-bundle-production"
-    error_message = "The trust secret must have a separate production identity."
+    condition = (
+      google_secret_manager_secret.connector_trust.secret_id == "pbos-connector-trust-bundle-production" &&
+      google_secret_manager_secret.playbook_bootstrap.secret_id == "playbook-connector-bootstrap-production" &&
+      google_secret_manager_secret_iam_member.runtime_trust.secret_id == "pbos-connector-trust-bundle-production"
+    )
+    error_message = "Runtime trust and the app handoff must use separate production secrets. The runtime may read only its trust bundle."
   }
 }
 

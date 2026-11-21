@@ -1,6 +1,6 @@
 # PBOS-PROD-001 production runtime
 
-This module prepares the production deployment of the existing PBOS v1 Cloud Run integration service. The default plan has no Cloud Run service. The module defines separate production release and runtime identities, an immutable image registry, and the runtime trust secret container. It does not create secret versions, assign the release identity, grant invokers, or publish images. Use an approved production project, protected Terraform backend, and applicable Cloud Run, Compute, Artifact Registry and Secret Manager APIs.
+This module prepares the production deployment of the existing PBOS v1 Cloud Run integration service. The default plan has no Cloud Run service. The module defines separate production release and runtime identities, an immutable image registry, and separate Secret Manager containers for the runtime trust bundle and the app handoff. Only the runtime trust secret grants the runtime identity access. It does not create secret versions, assign the release identity, grant invokers, or publish images. Use an approved production project, protected Terraform backend, and applicable Cloud Run, Compute, Artifact Registry and Secret Manager APIs.
 
 ## Staging evidence and production differences
 
