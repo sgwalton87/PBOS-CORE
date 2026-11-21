@@ -531,6 +531,17 @@ export class FunctionalApplicationRuntime {
             [...prerequisites, plan.launch, ...plan.browserJourneys.map(journey => journey.command),
                 ...(plan.nativeJourneys ?? []).map(journey => journey.command)],
             plan.protectedEnvironmentFiles);
+        if (plan.localSyntheticHostingerRecovery) {
+            const target = new URL(runtimeEnvironment.NEXT_PUBLIC_SUPABASE_URL ?? "");
+            if (target.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(target.hostname) ||
+                target.username || target.password || runtimeEnvironment.SMTP_HOST !== "127.0.0.1" ||
+                runtimeEnvironment.SMTP_PORT !== "54325" || runtimeEnvironment.SMTP_SECURE !== "false" ||
+                plan.launch.baseUrl !== "http://127.0.0.1:4319" ||
+                runtimeEnvironment.PLAYWRIGHT_BASE_URL !== plan.launch.baseUrl ||
+                runtimeEnvironment.PBOS_ACCEPTANCE_COMMIT !== plan.commit) {
+                throw new Error("Hostinger recovery requires exact-revision loopback app, database, and SMTP capture.");
+            }
+        }
         for (const prerequisite of prerequisites) {
             const timeoutMs = prerequisite.timeoutMs ?? 300_000;
             try {

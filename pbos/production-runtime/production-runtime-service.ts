@@ -791,11 +791,13 @@ export class ProductionRuntimeService {
     verifyIntegrity(): Readonly<{ valid: boolean; errors: readonly string[]; checkedAt: string }> {
         const errors: string[] = [];
         const events = this.state.productionEvents();
+        const runs = this.state.productionRuns();
+        const runIds = new Set(runs.map(run => run.runId));
         events.forEach((event, index) => {
             if (index > 0 && event.sequence <= events[index - 1].sequence) errors.push(`Event sequence is not increasing at ${event.eventId}.`);
-            if (!this.state.productionRun(event.runId)) errors.push(`Event ${event.eventId} references missing run ${event.runId}.`);
+            if (!runIds.has(event.runId)) errors.push(`Event ${event.eventId} references missing run ${event.runId}.`);
         });
-        this.state.productionRuns().filter(run => LEASE_REQUIRED.includes(run.status)).forEach(run => {
+        runs.filter(run => LEASE_REQUIRED.includes(run.status)).forEach(run => {
             if (!this.activeLease(run.runId)) errors.push(`Active run ${run.runId} has no active execution lease.`);
         });
         return { valid: errors.length === 0, errors, checkedAt: this.now().toISOString() };

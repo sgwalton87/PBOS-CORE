@@ -292,6 +292,7 @@ export interface FunctionalAcceptancePlan {
     readonly branch: string;
     readonly commit: string;
     readonly workingDirectory: string;
+    readonly localSyntheticHostingerRecovery?: true;
     readonly protectedEnvironmentFiles?: readonly ProtectedEnvironmentFile[];
     readonly prerequisites?: readonly FunctionalRuntimeCommand[];
     readonly minimumFreeBytes?: number;

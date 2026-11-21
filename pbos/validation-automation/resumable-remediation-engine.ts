@@ -45,7 +45,7 @@ export class ResumableRemediationEngine {
         // Legacy runs without lifecycle metadata are recollected once so PBOS can discover an out-of-band
         // merge. A failed repository application is the sole durable BLOCKED state eligible for another
         // authorized application attempt; all other known open/closed PR blockers remain fail-closed.
-        if (persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED" &&
+        if (!persisted.closedPullRequestReplacement && persisted.state === "BLOCKED" && persisted.pullRequestState && persisted.pullRequestState !== "MERGED" &&
             !isRetryableRemediationApplicationFailure(persisted) && !providerFailureMisclassified) {
             return persisted;
         }
@@ -53,8 +53,19 @@ export class ResumableRemediationEngine {
             !persisted.evidence.some(item => item.state === "PASSED");
         const current = falselyReady ? this.save({ ...persisted, state: "WAITING_FOR_CHECKS",
             blockers: ["Independent validation has not reported a passing check for the exact revision."] }) : persisted;
-        const collected = await this.checks.collect(current.pullRequest);
+        const collected = persisted.closedPullRequestReplacement
+            ? await this.checks.collectPinnedReplacement(current.pullRequest, persisted.closedPullRequestReplacement.baseCommit)
+            : await this.checks.collect(current.pullRequest);
         const lifecycle = { pullRequestState: collected.pullRequestState, mergeCommitSha: collected.mergeCommitSha };
+        if (persisted.closedPullRequestReplacement) {
+            const passed = collected.pullRequestState === "OPEN" &&
+                collected.headSha === persisted.closedPullRequestReplacement.headSha &&
+                collected.evidence.some(item => item.state === "PASSED") &&
+                collected.evidence.every(item => ["PASSED", "SKIPPED"].includes(item.state));
+            return this.save({ ...persisted, ...lifecycle, evidence: collected.evidence,
+                state: passed ? "READY_FOR_CERTIFICATION" : "BLOCKED",
+                blockers: passed ? [] : ["The approved replacement must retain its open pull request, exact head, and passing CI."] });
+        }
         if (collected.pullRequestState === "CLOSED") {
             return this.save({ ...current, ...lifecycle, headSha: collected.headSha, state: "BLOCKED",
                 evidence: collected.evidence,

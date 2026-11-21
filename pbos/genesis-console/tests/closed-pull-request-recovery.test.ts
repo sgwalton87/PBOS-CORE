@@ -1,0 +1,129 @@
+import { linkSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { describe, expect, it, vi } from "vitest";
+import { BuildAuthorityService } from "../../autonomous-authority";
+import { GenesisStateRepository, OperatorIdentityService, PersistentBuildGrantRegistry } from "../../genesis-state";
+import { BackgroundMonitor } from "../../operator-continuity";
+import { FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
+import { GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
+import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
+    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval } from "../closed-pull-request-recovery";
+import { GenesisControlPlane } from "../genesis-control-plane";
+import { GenesisSystemCatalog } from "../system-catalog";
+import { REFERENCE_SYSTEMS } from "../system-definition";
+
+const system = REFERENCE_SYSTEMS.find(item => item.systemId === "PLAYBOOK-SYSTEM-001")!;
+const base = "a".repeat(40), oldCommit = "b".repeat(40), closedHead = "c".repeat(40), head = "d".repeat(40);
+const branch = "agent/replacement";
+const title = "Recover Hostinger Email";
+
+function fixture() {
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "pbos-replacement-")));
+    const state = new GenesisStateRepository(join(directory, "genesis-state.json"));
+    const identities = new OperatorIdentityService(join(directory, "operators.json"));
+    const identity = identities.enroll("synthetic", "Fixture operator");
+    const operator = identities.authenticate(identity.operator.operatorId, identity.credential);
+    const control = new GenesisControlPlane(new GenesisSystemCatalog([system]),
+        new BuildAuthorityService(new PersistentBuildGrantRegistry(state)), state);
+    const issuance = identities.approve(operator, "ISSUE_BUILD_GRANT", system.systemId);
+    const session = control.activateSystem(system.systemId, "HUMAN_GATED", operator.operatorId, issuance.approvalId);
+    const production = new ProductionRuntimeService(state);
+    const started = production.begin({ systemId: system.systemId, actorId: operator.operatorId,
+        authorizationArtifactId: "historical-approval", repository: system.repository, branch: "main",
+        commit: base, objective: title, mission: title, rationale: "fixture" });
+    production.transition(started.runId, "BLOCKED", "Historical proposal closed.");
+    const before = { ...state.productionRun(started.runId)!, currentBranch: "agent/historical",
+        currentCommit: oldCommit, repairAttempts: 1, repairAttemptLimit: 5, evidenceIds: ["remediation-run:historical"],
+        functionalAcceptancePlan: {
+            workingDirectory: "/old-checkout", browserJourneys: [], probes: [],
+            launch: { command: "npm", args: ["run", "dev"], healthPath: "/api/invitations/send" },
+        } as unknown as FunctionalAcceptancePlan };
+    state.saveProductionRun(before);
+    state.saveMissionQueue([{ systemId: system.systemId, missionId: "048-phase-01-item-hostinger-email",
+        title, status: "BLOCKED", dependencies: [], rationale: "fixture", approvalRequired: true, evidenceIds: [],
+        completionPolicy: { kind: "FUNCTIONAL_APPLICATION", requiredDimensions: [], certificationCriteria: [] } }] as never, system.systemId);
+    const historical: RemediationRun = { runId: "historical", systemId: system.systemId,
+        pullRequest: { repository: system.repository, url: "https://github.com/sgwalton87/playbook-platform/pull/88",
+            branch: before.currentBranch, number: 88 }, headSha: closedHead, attempt: 1, maximumAttempts: 5,
+        state: "BLOCKED", evidence: [], blockers: [], updatedAt: new Date().toISOString() };
+    state.saveRemediationRun(historical);
+    const run = vi.fn(async (command: string, args: readonly string[]) => {
+        let stdout: string;
+        if (command === "git") {
+            stdout = args.includes("--show-toplevel") ? directory : args.includes("HEAD") ? head :
+                args[0] === "branch" ? branch : args[0] === "merge-base" ? base : "";
+        } else if (args[0] === "pr") stdout = JSON.stringify({ headRefOid: head, state: "OPEN", baseRefName: "main" });
+        else if (args[1].endsWith("/check-runs")) stdout = JSON.stringify({ check_runs: [{
+            name: "CI", status: "completed", conclusion: "success",
+            details_url: "https://github.com/sgwalton87/playbook-platform/actions/runs/1/job/2",
+        }] });
+        else if (/actions\/runs\//.test(args[1])) stdout = JSON.stringify({ attempt: 1, jobs: [] });
+        else {
+            const old = args[1].endsWith("/88");
+            stdout = JSON.stringify({ state: old ? "closed" : "open", merged: false,
+                base: { ref: "main", sha: base }, head: { ref: old ? before.currentBranch : branch,
+                    sha: old ? closedHead : head, repo: { full_name: system.repository } } });
+        }
+        return { stdout, stderr: "" };
+    });
+    const prepare = (commit = head) => prepareClosedPullRequestRecovery(state, { run }, before.runId, 999, base, commit, directory);
+    return { state, identities, operator, control, session, historical, before, directory, prepare, run };
+}
+
+describe("governed closed pull request recovery", () => {
+    it("preserves the old PR and repair budget while attaching only the signed exact head", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        const replacement = registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session,
+            approval, prepared, f.directory);
+        expect(f.state.remediationRun("historical")).toEqual(f.historical);
+        expect(replacement).toMatchObject({ headSha: head, attempt: 1, maximumAttempts: 5 });
+        expect(f.state.productionRun(f.before.runId)).toMatchObject({
+            status: "BLOCKED", currentCommit: head, currentBranch: branch, repairAttempts: 1, repairAttemptLimit: 5,
+            functionalAcceptancePlan: { workingDirectory: f.directory, commit: head, localSyntheticHostingerRecovery: true },
+            evidenceIds: ["remediation-run:historical", `remediation-run:${replacement.runId}`],
+        });
+        expect(f.state.audit().filter(item => item.eventId === approval.approvalId)).toHaveLength(1);
+        expect(new ProductionRuntimeService(f.state).verifyIntegrity().valid).toBe(true);
+        expect(() => registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session,
+            approval, prepared, f.directory)).toThrow(/changed before registration/);
+
+        const apply = vi.fn();
+        const engine = new ResumableRemediationEngine(f.state, {
+            collectPinnedReplacement: vi.fn().mockResolvedValue({ pullRequestState: "OPEN", headSha: oldCommit, evidence: [] }),
+        } as unknown as GitHubCheckCollector, { apply } as never);
+        expect((await engine.resume(replacement.runId)).state).toBe("BLOCKED");
+        expect(f.state.remediationRun(replacement.runId)?.headSha).toBe(head);
+        expect(apply).not.toHaveBeenCalled();
+        const monitor = new BackgroundMonitor(f.state, engine, {} as never, {} as never);
+        await expect(monitor.run(replacement.runId, f.session.sessionId)).rejects.toThrow(/verified operator authority/);
+        const validating = { ...f.state.productionRun(f.before.runId)!, status: "VALIDATING" as const };
+        f.state.saveProductionRun(validating);
+        const reconcile = monitor as unknown as { reconcileProductionMission(remediation: RemediationRun): Promise<void> };
+        await reconcile.reconcileProductionMission(f.historical);
+        expect(f.state.productionRun(f.before.runId)).toEqual(validating);
+    });
+
+    it("rejects a moved head, modified signature, and expired approval", async () => {
+        const f = fixture();
+        await expect(f.prepare("e".repeat(40))).rejects.toThrow(/identities/);
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, f.session,
+            { ...approval, signature: "invalid" }, prepared.resource)).toThrow(/operator-signed/);
+        expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, f.session,
+            approval, prepared.resource, new Date(approval.expiresAt))).toThrow(/operator-signed/);
+        expect(f.state.productionRun(f.before.runId)?.currentCommit).toBe(oldCommit);
+    });
+
+    it("rejects original Genesis and an alias to its inode", () => {
+        const original = mkdtempSync(join(tmpdir(), "pbos-original-"));
+        const candidate = mkdtempSync(join(tmpdir(), "pbos-copy-"));
+        writeFileSync(join(original, "genesis-state.json"), "{}");
+        linkSync(join(original, "genesis-state.json"), join(candidate, "genesis-state.json"));
+        expect(() => assertIsolatedRecoveryState(original, original)).toThrow(/isolated/);
+        expect(() => assertIsolatedRecoveryState(candidate, original)).toThrow(/isolated/);
+    });
+});

@@ -81,13 +81,23 @@ export class BackgroundMonitor {
             new AutonomousProductionKernel(state, new ProductionRuntimeService(state)),
         private readonly mergedRevisionPositioner: MergedRevisionPositioner = new GitMergedRevisionPositioner()) {}
 
-    async run(runId: string, sessionId: string, intervalMs = 10_000, maximumPolls = 360): Promise<void> {
+    async run(runId: string, sessionId: string, intervalMs = 10_000, maximumPolls = 360,
+        authorizeReplacement?: (remediation: RemediationRun) => Promise<void>): Promise<void> {
         const session = this.state.sessions().find(item => item.sessionId === sessionId);
         if (!session) throw new Error(`Background session not found: ${sessionId}`);
+        const registered = this.state.remediationRun(runId);
+        if (registered?.closedPullRequestReplacement) {
+            if (!authorizeReplacement) throw new Error("Replacement acceptance requires verified operator authority.");
+            await authorizeReplacement(registered);
+        }
         try {
             let previousState: RemediationRun["state"] | undefined;
             for (let poll = 0; poll < maximumPolls; poll += 1) {
                 const result = await this.remediation.resume(runId, run => this.workflows.authorizeRemediation(session, run.pullRequest.branch));
+                if (result.closedPullRequestReplacement) {
+                    if (!authorizeReplacement) throw new Error("Replacement acceptance requires verified operator authority.");
+                    await authorizeReplacement(result);
+                }
                 await this.reconcileProductionMission(result);
                 this.memos.write(session, result);
                 const batch = this.batches.updateForValidation(runId, result.state);
@@ -131,6 +141,11 @@ export class BackgroundMonitor {
         const linkedRun = [...this.state.productionRuns()].reverse().find(item =>
             item.evidenceIds.includes(`remediation-run:${remediationRunId}`));
         if (!linkedRun) return;
+        const currentRemediationId = linkedRun.evidenceIds.filter(id => id.startsWith("remediation-run:"))
+            .at(-1)?.slice("remediation-run:".length);
+        if (currentRemediationId && currentRemediationId !== remediationRunId &&
+            this.state.remediationRun(currentRemediationId)?.closedPullRequestReplacement) return;
+        if (remediation.closedPullRequestReplacement && linkedRun.status !== "VALIDATING") return;
         let run = linkedRun;
         if (run.status === "BLOCKED") {
             if (!["READY_FOR_CERTIFICATION", "REMEDIATION_PUSHED"].includes(validation)) return;

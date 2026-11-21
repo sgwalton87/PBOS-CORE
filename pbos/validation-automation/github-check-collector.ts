@@ -46,6 +46,20 @@ export class GitHubCheckCollector {
         return { headSha, evidence, pullRequestState, mergeCommitSha, baseRefName: metadata.baseRefName };
     }
 
+    async collectPinnedReplacement(pullRequest: PullRequestReference, baseCommit: string): Promise<PullRequestCheckCollection> {
+        const result = JSON.parse((await this.commands.run("gh", ["api",
+            `repos/${pullRequest.repository}/pulls/${pullRequest.number}`])).stdout) as {
+            base?: { sha?: string }; head?: { ref?: string; sha?: string; repo?: { full_name?: string } };
+        };
+        if (result.base?.sha !== baseCommit || result.head?.ref !== pullRequest.branch ||
+            result.head.repo?.full_name !== pullRequest.repository) {
+            throw new Error("Approved replacement repository, branch, or base moved.");
+        }
+        const checks = await this.collect(pullRequest);
+        if (checks.headSha !== result.head.sha) throw new Error("Approved replacement head changed during validation.");
+        return checks;
+    }
+
     async requestMergedValidation(pullRequest: PullRequestReference, baseRefName: string, mergeCommitSha: string): Promise<void> {
         if (!/^[A-Za-z0-9._/-]+$/.test(baseRefName) || baseRefName.includes("..") ||
             !/^[a-f0-9]{7,40}$/i.test(mergeCommitSha)) {
