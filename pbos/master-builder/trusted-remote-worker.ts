@@ -13,6 +13,7 @@ import type { SignedRemoteEvidence } from "./remote-attestation";
 import type { RemoteEvidenceArchive } from "./remote-evidence-archive";
 
 export const REMOTE_PROVISION_DOMAIN = "pbos.mb031.provision.v1";
+export const REMOTE_DISPOSAL_DOMAIN = "pbos.mb032.disposal.v1";
 export const REMOTE_RETURN_DOMAIN = "pbos.mb031.return.v1";
 export const MAX_REMOTE_TTL_MS = 15 * 60_000;
 export const MAX_REMOTE_FILE_BYTES = 1024 * 1024;
@@ -44,6 +45,26 @@ export interface RemoteReturn {
     readonly status: "SUCCEEDED";
 }
 
+export interface RemoteDisposal {
+    readonly providerId: string;
+    readonly bindingDigest: string;
+    readonly sandboxId: string;
+    readonly disposedAt: string;
+    readonly status: "STOPPED_AND_REVOKED";
+}
+
+export function verifyRemoteDisposal(binding: RemoteWorkerBinding, provision: RemoteProvision,
+    envelope: SignedRemoteEvidence<RemoteDisposal>, publicKey: KeyObject, earliest: number, at: number) {
+    const receipt = requireRemoteSignature(REMOTE_DISPOSAL_DOMAIN, envelope, publicKey);
+    if (Object.keys(receipt).sort().join(",") !== "bindingDigest,disposedAt,providerId,sandboxId,status" ||
+        receipt.bindingDigest !== evidenceDigest(evidenceJson(binding)) || receipt.providerId !== provision.providerId ||
+        receipt.sandboxId !== provision.sandboxId || receipt.status !== "STOPPED_AND_REVOKED" ||
+        !(Date.parse(receipt.disposedAt) >= earliest && Date.parse(receipt.disposedAt) <= at)) {
+        throw new Error("Remote disposal receipt rejected.");
+    }
+    return receipt;
+}
+
 export interface RemoteFileOutput {
     readonly path: string;
     readonly contentBase64: string;
@@ -56,7 +77,7 @@ export interface TrustedRemoteWorkerProvider {
     execute(binding: RemoteWorkerBinding, request: Readonly<{ title: string; rationale: string }>, signal: AbortSignal):
         Promise<{ receipt: SignedRemoteEvidence<RemoteReturn>; files: readonly RemoteFileOutput[] }>;
     /** Must be idempotent and revoke credentials, terminate the VM/job, and discard scratch, including on controller loss. */
-    dispose(binding: RemoteWorkerBinding): Promise<void>;
+    dispose(binding: RemoteWorkerBinding): Promise<SignedRemoteEvidence<RemoteDisposal> | void>;
 }
 
 export interface RemoteWorkerTrust {
@@ -127,7 +148,7 @@ export async function runTrustedRemoteMission(state: GenesisStateRepository, ide
         async execute(work, fence, signal, assertLive) {
             const binding: RemoteWorkerBinding = Object.freeze({ authorityId: trust.authorityId, fence, approvalDigest, mission,
                 deadline: new Date(Math.min(Date.now() + trust.timeoutMs, approvalExpiresAt)).toISOString() });
-            let disposal: Promise<void> | undefined;
+            let disposal: ReturnType<TrustedRemoteWorkerProvider["dispose"]> | undefined;
             const terminate = () => disposal ??= Promise.resolve().then(() => provider.dispose(binding));
             const onAbort = () => { void terminate().catch(() => undefined); };
             signal.addEventListener("abort", onAbort, { once: true });
@@ -155,12 +176,18 @@ export async function runTrustedRemoteMission(state: GenesisStateRepository, ide
                 });
                 const manifest = files.map(file => ({ path: file.path, digest: evidenceDigest(file.bytes) }));
                 if (signed.outputsDigest !== evidenceDigest(evidenceJson(manifest))) throw new Error("Signed output manifest mismatch.");
-                await terminate();
+                const observed = await terminate();
+                if (provider.mode === "isolated-remote" || observed) {
+                    if (!observed) throw new Error("A provider disposal receipt is required.");
+                    verifyRemoteDisposal(binding, provision, observed, trust.publicKey,
+                        Date.parse(signed.completedAt), Date.now());
+                }
                 signal.throwIfAborted();
                 await attestExactDisposableFiles(work.workingDirectory, mission.allowedPaths);
                 assertLive();
                 const receiptDigest = trust.archive.preserve({
                     mode: provider.mode, binding, provision: provisionEnvelope, receipt: returnEnvelope, manifest,
+                    ...(observed ? { disposal: { payload: observed.payload, signature: observed.signature } } : {}),
                 });
                 for (const file of files) {
                     signal.throwIfAborted();
