@@ -1,11 +1,16 @@
+import { GovernedMissionQueue } from "../production-runtime/mission-queue";
 import { AutonomousBuildGrant } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GenesisSystemDefinition } from "../genesis-console/system-definition";
 import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
+import { lstatSync, realpathSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { DISPOSABLE_EVIDENCE_STAGES } from "../production-runtime/contracts";
 import type { RemediationRun } from "../validation-automation/contracts";
 import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
-import type { ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRecoveryEpoch, ProductionRun, ProductionStage } from "../production-runtime/contracts";
+import type { DisposableEvidenceRecord, DisposableEvidenceStage, ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRecoveryEpoch, ProductionRun, ProductionStage } from "../production-runtime/contracts";
 
 export interface GenesisAuditEvent {
     readonly eventId: string;
@@ -17,6 +22,8 @@ export interface GenesisAuditEvent {
 }
 
 interface DurableGenesisState {
+    readonly disposableNamespace?: string;
+    readonly disposableEvidence?: readonly DisposableEvidenceRecord[];
     readonly systems: readonly GenesisSystemDefinition[];
     readonly blueprints: readonly unknown[];
     readonly sessions: readonly unknown[];
@@ -42,8 +49,157 @@ const revive = <T>(value: unknown): T => JSON.parse(JSON.stringify(value), (key,
 
 export class GenesisStateRepository {
     private readonly store: JsonStateStore<DurableGenesisState>;
-    constructor(path: string) {
-        this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }));
+    constructor(path: string, private readonly requireDisposableNamespace?: string) {
+        this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
+            !requireDisposableNamespace);
+        if (requireDisposableNamespace) {
+            const metadata = lstatSync(path);
+            if (realpathSync(path) !== resolve(path) || !metadata.isFile() || (metadata.mode & 0o077) !== 0 ||
+                this.store.read().disposableNamespace !== requireDisposableNamespace) {
+                throw new Error("Expected a private, initialized disposable Genesis state.");
+            }
+        }
+    }
+
+    static createDisposable(path: string, namespace: string): GenesisStateRepository {
+        const directory = lstatSync(dirname(path));
+        if (!/^[A-Za-z0-9._-]+$/.test(namespace) || realpathSync(dirname(path)) !== resolve(dirname(path)) ||
+            !directory.isDirectory() || (directory.mode & 0o077) !== 0) {
+            throw new Error("Disposable Genesis requires a canonical private directory and namespace.");
+        }
+        writeFileSync(path, JSON.stringify({ disposableNamespace: namespace, systems: [], blueprints: [],
+            sessions: [], grants: [], audit: [] }) + "\n", { flag: "wx", mode: 0o600 });
+        return new GenesisStateRepository(path, namespace);
+    }
+
+    assertDisposableNamespace(namespace: string): void {
+        if (this.requireDisposableNamespace !== namespace || this.store.read().disposableNamespace !== namespace) {
+            throw new Error("Disposable mission state is missing or does not match its signed namespace.");
+        }
+    }
+
+    assertRunNamespace(namespace: string | undefined): void {
+        if (this.store.read().disposableNamespace !== namespace || this.requireDisposableNamespace !== namespace) {
+            throw new Error("Run and authoritative state must share the same execution namespace.");
+        }
+    }
+
+    /** Reserve the mission and existing PBOS execution lease in the same cross-process transaction. */
+    claimDisposableRun(run: ProductionRun, lease: ExecutionLease): void {
+        const attempt = run.disposableAttempt;
+        if (!attempt || this.requireDisposableNamespace !== attempt.namespace) throw new Error("Disposable state binding is required.");
+        this.store.update(state => {
+            if (state.disposableNamespace !== attempt.namespace) throw new Error("Disposable state namespace changed.");
+            const runs = state.productionRuns ?? [];
+            const leases = state.executionLeases ?? [];
+            if (runs.some(previous => previous.runId === run.runId || previous.authorizationArtifactId === run.authorizationArtifactId ||
+                previous.disposableAttempt?.attemptId === attempt.attemptId ||
+                (previous.repository.toLowerCase() === run.repository.toLowerCase() &&
+                    previous.disposableAttempt?.missionId === attempt.missionId))) {
+                throw new Error("Disposable mission or signed attempt has already been claimed.");
+            }
+            if (leases.some(existing => existing.repository.toLowerCase() === run.repository.toLowerCase() &&
+                existing.status === "ACTIVE")) throw new Error("Existing execution lease requires review before admission.");
+            const next = new GovernedMissionQueue().next((state.missionQueue ?? []).filter(item => item.systemId === run.systemId));
+            if (next?.missionId !== attempt.missionId || next.title !== run.selectedMission || !next.approvalRequired) {
+                throw new Error("Disposable mission is no longer the eligible governed queue entry.");
+            }
+            return { ...state, productionRuns: [...runs, run], executionLeases: [...leases, lease] };
+        });
+    }
+
+    /** Atomically fence the sole dispatch and acknowledge an observed worker return. */
+    markDisposableWorker(runId: string, phase: "started" | "finished", host: string, pid: number, now: Date): void {
+        this.store.update(state => {
+            const runs = state.productionRuns ?? [];
+            const run = runs.find(item => item.runId === runId);
+            const attempt = run?.disposableAttempt;
+            const lease = (state.executionLeases ?? []).find(item => item.runId === runId && item.status === "ACTIVE");
+            if (!attempt || attempt.quarantine || !run || this.requireDisposableNamespace !== attempt.namespace || state.disposableNamespace !== attempt.namespace ||
+                run.status !== "RUNNING" || !lease || lease.host !== host || lease.processId !== pid ||
+                !(Date.parse(lease.expiresAt) > now.getTime()) ||
+                (phase === "started" ? Boolean(attempt.workerStartedAt) : !attempt.workerStartedAt || Boolean(attempt.workerFinishedAt))) {
+                throw new Error("Disposable worker dispatch checkpoint or execution lease is invalid.");
+            }
+            const checkpoint = phase === "started" ? "workerStartedAt" : "workerFinishedAt";
+            return { ...state, productionRuns: runs.map(item => item.runId === runId
+                ? { ...run, disposableAttempt: { ...attempt, [checkpoint]: now.toISOString() } } : item) };
+        });
+    }
+
+    renewDisposableLease(runId: string, host: string, pid: number, now: Date, expiresAt: string): ProductionRun {
+        const updated = this.store.update(state => {
+            const runs = state.productionRuns ?? [];
+            const leases = state.executionLeases ?? [];
+            const run = runs.find(item => item.runId === runId);
+            const lease = leases.find(item => item.runId === runId && item.status === "ACTIVE");
+            if (!run?.disposableAttempt || run.disposableAttempt.quarantine || this.requireDisposableNamespace !== run.disposableAttempt.namespace ||
+                state.disposableNamespace !== run.disposableAttempt.namespace ||
+                !lease || lease.host !== host || lease.processId !== pid || !(Date.parse(lease.expiresAt) > now.getTime())) {
+                throw new Error("Disposable execution lease is lost or expired.");
+            }
+            return { ...state, productionRuns: runs.map(item => item.runId === runId
+                ? { ...run, lastHeartbeatAt: now.toISOString() } : item),
+                executionLeases: leases.map(item => item.leaseId === lease.leaseId
+                    ? { ...lease, lastRenewedAt: now.toISOString(), expiresAt } : item) };
+        });
+        return updated.productionRuns!.find(item => item.runId === runId)!;
+    }
+
+    inspectDisposableRun(runId: string) {
+        const state = this.store.read();
+        const run = state.productionRuns?.find(item => item.runId === runId);
+        if (!run?.disposableAttempt || this.requireDisposableNamespace !== run.disposableAttempt.namespace ||
+            state.disposableNamespace !== run.disposableAttempt.namespace) {
+            throw new Error("Disposable recovery inspection requires a matching persisted run.");
+        }
+        return {
+            run,
+            activeLease: state.executionLeases?.find(item => item.runId === runId && item.status === "ACTIVE"),
+            evidence: (state.disposableEvidence ?? []).filter(record => record.runId === runId),
+        };
+    }
+
+    quarantineDisposableRun(runId: string, attemptId: string, operatorId: string, approvalDigest: string, now: Date): void {
+        this.store.update(state => {
+            const run = state.productionRuns?.find(item => item.runId === runId);
+            const attempt = run?.disposableAttempt;
+            if (!run || !attempt || attempt.attemptId !== attemptId || attempt.quarantine ||
+                this.requireDisposableNamespace !== attempt.namespace || state.disposableNamespace !== attempt.namespace ||
+                state.executionLeases?.some(lease => lease.runId === runId && lease.status === "ACTIVE" &&
+                    !(Date.parse(lease.expiresAt) <= now.getTime()))) {
+                throw new Error("Disposable attempt is already quarantined, still leased, or cannot be verified.");
+            }
+            return { ...state, productionRuns: state.productionRuns!.map(item => item.runId === runId
+                ? { ...run, disposableAttempt: { ...attempt, quarantine: {
+                    recordedAt: now.toISOString(), operatorId, approvalDigest,
+                } } } : item) };
+        });
+    }
+
+    disposableEvidence(runId: string): readonly DisposableEvidenceRecord[] {
+        return (this.store.read().disposableEvidence ?? []).filter(record => record.runId === runId);
+    }
+
+    appendDisposableEvidence(runId: string, stage: DisposableEvidenceStage, payload: DisposableEvidenceRecord["payload"]): DisposableEvidenceRecord {
+        const updated = this.store.update(state => {
+            const evidence = state.disposableEvidence ?? [];
+            const run = state.productionRuns?.find(item => item.runId === runId);
+            const attempt = run?.disposableAttempt;
+            const chain = evidence.filter(item => item.runId === runId);
+            if (!run || !attempt || attempt.quarantine || state.disposableNamespace !== attempt.namespace ||
+                this.requireDisposableNamespace !== attempt.namespace || DISPOSABLE_EVIDENCE_STAGES[chain.length] !== stage ||
+                !verifyDisposableEvidence(chain) || (stage === "BUILD" && !attempt.workerFinishedAt)) {
+                throw new Error("Disposable evidence is out of order or lacks an authoritative run checkpoint.");
+            }
+            const unsigned = { runId, attemptId: attempt.attemptId, approvalDigest: attempt.approvalDigest,
+                sourceSha: run.startingCommit, stage, recordedAt: new Date().toISOString(),
+                previousDigest: chain.at(-1)?.digest ?? null, payload };
+            const record = { ...unsigned, digest: hashEvidence(unsigned) };
+            if (!verifyDisposableEvidence([...chain, record])) throw new Error("Invalid disposable stage evidence payload.");
+            return { ...state, disposableEvidence: [...evidence, record] };
+        });
+        return updated.disposableEvidence!.at(-1)!;
     }
 
     systems(): readonly GenesisSystemDefinition[] { return [...this.store.read().systems]; }
@@ -153,5 +309,55 @@ export class GenesisStateRepository {
     }
     savePreviewManifest(manifest: PreviewManifest): void {
         this.store.update(state => ({ ...state, previewManifests: [...(state.previewManifests ?? []).filter(item => item.previewId !== manifest.previewId), manifest] }));
+    }
+}
+
+function hashEvidence(record: Omit<DisposableEvidenceRecord, "digest">): string {
+    // Explicit field order also supports validation after a JSON round trip.
+    return createHash("sha256").update(JSON.stringify([record.runId, record.attemptId, record.approvalDigest,
+        record.sourceSha, record.stage, record.recordedAt, record.previousDigest, record.payload])).digest("hex");
+}
+
+/** Verify the ordered evidence chain. A valid prefix carries no certification authority. */
+export function verifyDisposableEvidence(records: readonly DisposableEvidenceRecord[], requireComplete = false): boolean {
+    if (requireComplete && records.length !== DISPOSABLE_EVIDENCE_STAGES.length) return false;
+    return records.every((record, index) => {
+        if (!record || typeof record !== "object") return false;
+        const first = records[0];
+        const previous = records[index - 1];
+        return DISPOSABLE_EVIDENCE_STAGES[index] === record.stage &&
+            record.runId === first.runId && record.attemptId === first.attemptId &&
+            record.approvalDigest === first.approvalDigest && record.sourceSha === first.sourceSha &&
+            /^[a-f0-9]{64}$/.test(record.approvalDigest) && /^[a-f0-9]{40}$/.test(record.sourceSha) &&
+            Number.isFinite(Date.parse(record.recordedAt)) &&
+            (!previous || Date.parse(previous.recordedAt) <= Date.parse(record.recordedAt)) &&
+            validStagePayload(record, records) &&
+            record.previousDigest === (previous?.digest ?? null) &&
+            record.digest === hashEvidence(record);
+    });
+}
+
+function validStagePayload(record: DisposableEvidenceRecord, records: readonly DisposableEvidenceRecord[]): boolean {
+    const { payload, stage } = record;
+    if (!payload || typeof payload !== "object") return false;
+    const sha256 = (value: unknown) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+    const present = (value: unknown) => typeof value === "string" && value.trim().length > 0;
+    const paths = (value: unknown) => Array.isArray(value) && value.length > 0 &&
+        value.every(present) && new Set(value).size === value.length;
+    switch (stage) {
+        case "SELECT": return present(payload.missionId) && present(payload.workerId);
+        case "PLAN": return sha256(payload.planHash) && paths(payload.allowedPaths);
+        case "BUILD": {
+            const allowed = records[1]?.payload.allowedPaths;
+            return Array.isArray(allowed) && Array.isArray(payload.changedPaths) && paths(payload.changedPaths) &&
+                payload.changedPaths.every(path => allowed.includes(path)) &&
+                payload.workerId === records[0]?.payload.workerId && sha256(payload.diffDigest) && sha256(payload.outputDigest);
+        }
+        case "TEST": return payload.diffDigest === records[2]?.payload.diffDigest && sha256(payload.testResultsDigest);
+        case "VERIFY": return payload.diffDigest === records[2]?.payload.diffDigest && sha256(payload.verificationDigest);
+        case "DOCUMENT": return sha256(payload.documentationDigest);
+        case "PROPOSE": return typeof payload.proposalSha === "string" && /^[a-f0-9]{40}$/.test(payload.proposalSha) &&
+            payload.proposalSha !== record.sourceSha && payload.ciHeadSha === payload.proposalSha &&
+            sha256(payload.ciReceiptDigest);
     }
 }

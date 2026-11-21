@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
 import { GovernedMissionQueue } from "./mission-queue";
-import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
+import { ApplicationAcceptanceEvidence, DisposableProductionAttempt, FunctionalAcceptancePlan, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
 import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 import { ProductionRuntimeService } from "./production-runtime-service";
 
@@ -25,6 +25,7 @@ export interface MissionExecutionResult {
 export type ProductionMissionExecutor = (context: MissionExecutionContext) => Promise<MissionExecutionResult>;
 
 export interface ProductionMissionRequest {
+    readonly disposableAttempt?: DisposableProductionAttempt;
     readonly systemId: string;
     readonly actorId: string;
     readonly authorizationArtifactId: string;
@@ -59,6 +60,18 @@ export class ProductionMissionRunner {
     async run(request: ProductionMissionRequest,
         executorFor: (mission: MissionQueueItem) => ProductionMissionExecutor | undefined): Promise<ProductionMissionSequence> {
         const maximumMissions = request.maximumMissions ?? 10;
+        const disposable = request.disposableAttempt;
+        if (disposable) {
+            this.state.assertDisposableNamespace(disposable.namespace);
+            if (maximumMissions !== 1 || request.autonomousContinuation !== false ||
+                request.approvedMissionIds?.length !== 1 || request.approvedMissionIds[0] !== disposable.missionId) {
+                throw new Error("Disposable admission requires one explicitly authorized mission and no continuation.");
+            }
+            if (this.state.productionRuns().some(run => run.disposableAttempt?.missionId === disposable.missionId &&
+                run.repository.toLowerCase() === request.repository.toLowerCase())) {
+                throw new Error("Disposable mission or signed attempt has already been claimed.");
+            }
+        }
         if (!Number.isInteger(maximumMissions) || maximumMissions < 1 || maximumMissions > 10) {
             throw new Error("Autonomous mission limit must be between 1 and 10.");
         }
@@ -77,7 +90,9 @@ export class ProductionMissionRunner {
             const mission = recovering?.status === "RECOVERING"
                 ? this.state.missionQueue(request.systemId).find(item => item.title === recovering.selectedMission)
                 : new GovernedMissionQueue().next(this.state.missionQueue(request.systemId));
-            if (!mission) return { runs: completed, stopReason: "NO_ELIGIBLE_MISSION" };
+            if (!mission || (disposable && mission.missionId !== disposable.missionId)) {
+                return { runs: completed, stopReason: "NO_ELIGIBLE_MISSION" };
+            }
             if (mission.approvalRequired && !(request.approvedMissionIds ?? []).includes(mission.missionId)) {
                 return { runs: completed, stopReason: "APPROVAL_REQUIRED", nextMission: mission };
             }
@@ -88,6 +103,9 @@ export class ProductionMissionRunner {
             let run: ProductionRun;
             let plan: ProductionExecutionPlan;
             if (recovering?.status === "RECOVERING") {
+                if (disposable || recovering.disposableAttempt) {
+                    throw new Error("Disposable attempts do not permit automatic worker restart.");
+                }
                 if (recovering.systemId !== request.systemId || recovering.selectedMission !== mission.title ||
                     recovering.startingCommit !== request.commit || recovering.actorId !== request.actorId ||
                     recovering.resumeCheckpoint !== "EXECUTION") {
@@ -106,7 +124,8 @@ export class ProductionMissionRunner {
                     branch: request.branch, commit: request.commit, objective: mission.title, mission: mission.title,
                     rationale: mission.rationale, dependencies: mission.dependencies, parentRunId,
                     triggerSource: parentRunId ? "CONTINUATION" : request.triggerSource ?? "CLI",
-                    autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS" });
+                    autonomousContinuation: request.autonomousContinuation ?? true, runType: "READINESS",
+                    disposableAttempt: disposable });
                 this.runtime.transition(run.runId, "QUEUED", "Eligible mission entered the governed execution queue.", {
                     missionId: mission.missionId, buildChannelId: request.buildChannel.channelId,
                     operatingSystemId: request.buildChannel.operatingSystemId,

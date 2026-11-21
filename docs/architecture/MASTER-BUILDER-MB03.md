@@ -1,6 +1,6 @@
 # MB-03 — Repeatable Governed Engineering: Remote Runtime Contract
 
-**Status:** DESIGN ONLY — no runtime execution authority.  
+**Status:** Disposable admission and recovery implemented for isolated review. Remote execution and certification are pending.
 **Parent:** The Master Builder™ in PBOS-CORE.  
 **Tracking:** #95. **Dependencies:** draft #93 (foundation), draft #94 (single disposable-cycle proposal).  
 **Base:** `feat/master-builder-readonly-gate` at `2ccbb1576dfb64e22a0ad1f9cb7daa389f52b956`.
@@ -24,7 +24,7 @@ Fail closed unless all conditions are independently observed:
 - Mission approval signature is checked against **exact** mission scope and current time; revocation/expiry is rechecked immediately before process spawn.
 - Repository remote, exact 40-character source SHA, Git worktree registration, separate gitdir/common-dir, canonical path, clean status and expected disposable namespace all match.
 - Allowed paths are normalized and validated **before** process launch; reject empty scopes, `.`, `..`, absolute paths, path separators that escape the repository, Git administrative paths, and any symlink traversal. Reject renames involving any out-of-scope source or destination.
-- Claim one atomic lease keyed by mission ID + approval digest + source SHA + attempt. A duplicate invocation cannot start a second worker.
+- Claim the existing execution lease and persist mission, attempt, approval, and source in one transaction. The authority rejects previously claimed repository/mission pairs, attempt IDs, and approval IDs, including when a previous run failed.
 - Invoke the existing Codex agent with a Core-compatible, one-file bounded prompt. The Playbook Canon/browser-artifact prompt must not silently expand this mission's scope.
 - On failure, timeout, cancellation, lost heartbeat or incomplete evidence, mark the attempt blocked. Do not silently retry or relaunch.
 
@@ -46,9 +46,9 @@ Store non-secret evidence in durable, access-controlled artifacts with retention
 
 | Condition | Required behavior |
 | --- | --- |
-| Duplicate trigger, same attempt | Return existing attempt/evidence; **never spawn** a second worker |
-| Duplicate mission, different attempt | Block until separate fresh authorization and explicit operator decision |
-| Lease expired or worker interrupted | Mark interrupted, preserve evidence, quarantine worktree; no automatic continuation |
+| Duplicate trigger, same attempt | Reject the trigger and inspect the persisted attempt with the read-only recovery API |
+| Duplicate mission, different attempt | Reject the same repository/mission pair in the authoritative state, even with a new signature |
+| Lease expired or worker interrupted | Inspect the preserved lease and dispatch evidence. A separate signed approval may quarantine the attempt record. The worktree remains available for independent review |
 | Approval expired or revoked | Block admission and resume; never reuse approval |
 | Source SHA or base branch drift | Block; re-plan and obtain fresh approval |
 | Worker produces out-of-scope diff | Reject, preserve audit receipt and quarantine; never propose |
@@ -56,7 +56,15 @@ Store non-secret evidence in durable, access-controlled artifacts with retention
 | PR created but CI pending | Await exact-head CI, do not certify |
 | CI failure | Block certification and preserve run URL and logs |
 
-A resume may perform **read-only verification** of an existing immutable attempt. Resuming BUILD requires a fresh approved attempt and atomic lease. Avoid interpreting GitHub job success as evidence that a Codex process ran.
+Recovery starts with read-only inspection. A separate operator-signed `master-builder:quarantine-disposable-attempt` approval can quarantine an inactive or expired attempt. The marker retains the execution checkpoints and lease history. It neither restarts the worker nor releases an expired active lease. There is no BUILD resume in this implementation. A stale state-store lock also fails closed and requires infrastructure review. Keep all contenders for a mission on one authoritative controller and state file. Separate state files have independent replay histories.
+
+## Current implementation boundary
+
+`runMb03DisposableMission` verifies the operator signature before admission and immediately before dispatch. The signed resource includes the exact allowed file list and designated worker and attempt identities. The existing queue and runner record the lease and checkpoints in a freshly initialized, marked disposable state repository. After the adapter returns, checks cover the pinned detached worktree, changes to existing tracked regular files, symlinks, and the exact change scope. These checks alone cannot establish remote worker identity.
+
+The bounded Codex mode uses explicit disposable HOME, CODEX_HOME and scratch paths. The controller must supply an isolated implementation adapter. The worker environment still requires a reviewed remote provisioner that prevents access to operator state, the original Genesis, host files and production credentials. No network service, provider trust root, remote credential provisioning or live dispatch workflow is configured here. Keep the authoritative state separate from worker storage.
+
+The current integration records SELECT and PLAN, and records BUILD when an adapter returns and the local output passes scope inspection. The ledger validates order, hashes, changed paths, test/verification diff correlation, and proposal SHA/CI head correlation. It provides a local integrity check. A separately trusted verifier and artifact store must attest TEST, VERIFY, DOCUMENT and PROPOSE. The runner blocks acceptance until that verifier is integrated.
 
 ## MB-03 acceptance matrix
 
