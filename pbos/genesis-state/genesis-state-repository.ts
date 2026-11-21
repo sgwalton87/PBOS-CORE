@@ -5,6 +5,7 @@ import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
 import type { RemediationRun } from "../validation-automation/contracts";
 import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
+import { TERMINAL_PRODUCTION_STATUSES } from "../production-runtime/contracts";
 import type { ExecutionLease, MissionQueueItem, PreviewManifest, ProductionEvent, ProductionRecoveryEpoch, ProductionRun, ProductionStage } from "../production-runtime/contracts";
 
 export interface GenesisAuditEvent {
@@ -126,6 +127,32 @@ export class GenesisStateRepository {
             return { ...state, productionEvents: [...events, { ...event, sequence: lastSequence + 1 }] };
         });
     }
+    recordClosedPullRequestReplacement(before: ProductionRun, historical: RemediationRun, updated: ProductionRun,
+        replacement: RemediationRun, grantId: string, approval: GenesisAuditEvent, event: Omit<ProductionEvent, "sequence">): void {
+        this.store.update(state => {
+            const runs = state.productionRuns ?? [];
+            const remediations = state.remediationRuns ?? [];
+            const events = state.productionEvents ?? [];
+            const grant = (state.grants as readonly AutonomousBuildGrant[]).find(item => item.grantId === grantId);
+            const occurredAt = Date.parse(approval.occurredAt);
+            if (JSON.stringify(runs.find(run => run.runId === before.runId)) !== JSON.stringify(before) ||
+                JSON.stringify(remediations.find(run => run.runId === historical.runId)) !== JSON.stringify(historical) ||
+                !grant || grant.revokedAt || !(Date.parse(String(grant.expiresAt)) > occurredAt) ||
+                runs.some(run => run.repository === before.repository && !TERMINAL_PRODUCTION_STATUSES.includes(run.status)) ||
+                (state.executionLeases ?? []).some(lease => lease.repository === before.repository && lease.status === "ACTIVE") ||
+                remediations.some(run => run.pullRequest.repository === replacement.pullRequest.repository &&
+                    run.pullRequest.number === replacement.pullRequest.number) ||
+                state.audit.some(entry => entry.eventId === approval.eventId)) {
+                throw new Error("Closed pull request replacement lineage or authority changed before registration.");
+            }
+            const sequence = events.reduce((maximum, item) => Math.max(maximum, item.sequence), 0) + 1;
+            return { ...state,
+                productionRuns: runs.map(run => run.runId === before.runId ? updated : run),
+                remediationRuns: [...remediations, replacement], audit: [...state.audit, approval],
+                productionEvents: [...events, { ...event, sequence }] };
+        });
+    }
+
     productionRecoveryEpochs(runId?: string): readonly ProductionRecoveryEpoch[] {
         return [...(this.store.read().productionRecoveryEpochs ?? [])]
             .filter(epoch => !runId || epoch.runId === runId)

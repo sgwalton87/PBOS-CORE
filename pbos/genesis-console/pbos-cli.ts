@@ -70,6 +70,9 @@ import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
     ecosystemIsolationExecutor, ecosystemPlatformCertificationResource, ecosystemPlatformEvidenceExecutor,
     ecosystemSystemCertificationResource, inspectEcosystemEvidenceReadiness,
     inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
+import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
+    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval,
+    verifyClosedPullRequestRecoveryCheckout } from "./closed-pull-request-recovery";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition,
     functionalAcceptanceAuthorityDefinitions } from "./functional-acceptance-authority";
 
@@ -534,6 +537,28 @@ async function promptForValidatedMissionPromotion(services: ReturnType<typeof ru
     return true;
 }
 
+async function authorizeRegisteredClosedPullRequestRecovery(services: ReturnType<typeof runtime>,
+    run: ProductionRun, remediation: RemediationRun, sessionId: string): Promise<void> {
+    assertIsolatedRecoveryState(stateRoot, join(homedir(), ".pbos"));
+    const replacement = remediation.closedPullRequestReplacement!;
+    const session = services.state.sessions().find(item => item.sessionId === sessionId);
+    const approval = services.state.audit().find(item => item.eventId === replacement.approvalId)
+        ?.evidence.approval as VerifiableApproval | undefined;
+    const plan = run.functionalAcceptancePlan;
+    if (sessionId !== replacement.sessionId || !session || !approval || !plan?.localSyntheticHostingerRecovery ||
+        plan.commit !== replacement.headSha || plan.branch !== remediation.pullRequest.branch ||
+        run.currentCommit !== replacement.headSha || run.currentBranch !== plan.branch ||
+        run.evidenceIds.filter(id => id.startsWith("remediation-run:")).at(-1) !== `remediation-run:${remediation.runId}`) {
+        throw new Error("The approved replacement lineage or original bounded build grant is unavailable.");
+    }
+    verifyClosedPullRequestRecoveryApproval(services.identities, services.operator, session, approval, replacement.resource);
+    if (!services.control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", plan.branch, approval.approvalId).allowed) {
+        throw new Error("The bounded recovery build grant is unavailable.");
+    }
+    await verifyClosedPullRequestRecoveryCheckout(new NodeCommandRunner(), plan.workingDirectory,
+        plan.branch, replacement.headSha, replacement.baseCommit);
+}
+
 async function resumeExistingProductionValidation(services: ReturnType<typeof runtime>, systemId: string,
     target?: string): Promise<number | undefined> {
     const productionRun = [...services.state.productionRuns()].reverse().find(item => item.systemId === systemId &&
@@ -556,6 +581,10 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         stdout.write(`PBOS validation is blocked: ${remediationRun.blockers.join("; ") || "operator review required"}\n`);
         return 1;
     }
+    const replacement = remediationRun.closedPullRequestReplacement;
+    if (replacement && productionRun.status !== "AWAITING_APPROVAL") {
+        await authorizeRegisteredClosedPullRequestRecovery(services, productionRun, remediationRun, replacement.sessionId);
+    }
     const currentBudget = services.production.repairBudget(productionRun.runId);
     if (productionRun.status === "BLOCKED" && currentBudget.remaining === 0) {
         const io = new NodeTerminalIO();
@@ -568,8 +597,12 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
         if (!recoveryApproval) return 1;
     }
     const session = [...services.state.sessions()].reverse().find(item => item.system.systemId === systemId &&
-        item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
+        (!replacement || item.sessionId === replacement.sessionId) && item.grant.mode !== "READ_ONLY" && !item.grant.revokedAt && item.grant.expiresAt.getTime() > Date.now());
     if (!session) throw new Error(`No active governed build session can resume production run ${productionRun.runId}. Run: pbos build ${target ?? "playbook"}`);
+    if (replacement && productionRun.status === "AWAITING_APPROVAL") {
+        stdout.write("Replacement acceptance is awaiting separate certification and release review.\n");
+        return 0;
+    }
     let refreshedRun = services.production.run(productionRun.runId)!;
     if (refreshedRun.status === "AWAITING_APPROVAL") {
         const mission = services.state.missionQueue(systemId).find(item => item.title === refreshedRun.selectedMission);
@@ -862,7 +895,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
             : services.production.updateRepositoryPosition(productionRun.runId, remediationRun.pullRequest.branch,
                 validatedRevision);
     }
-    if (productionMission?.missionId.startsWith("048-phase-")) {
+    if (!replacement && productionMission?.missionId.startsWith("048-phase-")) {
         governedRun = services.production.normalizeFunctionalAcceptanceRequiredEnvironment(
             productionRun.runId, PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT);
     }
@@ -912,6 +945,10 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     stdout.write("Live telemetry is attached here; PBOS will not create a duplicate branch or pull request.\n");
     const telemetry = await streamProductionTelemetry(services.state, productionRun.runId);
     if (telemetry !== "AWAITING_APPROVAL") return telemetry === "BLOCKED" ? 1 : 0;
+    if (replacement) {
+        stdout.write("Replacement acceptance is awaiting separate certification and release review.\n");
+        return 0;
+    }
     const currentRemediation = services.state.remediationRun(remediationRun.runId);
     const mission = services.state.missionQueue(systemId).find(item => item.title === productionRun.selectedMission);
     if (!currentRemediation || currentRemediation.state !== "READY_FOR_CERTIFICATION" ||
@@ -1657,6 +1694,39 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const next = new GovernedMissionQueue().next(services.state.missionQueue(requestedSystemId ?? "PLAYBOOK-SYSTEM-001"));
         stdout.write(next ? `${next.missionId} — ${next.title}\nReason: ${next.rationale}\nApproval required: ${next.approvalRequired ? "YES" : "NO"}\n` : "No eligible mission.\n"); return 0;
     }
+    if (args[0] === "recover-replacement") {
+        const [runId, pullRequest, baseCommit, headCommit, worktree] = args.slice(1);
+        if (!runId || !/^\d+$/.test(pullRequest ?? "") || !baseCommit || !headCommit || !worktree || args.length !== 6) {
+            throw new Error("Usage: pbos recover-replacement <run-id> <new-pr-number> <base-sha> <head-sha> <worktree>");
+        }
+        assertIsolatedRecoveryState(stateRoot, join(homedir(), ".pbos"));
+        const services = runtime();
+        await ensureGitHubAuthentication(profile());
+        const commands = new NodeCommandRunner();
+        const prepared = await prepareClosedPullRequestRecovery(services.state, commands, runId, Number(pullRequest),
+            baseCommit, headCommit, worktree);
+        if (prepared.run.actorId !== services.operator.operatorId) throw new Error("Only the run's operator may approve recovery.");
+        const io = new NodeTerminalIO();
+        try {
+            io.write(`Recovery scope: ${prepared.resource}`);
+            io.write("The grant and exact replacement approval do not start acceptance or authorize release.");
+            if ((await io.prompt('Type ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001 to issue a human-gated build grant: ')).trim() !==
+                "ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001") return 1;
+            const issuance = await services.sessionAuthority.authorize(prepared.run.systemId);
+            const session = services.control.activateSystem(prepared.run.systemId, "HUMAN_GATED",
+                issuance.operatorId, issuance.approvalId);
+            if ((await io.prompt(`Type APPROVE ${headCommit} to authorize the exact replacement: `)).trim() !==
+                `APPROVE ${headCommit}`) return 1;
+            const fresh = await prepareClosedPullRequestRecovery(services.state, commands, runId, Number(pullRequest),
+                baseCommit, headCommit, worktree);
+            if (fresh.resource !== prepared.resource) throw new Error("The proposed replacement changed during review.");
+            const approval = services.identities.approve(services.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource, 30);
+            registerClosedPullRequestRecovery(services.state, services.control, services.identities,
+                services.operator, session, approval, fresh, stateRoot);
+            io.write("Exact replacement registered. Browser acceptance has not started.");
+            return 0;
+        } finally { io.close(); }
+    }
     if (args[0] === "run") return runNextProductionMission(args[1]);
     if (args[0] === "migrate") {
         const systemId = systemIdFor(args[1]);
@@ -1730,7 +1800,13 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const runId = args[1]; const sessionId = args[2];
         if (!runId || !sessionId) throw new Error("Background monitor requires run and session identifiers.");
         const services = runtime();
-        await new BackgroundMonitor(services.state, services.remediation, services.workflows, services.memos).run(runId, sessionId);
+        await new BackgroundMonitor(services.state, services.remediation, services.workflows, services.memos)
+            .run(runId, sessionId, undefined, undefined, async remediation => {
+                const run = services.state.productionRuns().find(candidate => candidate.status === "VALIDATING" &&
+                    candidate.evidenceIds.includes(`remediation-run:${remediation.runId}`));
+                if (!run) throw new Error("Replacement acceptance requires an explicitly resumed validation checkpoint.");
+                await authorizeRegisteredClosedPullRequestRecovery(services, run, remediation, sessionId);
+            });
         return 0;
     }
     if (args[0] === "activate") {

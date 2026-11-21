@@ -20,6 +20,10 @@ export interface RemediationRun {
     readonly systemId: string;
     readonly pullRequest: PullRequestReference;
     readonly headSha: string;
+    readonly closedPullRequestReplacement?: Readonly<{
+        headSha: string; approvalId: string; resource: string; sessionId: string;
+        historicalRemediationId: string; baseCommit: string;
+    }>;
     readonly pullRequestState?: PullRequestLifecycleState;
     readonly mergeCommitSha?: string;
     readonly mergedValidationRevision?: string;
