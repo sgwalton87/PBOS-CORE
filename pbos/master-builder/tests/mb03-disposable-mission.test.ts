@@ -377,6 +377,14 @@ describe("MB-03.1 trusted provider and independent verifier fixtures", () => {
         expect(readFileSync(join(f.context.worktree, "allowed.txt"), "utf8")).toBe("base\n");
     });
 
+    it("requires cryptographically verified disposal evidence for a remote BUILD", async () => {
+        const f = setup();
+        const r = remoteFixture(f);
+        await expect(r.run({ ...r.provider, mode: "isolated-remote" })).rejects.toThrow(/return could not be verified/);
+        const [record] = f.state.productionRuns();
+        expect(f.state.disposableEvidence(record.runId).map(item => item.stage)).toEqual(["SELECT", "PLAN"]);
+    });
+
     it("rejects an otherwise signed return when provider disposal cannot be confirmed", async () => {
         const f = setup();
         const r = remoteFixture(f);

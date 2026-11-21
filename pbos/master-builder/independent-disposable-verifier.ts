@@ -11,8 +11,8 @@ import { mb03ApprovalScope } from "./mb03-disposable-mission";
 import { inspectSignedMissionApproval } from "./signed-approval-evidence";
 import { evidenceDigest, evidenceGitSha, evidenceJson, evidenceSha256, remoteKeyFingerprint, requireRemoteSignature } from "./remote-attestation";
 import type { SignedRemoteEvidence } from "./remote-attestation";
-import { verifyProvision, verifyRemoteReturn } from "./trusted-remote-worker";
-import type { RemoteProvision, RemoteReturn, RemoteWorkerBinding, RemoteWorkerTrust } from "./trusted-remote-worker";
+import { verifyProvision, verifyRemoteDisposal, verifyRemoteReturn } from "./trusted-remote-worker";
+import type { RemoteDisposal, RemoteProvision, RemoteReturn, RemoteWorkerBinding, RemoteWorkerTrust } from "./trusted-remote-worker";
 
 const git = promisify(execFile);
 export const INDEPENDENT_VERIFICATION_DOMAIN = "pbos.mb031.independent-verification.v1";
@@ -83,6 +83,7 @@ interface ArchivedWorkerReceipt {
     readonly binding: RemoteWorkerBinding;
     readonly provision: SignedRemoteEvidence<RemoteProvision>;
     readonly receipt: SignedRemoteEvidence<RemoteReturn>;
+    readonly disposal?: SignedRemoteEvidence<RemoteDisposal>;
     readonly manifest: readonly { path: string; digest: string }[];
 }
 
@@ -131,6 +132,10 @@ export async function independentlyVerifyDisposableMission(state: GenesisStateRe
         Date.parse(archived.receipt.payload.completedAt));
     if (!(Date.parse(returned.completedAt) <= returnedAt) || returned.outputsDigest !== evidenceDigest(evidenceJson(archived.manifest)) ||
         evidenceDigest(returned.outputsDigest) !== build.payload.outputDigest) throw new Error("Worker return evidence is inconsistent.");
+    if (archived.mode === "isolated-remote" || archived.disposal) {
+        if (!archived.disposal) throw new Error("Independent verification requires the provider disposal receipt.");
+        verifyRemoteDisposal(binding, provision, archived.disposal, trust.worker.publicKey, Date.parse(returned.completedAt), returnedAt);
+    }
     const statement = requireRemoteSignature(INDEPENDENT_VERIFICATION_DOMAIN,
         { payload: structuredClone(signed.payload), signature: signed.signature }, trust.verifierPublicKey);
     if (Object.keys(statement).sort().join(",") !== "buildDigest,diffDigest,documentationDigest,proposalSha,runId,testResults,verificationDigest,verifierId" ||
@@ -177,8 +182,17 @@ export async function independentlyVerifyDisposableMission(state: GenesisStateRe
         }
     }
     const ci = await github.verify(mission.repository, proposal.number, statement.proposalSha, mission.sourceSha, proposal.ciRunId, trust.github);
+    // Deployment supplies sanitized verifier artifacts; hashes are checked against the separate signer first.
+    const artifactDigests = {
+        patch: trust.worker.archive.preserve({ type: "proposal-diff", bytes: diff.toString("base64") }),
+        verification: trust.worker.archive.preserve({ type: "verification", bytes: artifacts.verification.toString("base64") }),
+        documentation: trust.worker.archive.preserve({ type: "documentation", bytes: artifacts.documentation.toString("base64") }),
+        tests: statement.testResults.map(test => ({ check: test.check, digest: trust.worker.archive.preserve({
+            type: "test-log", bytes: artifacts.testLogs.get(test.check)!.toString("base64"),
+        }) })),
+    };
     const archiveDigest = trust.worker.archive.preserve({
-        mode: archived.mode, statement: { payload: statement, signature: signed.signature }, ci, providerDigest,
+        mode: archived.mode, statement: { payload: statement, signature: signed.signature }, ci, providerDigest, artifactDigests,
     });
     const records = state.completeDisposableEvidence(runId, build.digest, [
         { stage: "TEST", payload: { diffDigest: statement.diffDigest, testResultsDigest: evidenceDigest(evidenceJson(statement.testResults)), archiveDigest } },
