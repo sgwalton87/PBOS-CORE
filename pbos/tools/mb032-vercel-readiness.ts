@@ -1,4 +1,4 @@
-import { probeVercelCanary } from "../master-builder/vercel-remote-provider";
+import { probeVercelCanary, SandboxCreateError } from "../master-builder/vercel-remote-provider";
 
 async function main() {
     const fields = {
@@ -18,8 +18,10 @@ async function main() {
     try {
         const outcome = await probeVercelCanary(fields as Parameters<typeof probeVercelCanary>[0], AbortSignal.timeout(75_000));
         process.stdout.write(`${JSON.stringify(outcome)}\n`);
-    } catch {
-        process.stderr.write("Sandbox readiness failed. Check the dedicated provider, pinned image, source and teardown evidence.\n");
+    } catch (error) {
+        const message = error instanceof SandboxCreateError ? error.message :
+            "Sandbox readiness failed. Check the dedicated provider, pinned image, source and teardown evidence.";
+        process.stderr.write(`${message}\n`);
         process.exitCode = 1;
     }
 }

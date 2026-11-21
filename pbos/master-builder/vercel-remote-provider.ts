@@ -122,7 +122,7 @@ type SandboxApi = Pick<typeof Sandbox, "create" | "get">;
 
 async function bootstrap(vm: Vm, sha: string, codexBinaryDigest: string, signal: AbortSignal) {
     const result = await vm.runCommand({ cmd: "python3", sudo: true, signal, args: ["-I", "-c", BOOTSTRAP,
-        vm.cwd, ROOT, WORKTREE, HOME, CODEX_HOME, SCRATCH, USER, CANARY_PATH,
+        "/opt/pbos-source", ROOT, WORKTREE, HOME, CODEX_HOME, SCRATCH, USER, CANARY_PATH,
         `https://github.com/${CANARY_REPOSITORY}`, sha, CODEX, codexBinaryDigest, CANARY_BEFORE] });
     if (result.exitCode !== 0) throw new Error("Vercel Sandbox source, binary, or write boundary could not be verified.");
 }
@@ -135,11 +135,38 @@ export interface VercelCanaryReadinessInput extends VercelControlIdentity {
 
 function isCanaryImage(image: string) { return /^[a-z0-9][a-z0-9./_-]*@sha256:[a-f0-9]{64}$/.test(image); }
 
+export class SandboxCreateError extends Error {
+    // The SDK treats AbortError as final, including for transient HTTP responses.
+    override readonly name = "AbortError";
+}
+
+function singleSandboxCreate(): typeof fetch {
+    let sent = false;
+    return async (input, options) => {
+        const url = new URL(input instanceof Request ? input.url : input);
+        const method = options?.method ?? (input instanceof Request ? input.method : "GET");
+        if (method !== "POST" || !/^\/v[234]\/sandboxes$/.test(url.pathname)) {
+            return fetch(input, options);
+        }
+        if (sent) throw new SandboxCreateError("A second Sandbox create request was blocked.");
+        sent = true;
+        const response = await fetch(input, { ...options, redirect: "error" }).catch(() => {
+            throw new SandboxCreateError("Sandbox create transport failed. Inspect the existing inventory before any further action.");
+        });
+        if (!response.ok) {
+            await response.body?.cancel().catch(() => undefined);
+            throw new SandboxCreateError(`Sandbox create returned HTTP ${response.status}.`);
+        }
+        return response;
+    };
+}
+
 function createSandbox(api: SandboxApi, input: VercelCanaryReadinessInput, name: string, timeout: number, signal: AbortSignal) {
-    const { image, sourceSha, token, teamId, projectId } = input;
+    const { image, token, teamId, projectId } = input;
     return api.create({ image, token, teamId, projectId, name,
-        source: { type: "git", url: `https://github.com/${CANARY_REPOSITORY}.git`, revision: sourceSha, depth: 1 },
-        timeout, persistent: false, ports: [], resources: { vcpus: 1 }, networkPolicy: "deny-all", signal });
+        // Source is already sealed into the reviewed immutable image. Do not ask
+        // Vercel to clone through deny-all network policy at startup.
+        timeout, persistent: false, ports: [], resources: { vcpus: 1 }, networkPolicy: "deny-all", signal, fetch: singleSandboxCreate() });
 }
 
 /** Explicit non-dispatch probe. No journal entry, model credential or Codex process is created. */

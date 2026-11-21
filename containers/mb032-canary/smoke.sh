@@ -67,3 +67,14 @@ if python3 -I /checks/collect.py "$worktree" "$relative" "$sha" "$after"; then
     exit 1
 fi
 printf 'Canary checkout and file-boundary smoke checks passed.\n'
+
+# The production image must contain the reviewed, detached source before any
+# Vercel Sandbox is created. Fail the protected publication smoke if it does not.
+embedded=/opt/pbos-source
+embedded_sha=121ce910d47ef65e76416d666220204ef17496e9
+test "$(git -C "$embedded" rev-parse HEAD)" = "$embedded_sha"
+test "$(git -C "$embedded" rev-parse --abbrev-ref HEAD)" = HEAD
+test "$(git -C "$embedded" remote get-url origin)" = https://github.com/sgwalton87/PBOS-CORE.git
+test -f "$embedded/$relative"
+printf '%s' "$before" | cmp - "$embedded/$relative"
+printf 'Embedded exact-SHA source verified.\n'

@@ -42,3 +42,15 @@ RUN set -eux; \
     printf '%s  %s\n' b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0 /tmp/pbos-codex | sha256sum -c -; \
     install -o root -g root -m 0755 /tmp/pbos-codex /usr/local/bin/codex; \
     rm /tmp/pbos-codex /tmp/pbos-codex.tar.gz
+
+# Bundle the exact reviewed runtime source at image build time. No GitHub access is
+# required from the deny-all Sandbox at creation or during worker bootstrap.
+ARG PBOS_SOURCE_SHA=121ce910d47ef65e76416d666220204ef17496e9
+RUN set -eux; \
+    test "$PBOS_SOURCE_SHA" = "121ce910d47ef65e76416d666220204ef17496e9"; \
+    GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --revision "$PBOS_SOURCE_SHA" \
+      https://github.com/sgwalton87/PBOS-CORE.git /opt/pbos-source; \
+    test "$(git -C /opt/pbos-source rev-parse HEAD)" = "$PBOS_SOURCE_SHA"; \
+    test "$(git -C /opt/pbos-source rev-parse --abbrev-ref HEAD)" = HEAD; \
+    test "$(git -C /opt/pbos-source remote get-url origin)" = https://github.com/sgwalton87/PBOS-CORE.git; \
+    chmod -R go-rwx /opt/pbos-source

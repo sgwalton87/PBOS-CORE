@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sandbox } from "@vercel/sandbox";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CodexModelLeaseBroker } from "../codex-model-lease-broker";
 import { createRemoteCanaryMission, CANARY_AFTER, CANARY_PATH } from "../remote-canary";
 import { GcsRemoteDispatchJournal } from "../remote-dispatch-journal";
@@ -11,7 +11,7 @@ import { RemoteEvidenceArchive } from "../remote-evidence-archive";
 import { HttpsModelLeaseIssuer } from "../remote-model-credential";
 import { verifyProvision, verifyRemoteDisposal, verifyRemoteReturn } from "../trusted-remote-worker";
 import type { RemoteWorkerBinding } from "../trusted-remote-worker";
-import { VercelCanaryProvider } from "../vercel-remote-provider";
+import { probeVercelCanary, VercelCanaryProvider } from "../vercel-remote-provider";
 
 const sha = "a".repeat(40);
 const modelOrigin = "https://model.example.test";
@@ -49,11 +49,37 @@ function setup() {
 }
 
 describe("MB-03.2 concrete SDK provider with synthetic transport", () => {
+    afterEach(() => vi.unstubAllGlobals());
+
+    it.each([307, 403, 429, 503, "transport failure"] as const)("sends one image-only SDK create on %s", async outcome => {
+        const f = setup();
+        const transport = vi.fn<typeof fetch>(async () => {
+            if (outcome === "transport failure") throw new TypeError("synthetic connection error");
+            return new Response(null, { status: outcome });
+        });
+        vi.stubGlobal("fetch", transport);
+
+        await expect(probeVercelCanary(f.policy, f.signal)).rejects.toThrow(
+            outcome === "transport failure" ? /create transport failed/ : new RegExp(`create returned HTTP ${outcome}`),
+        );
+        expect(transport).toHaveBeenCalledOnce();
+        const [url, request] = transport.mock.calls[0];
+        expect(new URL(String(url)).pathname).toBe("/v3/sandboxes");
+        expect(request).toMatchObject({ method: "POST", redirect: "error" });
+        const payload = JSON.parse(String(request?.body));
+        expect(payload).not.toHaveProperty("source");
+        expect(payload).toMatchObject({ image: f.policy.image, persistent: false, ports: [], timeout: 60_000,
+            resources: { vcpus: 1 }, networkPolicy: { mode: "deny-all" } });
+    });
+
     it("runs a non-dispatch probe without reserving an attempt, issuing model credentials or starting Codex", async () => {
         const f = setup();
         await expect(f.provider.probe(f.signal)).resolves.toMatchObject({ status: "READY_WITHOUT_MODEL", sourceSha: sha });
         expect(f.api.create).toHaveBeenCalledWith(expect.objectContaining({ persistent: false, networkPolicy: "deny-all",
-            ports: [], timeout: 60_000, source: expect.objectContaining({ revision: sha }) }));
+            ports: [], timeout: 60_000 }));
+        expect(f.api.create.mock.calls[0][0]).not.toHaveProperty("source");
+        expect(f.vm.runCommand.mock.calls[0][0]).toMatchObject({ cmd: "python3",
+            args: expect.arrayContaining(["/opt/pbos-source", sha]) });
         expect(f.vm.runCommand.mock.calls.map(([command]) => command.cmd)).toEqual(["python3", "curl"]);
         expect(f.policy.dispatch.reserve).not.toHaveBeenCalled();
         expect(f.policy.modelLeases.issue).not.toHaveBeenCalled();
