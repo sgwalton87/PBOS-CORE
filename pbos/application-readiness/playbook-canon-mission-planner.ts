@@ -1,5 +1,5 @@
 import { MissionQueueItem } from "../production-runtime";
-import { PlaybookCanonProductGraph } from "./playbook-canon-product-graph";
+import { PlaybookCanonPhase, PlaybookCanonProductGraph } from "./playbook-canon-product-graph";
 import { PLAYBOOK_REQUIRED_CANONICAL_JOURNEY_IDS, playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
@@ -195,7 +195,7 @@ export class PlaybookCanonMissionPlanner {
 
         const phaseById = new Map(graph.phases.map(phase => [phase.phaseId, phase]));
         Array.from({ length: 15 }, (_, index) => `PHASE-${String(index + 1).padStart(2, "0")}`).forEach(phaseId => {
-            const phase = phaseById.get(phaseId) ?? { phaseId, title: `canonical phase ${phaseId.slice(-2)}`,
+            const phase: PlaybookCanonPhase = phaseById.get(phaseId) ?? { phaseId, title: `canonical phase ${phaseId.slice(-2)}`,
                 completion: 0, incompleteItems: ["Canonical phase definition is missing."] };
             const missionId = `048-phase-${phase.phaseId.slice(-2)}`;
             const complete = phase.completion === 100 && phase.incompleteItems.length === 0;
@@ -223,7 +223,9 @@ export class PlaybookCanonMissionPlanner {
                 dependencies: [...baseDependencies, ...itemMissionIds],
                 status: complete ? "COMPLETE" : "QUEUED",
                 rationale: complete ? `${phase.title} is proven complete at ${graph.revision}.`
-                    : `${phase.title} is ${phase.completion}% complete with ${phase.incompleteItems.length} unfinished items.`,
+                    : phase.completion === null
+                        ? `${phase.title} has a Canon status of ${phase.summary?.status ?? "unknown"} and lacks item-level completion evidence.`
+                        : `${phase.title} is ${phase.completion}% complete with ${phase.incompleteItems.length} unfinished items.`,
                 approvalRequired: true, evidenceIds: complete ? priorEvidence(prior.get(missionId)) : [],
                 completionPolicy: artifactPolicy([`${phase.title} satisfies every canonical checklist item and its calculated completion is 100%.`]) });
         });
