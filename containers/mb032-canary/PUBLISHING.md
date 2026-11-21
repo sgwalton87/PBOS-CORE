@@ -13,12 +13,16 @@ The publishing workflow builds the reviewed Linux AMD64 image on GitHub-hosted r
    | `aud` | `https://vercel.com/pbos-genesis/mb032-vcr-publish` |
    | `repository` | `sgwalton87/PBOS-CORE` |
    | `repository_id` | `1321290119` |
-   | `sub` | `repo:sgwalton87/PBOS-CORE:environment:mb032-vcr-publish` |
+   | `sub` | `repo:sgwalton87@294628948/PBOS-CORE@1321290119:environment:mb032-vcr-publish` |
    | `ref` | `refs/heads/main` |
    | `event_name` | `workflow_dispatch` |
    | `workflow_ref` | `sgwalton87/PBOS-CORE/.github/workflows/pbos-mb032-vcr-publish.yml@refs/heads/main` |
 
-   If the policy interface cannot apply the project scope and required claims, leave publication disabled. See [VCR GitHub Actions](https://vercel.com/docs/container-registry/github-actions) and [OIDC policy matching](https://vercel.com/docs/oidc/policies).
+   GitHub's default subject for this repository includes the immutable owner and repository IDs. The environment name is part of that subject. See [GitHub immutable subject claims](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims).
+
+   In the GitHub Actions preset, select owner `sgwalton87`, repository `PBOS-CORE`, branch `main`, and workflow **PBOS MB-03.2 Publish Canary Image** (`.github/workflows/pbos-mb032-vcr-publish.yml`). The provider-side restriction must match the complete `workflow_ref` above, including the branch. Vercel's public documentation does not specify whether this selector accepts an unregistered workflow path. Leave the form unsaved if the workflow is unavailable or the full policy cannot be verified. A blank workflow field cannot be relied on to enforce workflow isolation.
+
+   Vercel documents a **Custom** provider for entering an issuer and matching claims. Use it only if the VCR policy editor accepts the GitHub issuer, supports exact equality for every claim above, and limits the grant to the dedicated project. Verify those restrictions before saving. If neither form supports the full scope, stop and request Vercel administrator or support verification. The workflow's own GitHub approval checks do not substitute for Vercel's claim checks. See [VCR GitHub Actions](https://vercel.com/docs/container-registry/github-actions) and [OIDC policy matching](https://vercel.com/docs/oidc/policies).
 
 3. Add these **environment variables** to `mb032-vcr-publish`. They are identifiers and should be set on this environment only. Registry authentication uses a short-lived OIDC exchange.
 
@@ -30,7 +34,7 @@ The publishing workflow builds the reviewed Linux AMD64 image on GitHub-hosted r
 
 ## Review and dispatch
 
-GitHub requires the manual workflow to be present on the default branch. The stacked draft permits review and offline CI while that requirement remains open. Default-branch adoption requires a separate authorized review. Keep the current drafts unmerged during this engineering task.
+GitHub requires the manual workflow to be present on the default branch. Draft #102 proposes adding only `.github/workflows/pbos-mb032-vcr-publish.yml` to `main`. The image and runtime remain pinned to the reviewed commits above. The standalone draft permits review and offline CI while adoption remains pending. Default-branch adoption requires a separate authorized review. Keep the current drafts unmerged during this engineering task.
 
 When the workflow is available on `main`, a manual dispatch with `publish=false` builds and runs the offline checks without packaging an image for transfer or requesting OIDC. For an independently authorized publish, dispatch on `main` with `image_source_sha=4e5c45a8dd6d0e5ce58ee5bb975ddfdcb3efdb0e` and `publish=true`. The operator’s explicit publication authorization and a distinct environment reviewer are both required. An authorized retry uses a fresh dispatch and review.
 
