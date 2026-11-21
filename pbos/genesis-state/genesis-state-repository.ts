@@ -25,6 +25,7 @@ export interface GenesisAuditEvent {
 interface DurableGenesisState {
     readonly disposableNamespace?: string;
     readonly disposableAuthorityId?: string;
+    readonly disposablePlacement?: readonly [host: string, statePath: string, device: string, directoryInode: string];
     readonly disposableEvidence?: readonly DisposableEvidenceRecord[];
     readonly systems: readonly GenesisSystemDefinition[];
     readonly blueprints: readonly unknown[];
@@ -52,12 +53,14 @@ const revive = <T>(value: unknown): T => JSON.parse(JSON.stringify(value), (key,
 export class GenesisStateRepository {
     private readonly store: JsonStateStore<DurableGenesisState>;
     private readonly disposableAuthorityId?: string;
+    private readonly disposablePlacement?: DurableGenesisState["disposablePlacement"];
     constructor(path: string, private readonly requireDisposableNamespace?: string) {
         this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
             !requireDisposableNamespace, requireDisposableNamespace ? value => {
                 const current = value as DurableGenesisState;
                 if (current.disposableNamespace !== requireDisposableNamespace ||
-                    (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId)) {
+                    (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
+                    (this.disposablePlacement && JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
                     throw new Error("Disposable authority changed or is inconsistent.");
                 }
             } : undefined);
@@ -67,12 +70,15 @@ export class GenesisStateRepository {
                 this.store.read().disposableNamespace !== requireDisposableNamespace) {
                 throw new Error("Expected a private, initialized disposable Genesis state.");
             }
-            this.disposableAuthorityId = this.store.read().disposableAuthorityId;
+            const loaded = this.store.read();
+            this.disposableAuthorityId = loaded.disposableAuthorityId;
+            this.disposablePlacement = loaded.disposablePlacement;
+            if (this.disposablePlacement) this.store.read();
         }
     }
 
     assertDisposableAuthority(expectedId: string): void {
-        if (!/^[a-f0-9-]{36}$/.test(expectedId) || !this.requireDisposableNamespace ||
+        if (!/^[a-f0-9-]{36}$/.test(expectedId) || !this.requireDisposableNamespace || !this.disposablePlacement ||
             this.disposableAuthorityId !== expectedId || this.store.read().disposableAuthorityId !== expectedId) {
             throw new Error("Trusted disposable authority is unavailable or does not match deployment.");
         }
@@ -84,7 +90,8 @@ export class GenesisStateRepository {
             !directory.isDirectory() || (directory.mode & 0o077) !== 0) {
             throw new Error("Disposable Genesis requires a canonical private directory and namespace.");
         }
-        writeFileSync(path, JSON.stringify({ disposableNamespace: namespace, disposableAuthorityId: randomUUID(), systems: [], blueprints: [],
+        writeFileSync(path, JSON.stringify({ disposableNamespace: namespace, disposableAuthorityId: randomUUID(),
+            disposablePlacement: disposablePlacement(path), systems: [], blueprints: [],
             sessions: [], grants: [], audit: [] }) + "\n", { flag: "wx", mode: 0o600 });
         return new GenesisStateRepository(path, namespace);
     }
@@ -365,6 +372,15 @@ export class GenesisStateRepository {
     savePreviewManifest(manifest: PreviewManifest): void {
         this.store.update(state => ({ ...state, previewManifests: [...(state.previewManifests ?? []).filter(item => item.previewId !== manifest.previewId), manifest] }));
     }
+}
+
+function disposablePlacement(path: string): NonNullable<DurableGenesisState["disposablePlacement"]> {
+    const parent = dirname(resolve(path));
+    const stat = lstatSync(parent, { bigint: true });
+    if (realpathSync(parent) !== parent || !stat.isDirectory() || (stat.mode & 0o077n) !== 0n) {
+        throw new Error("Disposable authority directory is unavailable or no longer private.");
+    }
+    return [hostname(), resolve(path), stat.dev.toString(), stat.ino.toString()];
 }
 
 function hashEvidence(record: Omit<DisposableEvidenceRecord, "digest">): string {

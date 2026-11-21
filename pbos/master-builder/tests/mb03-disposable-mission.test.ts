@@ -292,6 +292,9 @@ describe("MB-03.1 trusted provider and independent verifier fixtures", () => {
         await expect(r.run(r.provider, { ...r.worker, allowFixture: false })).rejects.toThrow(/provider deployment/);
         const copy = GenesisStateRepository.createDisposable(join(f.root, "authority", "other.json"), f.mission.stateNamespace);
         await expect(r.run(r.provider, r.worker, copy)).rejects.toThrow(/does not match/);
+        const copiedState = join(f.root, "authority", "snapshot.json");
+        writeFileSync(copiedState, readFileSync(f.statePath), { mode: 0o600 });
+        expect(() => new GenesisStateRepository(copiedState, f.mission.stateNamespace)).toThrow(/inconsistent/);
         renameSync(f.statePath, f.statePath + ".offline");
         await expect(r.run()).rejects.toThrow();
         expect(r.provider.provision).not.toHaveBeenCalled();
