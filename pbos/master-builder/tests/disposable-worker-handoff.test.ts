@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { realpathSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,7 +11,7 @@ import { executeAuthorizedDisposableWorker, executeAndInspectAuthorizedDisposabl
 
 describe("disposable existing Codex worker admission", () => {
   it("rejects unsigned, cross-mission, and nonisolated handoffs before calling the worker", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pbos-mb-worker-"));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "pbos-mb-worker-")));
     try {
       const source = join(dir, "source");
       execFileSync("git", ["init", "-q", source]);
