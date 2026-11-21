@@ -59,3 +59,22 @@ run "staging_project_is_rejected" {
 
   expect_failures = [var.project_id]
 }
+
+run "playbook_federation_uses_production_claims_and_id_token_only" {
+  command = plan
+
+  variables {
+    enable_playbook_federation = true
+  }
+
+  assert {
+    condition = (
+      google_iam_workload_identity_pool_provider.vercel[0].oidc[0].issuer_uri == "https://oidc.vercel.com/pbos-genesis" &&
+      strcontains(google_iam_workload_identity_pool_provider.vercel[0].attribute_condition, "assertion.environment == 'production'") &&
+      strcontains(google_iam_workload_identity_pool_provider.vercel[0].attribute_condition, "prj_mZ74XbviZKKplwVYPU3FLhFNka73") &&
+      google_service_account_iam_member.playbook_federation[0].role == "roles/iam.serviceAccountOpenIdTokenCreator" &&
+      length(google_cloud_run_v2_service_iam_member.playbook_invocation) == 0
+    )
+    error_message = "Only the exact production Vercel project may mint ID tokens, and no invoker grant exists without the runtime."
+  }
+}

@@ -60,6 +60,7 @@ export function verifyProductionIntegrationMetadata(
         !volume?.server || !volume.path || volume.readOnly ||
         !container.volumeMounts?.some(item => item.name === "integration-state" && item.mountPath === "/mnt/pbos-state") ||
         !container.env?.some(item => item.name === "PBOS_INTEGRATION_STATE_PATH" && item.value === "/mnt/pbos-state/integration-state.json") ||
+        !container.env?.some(item => item.name === "PBOS_ENVIRONMENT" && item.value === "production") ||
         !container.env?.some(item => item.name === "PBOS_ORGANIZATION_ID" && item.value === "PLAYBOOK-ORG-001")) {
         throw new Error("Production trust reference, canonical organization, or durable state mount could not be verified.");
     }

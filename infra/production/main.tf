@@ -147,6 +147,10 @@ resource "google_cloud_run_v2_service" "runtime" {
       }
 
       env {
+        name  = "PBOS_ENVIRONMENT"
+        value = "production"
+      }
+      env {
         name  = "PBOS_ORGANIZATION_ID"
         value = "PLAYBOOK-ORG-001"
       }

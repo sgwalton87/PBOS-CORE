@@ -13,6 +13,8 @@ import { AuthorizationDecision } from "../kernel";
 import { PbosIntegrationService } from "./integration-service";
 import { PbosNodeHttpAdapter } from "./node-http-adapter";
 import { PbosV1Api } from "./pbos-v1-api";
+import { PbosV1SchemaBoundary } from "../integration";
+import { loadProductionApprovalAuthority, type ProductionApprovalAuthority } from "./production-approval-authority";
 
 interface TrustCredential extends Omit<ConnectorCredential, "issuedAt" | "expiresAt"> {
     readonly issuedAt: string;
@@ -26,6 +28,7 @@ interface CloudRunTrustBundle {
     readonly domainApprovalIds?: readonly string[];
     readonly lifecycleApprovalIds?: readonly string[];
     readonly allowedRuntimeActions?: readonly string[];
+    readonly productionApprovals?: unknown;
 }
 
 export interface CloudRunRuntimeConfig {
@@ -35,6 +38,7 @@ export interface CloudRunRuntimeConfig {
     readonly statePath: string;
     readonly allowedOrigins: readonly string[];
     readonly trustBundle: CloudRunTrustBundle;
+    readonly productionApproval?: ProductionApprovalAuthority;
 }
 
 const required = (environment: NodeJS.ProcessEnv, name: string): string => {
@@ -49,6 +53,10 @@ const stringList = (value?: string): readonly string[] =>
 export function cloudRunRuntimeConfig(environment: NodeJS.ProcessEnv = process.env): CloudRunRuntimeConfig {
     const port = Number(environment.PORT ?? "8080");
     if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error("PORT must be a valid TCP port.");
+    const deploymentEnvironment = environment.PBOS_ENVIRONMENT?.trim();
+    if (deploymentEnvironment && deploymentEnvironment !== "staging" && deploymentEnvironment !== "production") {
+        throw new Error("PBOS_ENVIRONMENT must identify staging or production.");
+    }
     let trustBundle: CloudRunTrustBundle;
     try {
         trustBundle = JSON.parse(required(environment, "PBOS_CONNECTOR_TRUST_BUNDLE")) as CloudRunTrustBundle;
@@ -65,7 +73,10 @@ export function cloudRunRuntimeConfig(environment: NodeJS.ProcessEnv = process.e
         host: environment.HOST?.trim() || "0.0.0.0",
         statePath: required(environment, "PBOS_INTEGRATION_STATE_PATH"),
         allowedOrigins: stringList(environment.PBOS_ALLOWED_ORIGINS),
-        trustBundle
+        trustBundle,
+        productionApproval: deploymentEnvironment === "production"
+            ? loadProductionApprovalAuthority(trustBundle.productionApprovals)
+            : undefined
     };
 }
 
@@ -111,7 +122,9 @@ export function createCloudRunIntegrationService(config: CloudRunRuntimeConfig):
         {
             LIFECYCLE_EVENT: async payload => ({ accepted: true, payload }),
             DATA_EXCHANGE: async payload => ({ accepted: true, payload })
-        }
+        },
+        new PbosV1SchemaBoundary(),
+        config.productionApproval
     );
     const authenticator = new ConnectorHmacAuthenticator(credentials, secrets,
         new RepositoryReplayNonceStore(repository));

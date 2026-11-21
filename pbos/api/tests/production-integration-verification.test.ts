@@ -19,6 +19,7 @@ function observation() {
             serviceAccount: `pbos-prod-runtime@${project}.iam.gserviceaccount.com`,
             maxInstanceRequestConcurrency: 1, scaling: { maxInstanceCount: 1 },
             containers: [{ image, env: [
+                { name: "PBOS_ENVIRONMENT", value: "production" },
                 { name: "PBOS_ORGANIZATION_ID", value: "PLAYBOOK-ORG-001" },
                 { name: "PBOS_INTEGRATION_STATE_PATH", value: "/mnt/pbos-state/integration-state.json" },
                 { name: "PBOS_CONNECTOR_TRUST_BUNDLE", valueSource: {
@@ -47,7 +48,7 @@ describe("PBOS production runtime verification", () => {
     it("rejects a staging project or a moving secret version", () => {
         const service = observation();
         expect(() => verifyProductionIntegrationMetadata(service, "pbos-genesis-staging", region, digest)).toThrow();
-        service.template.containers[0].env[2].valueSource!.secretKeyRef.version = "latest";
+        service.template.containers[0].env[3].valueSource!.secretKeyRef.version = "latest";
         expect(() => verifyProductionIntegrationMetadata(service, project, region, digest)).toThrow();
     });
 
