@@ -138,7 +138,8 @@ function isCanaryImage(image: string) { return /^[a-z0-9][a-z0-9./_-]*@sha256:[a
 function createSandbox(api: SandboxApi, input: VercelCanaryReadinessInput, name: string, timeout: number, signal: AbortSignal) {
     const { image, token, teamId, projectId } = input;
     return api.create({ image, token, teamId, projectId, name,
-        // Source is already sealed into the reviewed immutable image. Do not ask\n        // Vercel to clone through deny-all network policy at startup.
+        // Source is already sealed into the reviewed immutable image. Do not ask
+        // Vercel to clone through deny-all network policy at startup.
         timeout, persistent: false, ports: [], resources: { vcpus: 1 }, networkPolicy: "deny-all", signal });
 }
 
