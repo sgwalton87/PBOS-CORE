@@ -1,7 +1,7 @@
 import { hostname } from "os";
 import { randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
-import { ApplicationAcceptanceEvidence, ApplicationDeliveryProof, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
+import { ApplicationAcceptanceEvidence, ApplicationDeliveryProof, DisposableProductionAttempt, ExecutionLease, FunctionalAcceptancePlan, MissionControlApplicationPreview, MissionControlSnapshot, MissionQueueItem,
     PreviewManifest, ProductionEvent, ProductionExecutionPlan, ProductionRun, ProductionStage, ProductionStatus,
     RuntimeHealthReport, RuntimeMetrics, StageType } from "./contracts";
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
@@ -9,6 +9,7 @@ import { GovernedMissionQueue } from "./mission-queue";
 import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
 
 export interface BeginProductionRun {
+    readonly disposableAttempt?: DisposableProductionAttempt;
     readonly runId?: string;
     readonly systemId: string;
     readonly actorId: string;
@@ -36,11 +37,13 @@ export class ProductionRuntimeService {
 
     begin(input: BeginProductionRun): ProductionRun {
         if (!input.authorizationArtifactId.trim()) throw new Error("Production execution requires a verifiable authorization artifact.");
+        this.state.assertRunNamespace(input.disposableAttempt?.namespace);
         const active = this.activeRun(input.repository);
         if (active) throw new Error(`Production execution already owned by run ${active.runId}.`);
         const timestamp = this.now().toISOString();
         const runId = input.runId ?? randomUUID();
         const run: ProductionRun = {
+            ...(input.disposableAttempt ? { disposableAttempt: input.disposableAttempt } : {}),
             runId, runType: input.runType ?? "AUTONOMOUS_BUILD", triggerSource: input.triggerSource ?? "CLI", actorId: input.actorId,
             authorizationArtifactId: input.authorizationArtifactId, parentRunId: input.parentRunId,
             repositoryContextId: `repository:${input.repository}:${input.commit}`,
@@ -54,10 +57,21 @@ export class ProductionRuntimeService {
             acceptanceEvidence: [], blockers: [],
             autonomousContinuation: input.autonomousContinuation ?? true
         };
-        this.state.saveProductionRun(run);
-        this.event(run, "RUN_REQUESTED", "Production run requested and authorized.", { objective: input.objective });
-        this.acquireLease(run);
+        if (run.disposableAttempt) {
+            const lease = this.newLease(run);
+            this.state.claimDisposableRun(run, lease);
+            this.event(run, "RUN_REQUESTED", "Disposable mission and execution lease claimed atomically.",
+                { missionId: run.disposableAttempt.missionId, attemptId: run.disposableAttempt.attemptId, leaseId: lease.leaseId });
+        } else {
+            this.state.saveProductionRun(run);
+            this.event(run, "RUN_REQUESTED", "Production run requested and authorized.", { objective: input.objective });
+            this.acquireLease(run);
+        }
         return run;
+    }
+
+    checkpointDisposableWorker(runId: string, phase: "started" | "finished"): void {
+        this.state.markDisposableWorker(runId, phase, hostname(), process.pid, this.now());
     }
 
     transition(runId: string, status: ProductionStatus, summary: string, payload: Readonly<Record<string, unknown>> = {}): ProductionRun {
@@ -104,6 +118,9 @@ export class ProductionRuntimeService {
 
     private commitTransition(current: ProductionRun, status: ProductionStatus, summary: string,
         payload: Readonly<Record<string, unknown>>): ProductionRun {
+        if (current.disposableAttempt && ["AWAITING_APPROVAL", "COMPLETED", "CERTIFIED"].includes(status)) {
+            throw new Error("Disposable acceptance requires an independently integrated evidence verifier.");
+        }
         assertProductionTransition(current.status, status);
         if (["AWAITING_APPROVAL", "COMPLETED", "CERTIFIED"].includes(status)) {
             const mission = this.state.missionQueue(current.systemId).find(item => item.title === current.selectedMission);
@@ -124,6 +141,11 @@ export class ProductionRuntimeService {
 
     heartbeat(runId: string): ProductionRun {
         const run = this.requireRun(runId); const timestamp = this.now().toISOString();
+        if (run.disposableAttempt) {
+            const now = this.now();
+            return this.state.renewDisposableLease(runId, hostname(), process.pid, now,
+                new Date(now.getTime() + this.leaseTtlMs).toISOString());
+        }
         const updated = { ...run, lastHeartbeatAt: timestamp };
         this.state.saveProductionRun(updated);
         const lease = this.activeLease(runId);
@@ -641,6 +663,7 @@ export class ProductionRuntimeService {
 
     resume(runId: string, actorId: string): ProductionRun {
         const run = this.requireActor(runId, actorId);
+        if (run.disposableAttempt) throw new Error("Disposable attempts permit read-only recovery inspection only.");
         if (!["PAUSED", "RECOVERING"].includes(run.status)) throw new Error(`Run ${runId} is not resumable from ${run.status}.`);
         if (!this.activeLease(runId)) this.acquireLease(run);
         const activeStage = run.activeStageId
@@ -766,8 +789,9 @@ export class ProductionRuntimeService {
     recoverStaleRuns(): readonly ProductionRun[] {
         const recovered: ProductionRun[] = [];
         for (const lease of this.state.executionLeases().filter(item => item.status === "ACTIVE" && Date.parse(item.expiresAt) <= this.now().getTime())) {
-            this.state.saveExecutionLease({ ...lease, status: "STALE", recoveryMetadata: { classifiedAt: this.now().toISOString() } });
             const run = this.requireRun(lease.runId);
+            if (run.disposableAttempt) continue;
+            this.state.saveExecutionLease({ ...lease, status: "STALE", recoveryMetadata: { classifiedAt: this.now().toISOString() } });
             if (ACTIVE.includes(run.status)) {
                 const activeStage = run.activeStageId
                     ? this.state.productionStages(run.runId).find(stage => stage.stageId === run.activeStageId) : undefined;
@@ -788,6 +812,7 @@ export class ProductionRuntimeService {
 
     recoverFailedExecution(runId: string, reason: string): ProductionRun {
         const run = this.requireRun(runId);
+        if (run.disposableAttempt) throw new Error("Disposable attempts permit read-only recovery inspection only.");
         const failedExecution = [...this.state.productionStages(runId)].reverse()
             .find(stage => stage.type === "EXECUTION" && stage.status === "FAILED");
         if (run.status !== "FAILED" || !failedExecution || !reason.trim()) {
@@ -889,11 +914,15 @@ export class ProductionRuntimeService {
     private acquireLease(run: ProductionRun): ExecutionLease {
         const healthy = this.state.executionLeases().find(lease => lease.status === "ACTIVE" && lease.repository === run.repository && Date.parse(lease.expiresAt) > this.now().getTime());
         if (healthy) throw new Error(`Healthy execution lease ${healthy.leaseId} is owned by run ${healthy.runId}.`);
+        const lease = this.newLease(run);
+        this.state.saveExecutionLease(lease); this.event(run, "LEASE_ACQUIRED", "Execution lease acquired.", { leaseId: lease.leaseId }); return lease;
+    }
+
+    private newLease(run: ProductionRun): ExecutionLease {
         const timestamp = this.now().toISOString();
-        const lease: ExecutionLease = { leaseId: randomUUID(), runId: run.runId, processId: process.pid, host: hostname(), actorId: run.actorId,
+        return { leaseId: randomUUID(), runId: run.runId, processId: process.pid, host: hostname(), actorId: run.actorId,
             acquiredAt: timestamp, lastRenewedAt: timestamp, expiresAt: new Date(this.now().getTime() + this.leaseTtlMs).toISOString(),
             scope: `repository:${run.repository}`, repository: run.repository, branch: run.currentBranch, commit: run.currentCommit, status: "ACTIVE" };
-        this.state.saveExecutionLease(lease); this.event(run, "LEASE_ACQUIRED", "Execution lease acquired.", { leaseId: lease.leaseId }); return lease;
     }
 
     private releaseLease(runId: string, method: NonNullable<ExecutionLease["releaseMethod"]>): void {

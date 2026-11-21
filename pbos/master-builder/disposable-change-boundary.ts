@@ -1,9 +1,39 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { realpath } from "node:fs/promises";
+import { lstat, realpath } from "node:fs/promises";
+import { join } from "node:path";
 import { resolve } from "node:path";
 
 const exec = promisify(execFile);
+export function isExactDisposableFile(path: string): boolean {
+  return typeof path === "string" && path.split("/").every(part =>
+    /^[A-Za-z0-9_.-]+$/.test(part) && ![".", "..", ".git"].includes(part.toLowerCase()));
+}
+
+/** Remote edit scopes name tracked regular files. Directory prefixes and the Git index are excluded. */
+export async function attestExactDisposableFiles(root: string, files: readonly string[]): Promise<void> {
+  if (!files.length || new Set(files).size !== files.length || !files.every(isExactDisposableFile)) {
+    throw new Error("Disposable worker scope must contain unique exact file paths.");
+  }
+  const git = (...args: string[]) => exec("git", args, { cwd: root, timeout: 10_000, maxBuffer: 1024 * 1024 });
+  const { stdout: head } = await git("rev-parse", "--abbrev-ref", "HEAD");
+  if (head.trim() !== "HEAD") throw new Error("Disposable worker requires a detached worktree.");
+  await git("diff", "--cached", "--quiet");
+  for (const file of files) {
+    const segments = file.split("/");
+    let local = root;
+    for (const [index, segment] of segments.entries()) {
+      local = join(local, segment);
+      const metadata = await lstat(local);
+      if (index === segments.length - 1 ? !metadata.isFile() : !metadata.isDirectory()) {
+        throw new Error("Disposable scope must traverse only directories and regular files.");
+      }
+    }
+    const { stdout } = await git("ls-files", "--stage", "-z", "--", file);
+    if (!/^100(?:644|755) [0-9a-f]+ 0\t/.test(stdout) || !stdout.endsWith("\t" + file + "\0") ||
+        stdout.split("\0").length !== 2) throw new Error("Disposable scope must target an existing tracked regular file.");
+  }
+}
 export type DisposableChangeInspection = Readonly<{
   accepted: boolean;
   changedPaths: readonly string[];
@@ -19,6 +49,7 @@ export async function inspectDisposableWorkerChanges(
   repository: string,
   sourceSha: string,
   allowedPaths: readonly string[],
+  exactFiles = false,
 ): Promise<DisposableChangeInspection> {
   const blockers: string[] = [];
   if (!/^[a-f0-9]{40}$/i.test(sourceSha) ||
@@ -48,7 +79,8 @@ export async function inspectDisposableWorkerChanges(
     blockers.push("Post-worker repository identity or revision changed.");
   }
   // Preserve leading status columns and NUL delimiters; trim() corrupts porcelain records.
-  const porcelain = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+  const porcelain = (await exec("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all",
+    ...(exactFiles ? ["--ignored"] : [])],
     { cwd: canonical, timeout: 10_000, maxBuffer: 1024 * 1024 })).stdout;
   const entries = porcelain.split("\0").filter(Boolean);
   const changedPaths: string[] = [];
@@ -71,7 +103,7 @@ export async function inspectDisposableWorkerChanges(
     if (recordPaths.some(changed => changed === ".git" || changed.startsWith(".git/")) ||
         code.includes("!") || code.includes("U") ||
         recordPaths.some(changed =>
-          !allowedPaths.some(allowed => changed === allowed || changed.startsWith(`${allowed}/`)))) {
+          !allowedPaths.some(allowed => changed === allowed || (!exactFiles && changed.startsWith(`${allowed}/`))))) {
       blockers.push(`Out-of-scope or conflicted change: ${path}`);
     }
   }

@@ -3,7 +3,8 @@ import { dirname } from "path";
 import { randomUUID } from "crypto";
 
 export class JsonStateStore<T> {
-    constructor(private readonly path: string, private readonly initial: () => T) {}
+    constructor(private readonly path: string, private readonly initial: () => T,
+        private readonly reclaimStaleLocks = true) {}
 
     read(): T {
         try {
@@ -49,7 +50,7 @@ export class JsonStateStore<T> {
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
                 try {
-                    if (Date.now() - statSync(lockPath).mtimeMs > 30_000) unlinkSync(lockPath);
+                    if (this.reclaimStaleLocks && Date.now() - statSync(lockPath).mtimeMs > 30_000) unlinkSync(lockPath);
                 } catch (inspectionError) {
                     if ((inspectionError as NodeJS.ErrnoException).code !== "ENOENT") throw inspectionError;
                 }
