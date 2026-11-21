@@ -17,6 +17,55 @@ describe("Playbook canon-to-product graph", () => {
         "| Scholar | Email signup | Guided onboarding | `/dashboard` | Scoped scholar authority | Consent verified | COMPLETE |"
     ].join("\n");
 
+    const phaseSummary = [
+        "## Phase status",
+        "| Phase | Current state | Reconciled truth |",
+        "| --- | --- | --- |",
+        "| 1 Identity & Authentication | IMPLEMENTED / EXTERNAL GATES | Browser acceptance is open. |"
+    ].join("\n");
+    const canonicalRoles = [
+        "## Canonical role index",
+        "| Role | OS destination | Authority / verification truth | Current state | Primary remaining evidence |",
+        "| --- | --- | --- | --- | --- |",
+        "| Scholar | `/dashboard` | Owner authority exists. | REFERENCE IMPLEMENTATION | Browser certification. |"
+    ].join("\n");
+    const tableSources = (checklist: string, journeys: string): PlaybookCanonSource[] => [
+        { path: "docs/MASTER_CHECKLIST.md", content: checklist },
+        { path: "docs/USER_JOURNEYS.md", content: journeys }
+    ];
+
+    it("reads current Canon tables without promoting their qualitative status to certification", () => {
+        const checklist = "# Phase 1 — Old snapshot\n**Completion:** 100%\n" + phaseSummary;
+        const graph = new PlaybookCanonProductGraphCompiler().compile("abc1234", ["app/dashboard/page.tsx"],
+            tableSources(checklist, [roleJourneys, canonicalRoles].join("\n").replaceAll("\n", "\r\n")));
+        expect(graph.phases[0]).toEqual({ phaseId: "PHASE-01", title: "Identity & Authentication", completion: null,
+            incompleteItems: [], items: [], summary: { status: "IMPLEMENTED / EXTERNAL GATES", evidence: "Browser acceptance is open." } });
+        expect(graph.onboardingPathways.find(item => item.pathwayId === "SCHOLAR")).toMatchObject({
+            roleJourney: "Scholar", status: "REFERENCE IMPLEMENTATION" });
+        expect(graph.blockers).toEqual(expect.arrayContaining(["PRODUCT_PHASE_ITEM_EVIDENCE_UNAVAILABLE:PHASE-01:IMPLEMENTED / EXTERNAL GATES",
+            "ROLE_JOURNEY_INCOMPLETE:Scholar:REFERENCE IMPLEMENTATION", "ROLE_OS_ROUTE_UNMAPPED:Scholar:/dashboard"]));
+        expect(graph.blockers).not.toContain("CANON_ROLE_JOURNEYS_UNAVAILABLE");
+        expect(graph.certificationReady).toBe(false);
+    });
+
+    it("fails closed for invalid current tables even when an older format is present", () => {
+        const checklist = "# Phase 1 — Old snapshot\n**Completion:** 100%\n" + phaseSummary.replace("Current state", "Unknown column");
+        const graph = new PlaybookCanonProductGraphCompiler().compile("abc1234", [],
+            tableSources(checklist, [roleJourneys, canonicalRoles.replace("OS destination", "Unknown column")].join("\n")));
+        expect(graph.phases).toEqual([]);
+        expect(graph.blockers).toEqual(expect.arrayContaining(["PRODUCT_PHASE_SUMMARY_TABLE_INVALID", "CANON_ROLE_INDEX_TABLE_INVALID"]));
+    });
+
+    it("reports duplicate IDs, ambiguous OS destinations and malformed rows", () => {
+        const graph = new PlaybookCanonProductGraphCompiler().compile("abc1234", [],
+            tableSources(phaseSummary + "\n| 01 Duplicate | PARTIAL | Pending. |",
+                canonicalRoles.replace("`/dashboard`", "`/dashboard` or `/family-os`")
+                + "\n| scholar | `/dashboard` | Owner. | VERIFIED | Pending. |\n| Mentor | Missing columns |"));
+        expect(graph.blockers).toEqual(expect.arrayContaining(["PRODUCT_PHASE_SUMMARY_DUPLICATE:PHASE-01",
+            "CANON_ROLE_JOURNEY_OS_ROUTE_AMBIGUOUS:Scholar:/dashboard,/family-os",
+            "CANON_ROLE_JOURNEY_DUPLICATE:scholar", "CANON_ROLE_INDEX_ROW_INVALID:3"]));
+    });
+
     it("fails closed for the real classes of false completion PBOS previously ignored", () => {
         const sources = completeSources().map(source => source.path === "docs/MASTER_CHECKLIST.md"
             ? { ...source, content: "# Phase 1 — Identity\n**Completion:** 41%\n- 🟦 Google Login" }

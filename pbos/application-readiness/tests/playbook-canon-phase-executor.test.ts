@@ -57,6 +57,23 @@ mission: { missionId: "048-phase-01", title: "Complete Identity & Authentication
     rationale: "Identity is incomplete." }, report: () => undefined };
 
 describe("Playbook canon phase execution adapter", () => {
+    it("stops before opening a worktree when current Canon supplies a phase summary only", async () => {
+        const target = await workspace();
+        const setup = dependencies(target.directory, target.agent);
+        const gateway = {
+            inspectRepository: async () => ({ revision: "abcdef1" }),
+            readFileAtRevision: async () => [
+                "## Phase status",
+                "| Phase | Current state | Reconciled truth |",
+                "| --- | --- | --- |",
+                "| 1 Identity & Authentication | PARTIAL | Browser evidence is open. |"
+            ].join("\n"),
+            createIsolatedBranch: async () => { throw new Error("Unexpected worktree mutation"); }
+        };
+        await expect(playbookCanonPhaseExecutor({ ...setup.dependencies, gateway } as never)(context as never))
+            .rejects.toThrow("PHASE-01 has no usable item-level checklist evidence");
+    });
+
     it("publishes a bounded implementation with an exact-revision desktop/mobile acceptance plan", async () => {
         const target = await workspace();
         const setup = dependencies(target.directory, target.agent);
