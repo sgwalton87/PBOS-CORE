@@ -12,6 +12,7 @@ import {
     IntegrationStateRepository
 } from "../integration";
 import { AuthorizationDecision } from "../kernel";
+import { PLAYBOOK_CONNECTOR_MANIFEST, playbookSupabaseIdentity } from "../reference-systems/playbook";
 import {
     ConnectorRegistrationManifest,
     DomainActivationCommand,
@@ -26,10 +27,14 @@ import {
 } from "../connector-sdk";
 import { PbosV1SchemaBoundary, requestHash, RuntimeCommunicationHandler, RuntimeCommunicationType } from "../integration";
 
+import type { ProductionApprovalAuthority } from "./production-approval-authority";
+
 export type ConnectorCertificationAuthority = (command: SystemCertificationCommand) => boolean;
 export type DomainActivationAuthority = (command: DomainActivationCommand) => boolean;
 export type RuntimeAuthorityResolver = (actorId: string, action: string, connectorId: string) => AuthorizationDecision;
 export type ConnectorLifecycleAuthority = (command: ConnectorLifecycleCommand | DomainDeactivationCommand) => boolean;
+
+type IdentityRegistration = IdentityMapping & { identityApprovalId?: string; domainRegistrationId?: string };
 
 const MUTATIONS = new Set(["REGISTER_SYSTEM", "CERTIFY_SYSTEM", "REGISTER_DOMAIN", "ACTIVATE_DOMAIN", "REGISTER_IDENTITY",
     "SUSPEND_SYSTEM", "RESUME_SYSTEM", "REVOKE_SYSTEM", "DEACTIVATE_DOMAIN", "PUBLISH_LIFECYCLE_EVENT",
@@ -50,7 +55,8 @@ export class PbosV1Api {
         private readonly organizationId = "PBOS-DEFAULT-ORG",
         private readonly lifecycleAuthority: ConnectorLifecycleAuthority = () => false,
         runtimeHandlers: Readonly<Partial<Record<RuntimeCommunicationType, RuntimeCommunicationHandler>>> = {},
-        private readonly schemas = new PbosV1SchemaBoundary()
+        private readonly schemas = new PbosV1SchemaBoundary(),
+        private readonly productionApproval?: ProductionApprovalAuthority
     ) {
         this.systems = new ConnectedSystemRegistry(repository, organizationId);
         this.domains = new DomainRegistrationRegistry(this.systems, repository, organizationId);
@@ -71,13 +77,14 @@ export class PbosV1Api {
         }, repository, organizationId);
     }
 
-    async handle(request: PbosApiRequest): Promise<PbosApiResponse> {
+    async handle(request: PbosApiRequest, authenticatedConnectorId?: string): Promise<PbosApiResponse> {
         if (request.apiVersion !== "v1" || !request.correlationId) {
             return this.failure(request.correlationId, "INVALID_REQUEST", "PBOS API v1 and correlation ID are required.");
         }
         try {
             const validatedPayload = this.schemas.validateOperation(request.operation, request.payload);
             request = { ...request, payload: validatedPayload };
+            this.requireProductionApproval(request, authenticatedConnectorId);
             const cached = request.idempotencyKey ? this.repository?.idempotency(this.organizationId, request.idempotencyKey) : undefined;
             if (cached) {
                 if (cached.operation !== request.operation || cached.requestHash !== requestHash(request.payload)) {
@@ -195,7 +202,37 @@ export class PbosV1Api {
         return active;
     }
 
-    private registerIdentity(mapping: IdentityMapping): IdentityMapping {
+    private requireProductionApproval(request: PbosApiRequest, authenticatedConnectorId?: string): void {
+        const verify = this.productionApproval;
+        if (!verify || (request.operation !== "REGISTER_IDENTITY" && request.operation !== "EXCHANGE_APPROVED_DATA")) return;
+        const identity = request.operation === "REGISTER_IDENTITY";
+        const payload = request.payload as IdentityRegistration & RuntimeOperationCommand;
+        const mapping = identity ? payload : this.identities.get(payload.identityMappingId);
+        const domain = payload.domainRegistrationId ? this.domains.get(payload.domainRegistrationId) : undefined;
+        const connector = authenticatedConnectorId ? this.systems.get(authenticatedConnectorId) : undefined;
+        const playbookIdentity = mapping && connector?.connectorId === PLAYBOOK_CONNECTOR_MANIFEST.connectorId
+            ? playbookSupabaseIdentity(mapping.externalIdentity.externalIdentityId) : undefined;
+        const exchangeRecord = payload.payload as { scholarRecordId?: unknown } | null | undefined;
+        if (!mapping || !mapping.externalIdentity.active || !mapping.pbosIdentity.active ||
+            mapping.externalIdentity.role !== mapping.pbosIdentity.role ||
+            (playbookIdentity && (mapping.mappingId !== playbookIdentity.mappingId ||
+                mapping.pbosIdentity.actorId !== playbookIdentity.pbosIdentity.actorId)) ||
+            !connector || connector.status !== "ACTIVE" || connector.certification !== "CERTIFIED" ||
+            connector.externalSystemId !== mapping.externalIdentity.externalSystemId ||
+            connector.pbosSystemId !== mapping.pbosIdentity.systemId ||
+            !domain || domain.status !== "ACTIVE" || domain.connectorId !== connector.connectorId ||
+            (!identity && (payload.connectorId !== connector.connectorId || !payload.dataClassification ||
+                (exchangeRecord?.scholarRecordId !== undefined && exchangeRecord.scholarRecordId !== mapping.externalIdentity.externalIdentityId))) ||
+            !verify({ approvalId: identity ? payload.identityApprovalId : payload.exchangeApprovalId,
+                organizationId: this.organizationId, connectorId: connector.connectorId,
+                registrationId: domain.registrationId, role: mapping.pbosIdentity.role,
+                actorId: mapping.pbosIdentity.actorId, operation: identity ? "REGISTER_IDENTITY" : "EXCHANGE_APPROVED_DATA",
+                classification: identity ? undefined : payload.dataClassification })) {
+            throw new Error("Production PBOS approval denied for the authenticated connector, role and domain.");
+        }
+    }
+
+    private registerIdentity({ identityApprovalId: _approval, domainRegistrationId: _domain, ...mapping }: IdentityRegistration): IdentityMapping {
         this.requireStrings(mapping, ["mappingId"]);
         const connector = this.systems.all().find(candidate =>
             candidate.externalSystemId === mapping.externalIdentity.externalSystemId &&

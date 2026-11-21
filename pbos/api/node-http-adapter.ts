@@ -41,7 +41,7 @@ export class PbosNodeHttpAdapter {
                 requestedConnectorId !== authenticated.connectorId) {
                 throw new Error("Connector authentication does not authorize a different connector boundary.");
             }
-            const result = await this.api.handle(payload);
+            const result = await this.api.handle(payload, authenticated?.connectorId);
             this.respond(response, result.success ? 200 : 400, result);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
