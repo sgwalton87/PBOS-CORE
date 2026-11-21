@@ -1,4 +1,4 @@
-FROM docker.io/library/debian@sha256:c67e92c8099ba22853ab4cfda7cfb494d253d6012ca82dee98ba8976772af018
+FROM docker.io/library/debian@sha256:c67e92c8099ba22853ab4cfda7cfb494d253d6012ca82dee98ba8976772af018 AS runtime-deps
 
 # Pin the complete package resolution to a signed Debian archive snapshot.
 # The minimal base has no CA bundle. APT verifies the signed Release and package hashes.
@@ -10,8 +10,27 @@ RUN set -eux; \
       >/etc/apt/sources.list.d/pbos-snapshot.list; \
     apt-get -o Acquire::Retries=3 -o Acquire::Languages=none update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      bubblewrap ca-certificates curl git passwd python3 util-linux; \
+      bubblewrap ca-certificates curl libcurl4 libexpat1 libssl3 passwd python3 util-linux zlib1g; \
     rm -rf /var/lib/apt/lists/*
+
+# The Sandbox source initializer uses git clone --revision (Git 2.49+).
+# Keep the toolchain in a separate stage and use the same signed APT snapshot.
+FROM runtime-deps AS git-build
+RUN set -eux; \
+    apt-get -o Acquire::Retries=3 -o Acquire::Languages=none update; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      gcc libc6-dev libcurl4-openssl-dev libexpat1-dev libssl-dev make xz-utils zlib1g-dev; \
+    curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location --retry 3 \
+      --output /tmp/git-2.54.1.tar.xz \
+      https://www.kernel.org/pub/software/scm/git/git-2.54.1.tar.xz; \
+    printf '%s  %s\n' ca988eb9af7d8770339df7cdc38106fec8244664ff886840767cb9be3ef0e16c /tmp/git-2.54.1.tar.xz | sha256sum -c -; \
+    tar -xJf /tmp/git-2.54.1.tar.xz -C /tmp; \
+    make -C /tmp/git-2.54.1 -j2 prefix=/usr/local DESTDIR=/opt/pbos-git \
+      NO_GETTEXT=YesPlease NO_PERL=YesPlease NO_PYTHON=YesPlease NO_TCLTK=YesPlease install
+
+FROM runtime-deps
+COPY --from=git-build /opt/pbos-git/usr/local/ /usr/local/
+RUN test "$(git --version)" = "git version 2.54.1"
 
 # Release asset digest and unpacked executable digest are independent pins.
 RUN set -eux; \
