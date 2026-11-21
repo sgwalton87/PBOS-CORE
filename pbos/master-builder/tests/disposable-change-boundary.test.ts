@@ -7,7 +7,7 @@ import { inspectDisposableWorkerChanges } from "../disposable-change-boundary";
 
 describe("MB-02 post-worker change scope", () => {
   it("accepts only scoped worktree changes and rejects unauthorized files", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "mb02-change-"));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "mb02-change-")));
     try {
       const source = join(dir, "source");
       execFileSync("git", ["init", "-q", source]);
