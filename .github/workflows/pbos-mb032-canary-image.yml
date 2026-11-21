@@ -6,6 +6,7 @@ on:
       - "containers/mb032-canary/**"
       - "pbos/master-builder/vercel-remote-provider.ts"
       - ".github/workflows/pbos-mb032-canary-image.yml"
+      - ".github/workflows/pbos-mb032-vcr-publish.yml"
 
 permissions:
   contents: read
