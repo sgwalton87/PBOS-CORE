@@ -8,7 +8,7 @@ import { PLAYBOOK_CONNECTOR_MANIFEST, PLAYBOOK_DOMAIN_MANIFEST, playbookSupabase
 const scope = {
     approvalId: "reviewed-fixture-reference", organizationId: "PLAYBOOK-ORG-001",
     connectorId: PLAYBOOK_CONNECTOR_MANIFEST.connectorId, registrationId: PLAYBOOK_DOMAIN_MANIFEST.registrationId,
-    role: "SCHOLAR", operation: "REGISTER_IDENTITY",
+    role: "SCHOLAR", actorId: "PLAYBOOK-ACTOR-fixture-scholar", operation: "REGISTER_IDENTITY",
 } satisfies ProductionApprovalScope;
 const approved = { ...scope, approvedBy: "INDEPENDENT-FIXTURE-AUTHORITY", status: "APPROVED",
     issuedAt: "2020-01-01T00:00:00Z", expiresAt: "2099-01-01T00:00:00Z" };
@@ -27,7 +27,7 @@ describe("production PBOS approval projection", () => {
         const authorize = loadProductionApprovalAuthority([approved, exchange]);
         expect(authorize(scope)).toBe(true);
         for (const mismatch of [{ approvalId: undefined }, { approvalId: "unknown" }, { organizationId: "other" },
-            { registrationId: "other" }, { connectorId: "other" }, { role: "SCHOLAR_ATHLETE" },
+            { registrationId: "other" }, { connectorId: "other" }, { role: "SCHOLAR_ATHLETE" }, { actorId: "other-actor" },
             { operation: "EXCHANGE_APPROVED_DATA" as const }, { classification: "PRIVATE" }]) {
             expect(authorize({ ...scope, ...mismatch })).toBe(false);
         }
@@ -60,6 +60,8 @@ describe("production PBOS approval projection", () => {
         const request = { ...identity, domainRegistrationId: scope.registrationId, identityApprovalId: scope.approvalId };
         await expect(handle("REGISTER_IDENTITY", identity)).resolves.toMatchObject({ success: false, error: { code: "AUTHORITY_DENIED" } });
         await expect(handle("REGISTER_IDENTITY", request, "other")).resolves.toMatchObject({ success: false, error: { code: "AUTHORITY_DENIED" } });
+        await expect(handle("REGISTER_IDENTITY", { ...request, pbosIdentity: { ...request.pbosIdentity, actorId: "other-actor" } }))
+            .resolves.toMatchObject({ success: false, error: { code: "AUTHORITY_DENIED" } });
         expect(repository.identities(scope.organizationId)).toHaveLength(0);
         await expect(handle("REGISTER_IDENTITY", request)).resolves.toMatchObject({ success: true });
         expect(repository.identities(scope.organizationId)).toEqual([identity]);

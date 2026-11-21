@@ -12,6 +12,7 @@ import {
     IntegrationStateRepository
 } from "../integration";
 import { AuthorizationDecision } from "../kernel";
+import { PLAYBOOK_CONNECTOR_MANIFEST, playbookSupabaseIdentity } from "../reference-systems/playbook";
 import {
     ConnectorRegistrationManifest,
     DomainActivationCommand,
@@ -209,9 +210,13 @@ export class PbosV1Api {
         const mapping = identity ? payload : this.identities.get(payload.identityMappingId);
         const domain = payload.domainRegistrationId ? this.domains.get(payload.domainRegistrationId) : undefined;
         const connector = authenticatedConnectorId ? this.systems.get(authenticatedConnectorId) : undefined;
+        const playbookIdentity = mapping && connector?.connectorId === PLAYBOOK_CONNECTOR_MANIFEST.connectorId
+            ? playbookSupabaseIdentity(mapping.externalIdentity.externalIdentityId) : undefined;
         const exchangeRecord = payload.payload as { scholarRecordId?: unknown } | null | undefined;
         if (!mapping || !mapping.externalIdentity.active || !mapping.pbosIdentity.active ||
             mapping.externalIdentity.role !== mapping.pbosIdentity.role ||
+            (playbookIdentity && (mapping.mappingId !== playbookIdentity.mappingId ||
+                mapping.pbosIdentity.actorId !== playbookIdentity.pbosIdentity.actorId)) ||
             !connector || connector.status !== "ACTIVE" || connector.certification !== "CERTIFIED" ||
             connector.externalSystemId !== mapping.externalIdentity.externalSystemId ||
             connector.pbosSystemId !== mapping.pbosIdentity.systemId ||
@@ -221,7 +226,7 @@ export class PbosV1Api {
             !verify({ approvalId: identity ? payload.identityApprovalId : payload.exchangeApprovalId,
                 organizationId: this.organizationId, connectorId: connector.connectorId,
                 registrationId: domain.registrationId, role: mapping.pbosIdentity.role,
-                operation: identity ? "REGISTER_IDENTITY" : "EXCHANGE_APPROVED_DATA",
+                actorId: mapping.pbosIdentity.actorId, operation: identity ? "REGISTER_IDENTITY" : "EXCHANGE_APPROVED_DATA",
                 classification: identity ? undefined : payload.dataClassification })) {
             throw new Error("Production PBOS approval denied for the authenticated connector, role and domain.");
         }

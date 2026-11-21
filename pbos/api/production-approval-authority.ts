@@ -7,6 +7,7 @@ const grant = z.strictObject({
     connectorId: identifier,
     registrationId: identifier,
     role: identifier,
+    actorId: identifier.optional(),
     operation: z.enum(["REGISTER_IDENTITY", "EXCHANGE_APPROVED_DATA"]),
     classification: identifier.optional(),
     approvedBy: identifier,
@@ -22,6 +23,7 @@ export type ProductionApprovalScope = {
     connectorId: string;
     registrationId: string;
     role: string;
+    actorId: string;
     operation: "REGISTER_IDENTITY" | "EXCHANGE_APPROVED_DATA";
     classification?: string;
 };
@@ -44,6 +46,7 @@ export function loadProductionApprovalAuthority(records: unknown): ProductionApp
             Date.parse(record.issuedAt) <= now && now < Date.parse(record.expiresAt) &&
             record.organizationId === scope.organizationId && record.connectorId === scope.connectorId &&
             record.registrationId === scope.registrationId && record.role === scope.role &&
+            (!record.actorId || record.actorId === scope.actorId) &&
             record.operation === scope.operation && record.classification === scope.classification);
     };
 }
