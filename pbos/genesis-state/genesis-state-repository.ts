@@ -6,7 +6,8 @@ import { SystemBlueprint } from "../system-blueprint";
 import { JsonStateStore } from "./json-state-store";
 import { lstatSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { hostname } from "node:os";
+import { createHash, randomUUID } from "node:crypto";
 import { DISPOSABLE_EVIDENCE_STAGES } from "../production-runtime/contracts";
 import type { RemediationRun } from "../validation-automation/contracts";
 import type { AutonomousBuildBatch, BackgroundMonitorJob, BatchTelemetryEvent, OperatorMemoRecord } from "../operator-continuity/contracts";
@@ -23,6 +24,8 @@ export interface GenesisAuditEvent {
 
 interface DurableGenesisState {
     readonly disposableNamespace?: string;
+    readonly disposableAuthorityId?: string;
+    readonly disposablePlacement?: readonly [host: string, statePath: string, device: string, directoryInode: string];
     readonly disposableEvidence?: readonly DisposableEvidenceRecord[];
     readonly systems: readonly GenesisSystemDefinition[];
     readonly blueprints: readonly unknown[];
@@ -49,15 +52,35 @@ const revive = <T>(value: unknown): T => JSON.parse(JSON.stringify(value), (key,
 
 export class GenesisStateRepository {
     private readonly store: JsonStateStore<DurableGenesisState>;
+    private readonly disposableAuthorityId?: string;
+    private readonly disposablePlacement?: DurableGenesisState["disposablePlacement"];
     constructor(path: string, private readonly requireDisposableNamespace?: string) {
         this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
-            !requireDisposableNamespace);
+            !requireDisposableNamespace, requireDisposableNamespace ? value => {
+                const current = value as DurableGenesisState;
+                if (current.disposableNamespace !== requireDisposableNamespace ||
+                    (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
+                    (this.disposablePlacement && JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
+                    throw new Error("Disposable authority changed or is inconsistent.");
+                }
+            } : undefined);
         if (requireDisposableNamespace) {
             const metadata = lstatSync(path);
             if (realpathSync(path) !== resolve(path) || !metadata.isFile() || (metadata.mode & 0o077) !== 0 ||
                 this.store.read().disposableNamespace !== requireDisposableNamespace) {
                 throw new Error("Expected a private, initialized disposable Genesis state.");
             }
+            const loaded = this.store.read();
+            this.disposableAuthorityId = loaded.disposableAuthorityId;
+            this.disposablePlacement = loaded.disposablePlacement;
+            if (this.disposablePlacement) this.store.read();
+        }
+    }
+
+    assertDisposableAuthority(expectedId: string): void {
+        if (!/^[a-f0-9-]{36}$/.test(expectedId) || !this.requireDisposableNamespace || !this.disposablePlacement ||
+            this.disposableAuthorityId !== expectedId || this.store.read().disposableAuthorityId !== expectedId) {
+            throw new Error("Trusted disposable authority is unavailable or does not match deployment.");
         }
     }
 
@@ -67,7 +90,8 @@ export class GenesisStateRepository {
             !directory.isDirectory() || (directory.mode & 0o077) !== 0) {
             throw new Error("Disposable Genesis requires a canonical private directory and namespace.");
         }
-        writeFileSync(path, JSON.stringify({ disposableNamespace: namespace, systems: [], blueprints: [],
+        writeFileSync(path, JSON.stringify({ disposableNamespace: namespace, disposableAuthorityId: randomUUID(),
+            disposablePlacement: disposablePlacement(path), systems: [], blueprints: [],
             sessions: [], grants: [], audit: [] }) + "\n", { flag: "wx", mode: 0o600 });
         return new GenesisStateRepository(path, namespace);
     }
@@ -127,7 +151,7 @@ export class GenesisStateRepository {
         });
     }
 
-    renewDisposableLease(runId: string, host: string, pid: number, now: Date, expiresAt: string): ProductionRun {
+    renewDisposableLease(runId: string, host: string, pid: number, now: Date, expiresAt: string, fence?: string): ProductionRun {
         const updated = this.store.update(state => {
             const runs = state.productionRuns ?? [];
             const leases = state.executionLeases ?? [];
@@ -135,7 +159,8 @@ export class GenesisStateRepository {
             const lease = leases.find(item => item.runId === runId && item.status === "ACTIVE");
             if (!run?.disposableAttempt || run.disposableAttempt.quarantine || this.requireDisposableNamespace !== run.disposableAttempt.namespace ||
                 state.disposableNamespace !== run.disposableAttempt.namespace ||
-                !lease || lease.host !== host || lease.processId !== pid || !(Date.parse(lease.expiresAt) > now.getTime())) {
+                !lease || (fence !== undefined && lease.leaseId !== fence) || lease.host !== host || lease.processId !== pid ||
+                !(Date.parse(lease.expiresAt) > now.getTime())) {
                 throw new Error("Disposable execution lease is lost or expired.");
             }
             return { ...state, productionRuns: runs.map(item => item.runId === runId
@@ -181,7 +206,7 @@ export class GenesisStateRepository {
         return (this.store.read().disposableEvidence ?? []).filter(record => record.runId === runId);
     }
 
-    appendDisposableEvidence(runId: string, stage: DisposableEvidenceStage, payload: DisposableEvidenceRecord["payload"]): DisposableEvidenceRecord {
+    appendDisposableEvidence(runId: string, stage: DisposableEvidenceStage, payload: DisposableEvidenceRecord["payload"], fence?: string): DisposableEvidenceRecord {
         const updated = this.store.update(state => {
             const evidence = state.disposableEvidence ?? [];
             const run = state.productionRuns?.find(item => item.runId === runId);
@@ -192,6 +217,16 @@ export class GenesisStateRepository {
                 !verifyDisposableEvidence(chain) || (stage === "BUILD" && !attempt.workerFinishedAt)) {
                 throw new Error("Disposable evidence is out of order or lacks an authoritative run checkpoint.");
             }
+            if (chain[2]?.payload.source === "provider-attested-return") {
+                throw new Error("Provider evidence must be completed by the independent verifier.");
+            }
+            if (stage === "BUILD") {
+                const lease = state.executionLeases?.find(item => item.runId === runId && item.status === "ACTIVE");
+                if (!lease || lease.leaseId !== fence || lease.host !== hostname() || lease.processId !== process.pid ||
+                    run.status !== "RUNNING" || !(Date.parse(lease.expiresAt) > Date.now())) {
+                    throw new Error("BUILD evidence rejected by the active execution fence.");
+                }
+            }
             const unsigned = { runId, attemptId: attempt.attemptId, approvalDigest: attempt.approvalDigest,
                 sourceSha: run.startingCommit, stage, recordedAt: new Date().toISOString(),
                 previousDigest: chain.at(-1)?.digest ?? null, payload };
@@ -200,6 +235,33 @@ export class GenesisStateRepository {
             return { ...state, disposableEvidence: [...evidence, record] };
         });
         return updated.disposableEvidence!.at(-1)!;
+    }
+
+    completeDisposableEvidence(runId: string, expectedBuildDigest: string,
+        suffix: readonly Readonly<{ stage: DisposableEvidenceStage; payload: DisposableEvidenceRecord["payload"] }>[]) {
+        return this.store.update(state => {
+            const evidence = state.disposableEvidence ?? [];
+            const run = state.productionRuns?.find(item => item.runId === runId);
+            const attempt = run?.disposableAttempt;
+            const chain = evidence.filter(item => item.runId === runId);
+            const build = chain.at(-1);
+            if (!run || !attempt?.workerFinishedAt || attempt.quarantine ||
+                state.disposableNamespace !== attempt.namespace || this.requireDisposableNamespace !== attempt.namespace ||
+                chain.length !== 3 || suffix.length !== 4 || build?.digest !== expectedBuildDigest ||
+                build.payload.source !== "provider-attested-return") {
+                throw new Error("Independent evidence no longer matches the authoritative BUILD checkpoint.");
+            }
+            const records = suffix.map(({ stage, payload }) => {
+                const record = { runId, attemptId: attempt.attemptId, approvalDigest: attempt.approvalDigest,
+                    sourceSha: run.startingCommit, stage, recordedAt: new Date().toISOString(),
+                    previousDigest: chain.at(-1)!.digest, payload };
+                const signed = { ...record, digest: hashEvidence(record) };
+                chain.push(signed);
+                return signed;
+            });
+            if (!verifyDisposableEvidence(chain, true)) throw new Error("Independent evidence suffix is invalid.");
+            return { ...state, disposableEvidence: [...evidence, ...records] };
+        }).disposableEvidence!.filter(record => record.runId === runId);
     }
 
     systems(): readonly GenesisSystemDefinition[] { return [...this.store.read().systems]; }
@@ -310,6 +372,15 @@ export class GenesisStateRepository {
     savePreviewManifest(manifest: PreviewManifest): void {
         this.store.update(state => ({ ...state, previewManifests: [...(state.previewManifests ?? []).filter(item => item.previewId !== manifest.previewId), manifest] }));
     }
+}
+
+function disposablePlacement(path: string): NonNullable<DurableGenesisState["disposablePlacement"]> {
+    const parent = dirname(resolve(path));
+    const stat = lstatSync(parent, { bigint: true });
+    if (realpathSync(parent) !== parent || !stat.isDirectory() || (stat.mode & 0o077n) !== 0n) {
+        throw new Error("Disposable authority directory is unavailable or no longer private.");
+    }
+    return [hostname(), resolve(path), stat.dev.toString(), stat.ino.toString()];
 }
 
 function hashEvidence(record: Omit<DisposableEvidenceRecord, "digest">): string {

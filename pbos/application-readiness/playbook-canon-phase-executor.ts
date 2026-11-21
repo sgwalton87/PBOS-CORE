@@ -21,18 +21,19 @@ const browserVerifiedDimensions = ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_I
 export interface CanonPhaseImplementationRequest { readonly missionId: string; readonly title: string; readonly rationale: string;
     readonly repository: string; readonly revision: string; readonly workingDirectory: string; readonly manifestPath: string;
     readonly disposableCore?: Readonly<{ allowedPaths: readonly string[]; home: string; codexHome: string; temporaryDirectory: string }>;
-    readonly report?: (message: string) => void; }
+    readonly report?: (message: string) => void; readonly signal?: AbortSignal; }
 export interface CanonPhaseImplementationAgent { execute(request: CanonPhaseImplementationRequest): Promise<Readonly<{ summary: string }>>; }
 
 export interface CodexWorkerProcess { run(args: readonly string[], workingDirectory: string,
-    onActivity: (event: string) => void, timeoutMs: number): Promise<Readonly<{ stdout: string; stderr: string }>>; }
+    onActivity: (event: string) => void, timeoutMs: number, signal?: AbortSignal): Promise<Readonly<{ stdout: string; stderr: string }>>; }
 
 export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
     constructor(private readonly isolatedHome?: Readonly<{ home: string; codexHome: string; temporaryDirectory: string }>) {}
 
     run(args: readonly string[], workingDirectory: string, onActivity: (event: string) => void,
-        timeoutMs: number): Promise<Readonly<{ stdout: string; stderr: string }>> {
+        timeoutMs: number, signal?: AbortSignal): Promise<Readonly<{ stdout: string; stderr: string }>> {
         return new Promise((resolvePromise, reject) => {
+            signal?.throwIfAborted();
             const inherited = process.env; const environment: NodeJS.ProcessEnv = {};
             ["PATH", "HOME", "CODEX_HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "SHELL"].forEach(name => {
                 if (inherited[name]) environment[name] = inherited[name];
@@ -45,8 +46,13 @@ export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
             const child = spawn("codex", [...args], { cwd: workingDirectory, env: environment, stdio: ["ignore", "pipe", "pipe"] });
             let stdout = ""; let stderr = ""; let settled = false; let activitySeen = false; let lastActivity = Date.now();
             let deadline: NodeJS.Timeout | undefined; let progress: NodeJS.Timeout | undefined;
+            const abort = (): void => {
+                child.kill("SIGKILL");
+                finish(new Error("Disposable Codex worker cancelled."));
+            };
             const finish = (error?: Error): void => {
                 if (settled) return; settled = true; if (deadline) clearTimeout(deadline); if (progress) clearInterval(progress);
+                signal?.removeEventListener("abort", abort);
                 if (error) reject(error); else resolvePromise({ stdout, stderr });
             };
             const observe = (stream: "stdout" | "stderr", chunk: Buffer): void => {
@@ -64,6 +70,7 @@ export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
             child.on("error", error => finish(error)); child.on("close", code => finish(code === 0 ? undefined
                 : new Error(this.isolatedHome ? `Disposable Codex worker exited ${code ?? "without a code"}.`
                     : `Codex worker exited ${code ?? "without a code"}: ${stderr.slice(-4_000)}`)));
+            signal?.addEventListener("abort", abort, { once: true });
             deadline = setTimeout(() => { child.kill("SIGTERM"); finish(new Error(`Codex worker exceeded ${timeoutMs}ms.`)); }, timeoutMs);
             progress = setInterval(() => {
                 const idle = Date.now() - lastActivity;
@@ -119,7 +126,7 @@ completionClaim means the selected implementation package is ready for PBOS Kern
                 "--config", "sandbox_workspace_write.network_access=false"] : []),
             "--color", "never",
             "--cd", request.workingDirectory, prompt], request.workingDirectory,
-        message => request.report?.(message), 45 * 60 * 1000);
+        message => request.report?.(message), 45 * 60 * 1000, request.signal);
         return { summary: result.stdout.slice(-20_000) };
     }
 }

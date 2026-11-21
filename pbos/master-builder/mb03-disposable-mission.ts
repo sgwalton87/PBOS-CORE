@@ -4,7 +4,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative } from "node:path";
 import { promisify } from "node:util";
-import type { CanonPhaseImplementationAgent } from "../application-readiness/playbook-canon-phase-executor";
+import type { CanonPhaseImplementationAgent, CanonPhaseImplementationRequest } from "../application-readiness/playbook-canon-phase-executor";
 import { GenesisStateRepository, OperatorIdentityService } from "../genesis-state";
 import { verifyDisposableEvidence } from "../genesis-state/genesis-state-repository";
 import type { VerifiableApproval } from "../genesis-state/operator-identity";
@@ -16,7 +16,7 @@ import type { MasterBuilderMissionBinding } from "./mission-binding-gate";
 import { disposableMissionApprovalScope, inspectSignedMissionApproval } from "./signed-approval-evidence";
 
 const exec = promisify(execFile);
-const digest = (value: string) => createHash("sha256").update(value).digest("hex");
+const digest = (value: string | Buffer) => createHash("sha256").update(value).digest("hex");
 
 export type Mb03Mission = MasterBuilderMissionBinding & Readonly<{
     attemptId: string;
@@ -48,7 +48,7 @@ function inside(root: string, path: string): boolean {
     return tail === "" || (!isAbsolute(tail) && tail !== ".." && !tail.startsWith("../"));
 }
 
-async function attestDirectories(context: DisposableCodexContext): Promise<void> {
+export async function attestDisposableWorkerDirectories(context: DisposableCodexContext): Promise<void> {
     const { home, codexHome, temporaryDirectory, worktree } = context;
     const hostHome = await realpath(homedir());
     for (const directory of [home, codexHome, temporaryDirectory]) {
@@ -64,17 +64,36 @@ async function attestDirectories(context: DisposableCodexContext): Promise<void>
     }
 }
 
-async function assertTrackedOnly(worktree: string): Promise<void> {
+export async function assertCleanDisposableWorkerFiles(worktree: string): Promise<void> {
     const { stdout } = await exec("git", ["status", "--porcelain", "--ignored", "--untracked-files=all"],
         { cwd: worktree, timeout: 10_000, maxBuffer: 1024 * 1024 });
     if (stdout.length) throw new Error("Disposable worker checkout contains untracked, ignored, or modified files.");
 }
 
+export interface DisposableWorkerControl {
+    readonly execute: (request: CanonPhaseImplementationRequest, fence: string, signal: AbortSignal, assertLive: () => void) =>
+        Promise<{ summary: string; receiptDigest?: string }>;
+    readonly pollMs?: number;
+    readonly timeoutMs?: number;
+}
+
+function untilAborted<T>(signal: AbortSignal, run: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const abort = () => reject(signal.reason);
+        if (signal.aborted) { abort(); return; }
+        signal.addEventListener("abort", abort, { once: true });
+        Promise.resolve().then(() => {
+            signal.throwIfAborted();
+            return run();
+        }).then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+}
+
 /** Trusted control-plane adapter. The injected worker is a test seam; a remote launcher and trust root are separate. */
 export async function runMb03DisposableMission(state: GenesisStateRepository, identities: OperatorIdentityService,
     original: Mb03Mission, approval: VerifiableApproval, originalRequest: ProductionMissionRequest, originalContext: DisposableCodexContext,
-    agent: CanonPhaseImplementationAgent) {
-    if (!agent) throw new Error("A trusted, isolated implementation adapter must be provided.");
+    agent: CanonPhaseImplementationAgent | undefined, control?: DisposableWorkerControl) {
+    if (!agent && !control) throw new Error("A trusted, isolated implementation adapter must be provided.");
     const mission = { ...original, allowedPaths: [...original.allowedPaths].sort() };
     const context = { ...originalContext };
     const signed = { ...approval };
@@ -98,8 +117,8 @@ export async function runMb03DisposableMission(state: GenesisStateRepository, id
     verify();
     await attestDisposableWorktree(context.worktree, mission.repository, mission.sourceSha);
     await attestExactDisposableFiles(context.worktree, mission.allowedPaths);
-    await attestDirectories(context);
-    await assertTrackedOnly(context.worktree);
+    await attestDisposableWorkerDirectories(context);
+    await assertCleanDisposableWorkerFiles(context.worktree);
     verify();
 
     const runtime = new ProductionRuntimeService(state);
@@ -115,22 +134,45 @@ export async function runMb03DisposableMission(state: GenesisStateRepository, id
             });
             await attestDisposableWorktree(context.worktree, mission.repository, mission.sourceSha);
             await attestExactDisposableFiles(context.worktree, mission.allowedPaths);
-            await attestDirectories(context);
-            await assertTrackedOnly(context.worktree);
+            await attestDisposableWorkerDirectories(context);
+            await assertCleanDisposableWorkerFiles(context.worktree);
             verify();
+            const fence = state.inspectDisposableRun(run.runId).activeLease?.leaseId;
+            if (!fence) throw new Error("Missing authoritative dispatch fence.");
             runtime.checkpointDisposableWorker(run.runId, "started");
-            let leaseFailure = false;
+            const cancelled = new AbortController();
+            const { signal } = cancelled;
+            const allowedMs = control?.timeoutMs ?? 45 * 60_000;
+            const expires = Date.now() + allowedMs;
+            const assertLive = () => {
+                signal.throwIfAborted();
+                if (Date.now() >= expires) {
+                    const error = new Error("Disposable worker timed out.");
+                    cancelled.abort(error);
+                    throw error;
+                }
+                verify();
+                runtime.heartbeat(run.runId, fence);
+            };
             const heartbeat = setInterval(() => {
-                try { runtime.heartbeat(run.runId); }
-                catch { leaseFailure = true; }
-            }, 5000);
+                try { assertLive(); }
+                catch { cancelled.abort(new Error("Disposable worker lost lease or signed approval.")); }
+            }, control?.pollMs ?? 5000);
+            const deadline = setTimeout(() => cancelled.abort(new Error("Disposable worker timed out.")),
+                allowedMs);
             try {
-                const response = await agent.execute({
+                const input = {
                     missionId: mission.missionId, title: candidate.title, rationale: candidate.rationale,
                     repository: mission.repository, revision: mission.sourceSha, workingDirectory: context.worktree,
-                    manifestPath: "", disposableCore: { ...context, allowedPaths: mission.allowedPaths },
-                }).catch(() => { throw new Error("Disposable worker return could not be verified."); });
-                if (leaseFailure) throw new Error("Disposable worker lost its lease before verification.");
+                    manifestPath: "", signal, disposableCore: { ...context, allowedPaths: mission.allowedPaths },
+                };
+                const response = await untilAborted<{ summary: string; receiptDigest?: string }>(signal, () => control
+                    ? control.execute(input, fence, signal, assertLive) : agent!.execute(input))
+                    .catch(() => {
+                        signal.throwIfAborted();
+                        throw new Error("Disposable worker return could not be verified.");
+                    });
+                assertLive();
                 runtime.checkpointDisposableWorker(run.runId, "finished");
                 verify();
                 await attestExactDisposableFiles(context.worktree, mission.allowedPaths);
@@ -138,18 +180,21 @@ export async function runMb03DisposableMission(state: GenesisStateRepository, id
                     mission.sourceSha, mission.allowedPaths, true);
                 if (!diff.accepted) throw new Error("Disposable worker output exceeded its exact file scope.");
                 const { stdout } = await exec("git", ["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"], {
-                    cwd: context.worktree, timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
+                    cwd: context.worktree, encoding: "buffer", timeout: 10_000, maxBuffer: 4 * 1024 * 1024,
                 });
+                assertLive();
                 const receipt = state.appendDisposableEvidence(run.runId, "BUILD", {
                     workerId: mission.workerId, diffDigest: digest(stdout), changedPaths: diff.changedPaths,
-                    outputDigest: digest(response.summary), source: "bounded-adapter-return",
-                });
+                    outputDigest: digest(response.summary),
+                    ...(response.receiptDigest ? { providerReceiptDigest: response.receiptDigest, source: "provider-attested-return" }
+                        : { source: "bounded-adapter-return" }),
+                }, fence);
                 // Exact-revision tests and independent verification belong to a separate verifier.
                 // Preserve the observed receipt without claiming acceptance or publishing a proposal.
                 return { outputs: { revision: mission.sourceSha }, files: { modified: diff.changedPaths },
                     evidenceIds: [receipt.digest], validations: [{ name: "Independent acceptance pending",
                         passed: false, durationMs: 0, evidenceId: receipt.digest }] };
-            } finally { clearInterval(heartbeat); }
+            } finally { clearInterval(heartbeat); clearTimeout(deadline); }
         } : undefined);
 }
 

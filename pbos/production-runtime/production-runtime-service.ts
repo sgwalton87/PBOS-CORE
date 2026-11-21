@@ -139,12 +139,12 @@ export class ProductionRuntimeService {
         return updated;
     }
 
-    heartbeat(runId: string): ProductionRun {
+    heartbeat(runId: string, fence?: string): ProductionRun {
         const run = this.requireRun(runId); const timestamp = this.now().toISOString();
         if (run.disposableAttempt) {
             const now = this.now();
             return this.state.renewDisposableLease(runId, hostname(), process.pid, now,
-                new Date(now.getTime() + this.leaseTtlMs).toISOString());
+                new Date(now.getTime() + this.leaseTtlMs).toISOString(), fence);
         }
         const updated = { ...run, lastHeartbeatAt: timestamp };
         this.state.saveProductionRun(updated);
