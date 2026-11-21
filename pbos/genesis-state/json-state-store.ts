@@ -4,13 +4,15 @@ import { randomUUID } from "crypto";
 
 export class JsonStateStore<T> {
     constructor(private readonly path: string, private readonly initial: () => T,
-        private readonly reclaimStaleLocks = true) {}
+        private readonly reclaimStaleLocks = true, private readonly validate?: (value: unknown) => void) {}
 
     read(): T {
         try {
-            return JSON.parse(readFileSync(this.path, "utf8")) as T;
+            const value = JSON.parse(readFileSync(this.path, "utf8")) as T;
+            this.validate?.(value);
+            return value;
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.initial();
+            if (!this.validate && (error as NodeJS.ErrnoException).code === "ENOENT") return this.initial();
             throw error;
         }
     }
@@ -42,7 +44,7 @@ export class JsonStateStore<T> {
         // Cross-process production telemetry and background validation can
         // legitimately overlap. Wait for the full stale-lock window instead
         // of failing after two seconds and abandoning an active mission.
-        for (let attempt = 0; attempt < 1_600; attempt += 1) {
+        for (let attempt = 0; attempt < (this.reclaimStaleLocks ? 1_600 : 25); attempt += 1) {
             try {
                 descriptor = openSync(lockPath, "wx", 0o600);
                 writeFileSync(descriptor, `${process.pid} ${Date.now()}\n`, "utf8");
