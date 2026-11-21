@@ -372,6 +372,47 @@ describe("canonical PBOS production runtime", () => {
         expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED");
     });
 
+    it("normalizes a legacy phase plan that used an API action as its health route", () => {
+        const fixture = runtime();
+        const run = fixture.runtime.begin(input);
+        const acceptance: FunctionalAcceptancePlan = { planId: "048-phase-01:abcdef1", systemId: input.systemId,
+            productNodeId: "048-phase-01", journeyId: "048-PHASE-01", repository: input.repository,
+            branch: input.branch, commit: input.commit, workingDirectory: "/tmp/playbook",
+            launch: { command: "npm", args: ["run", "dev"], baseUrl: "http://127.0.0.1:4319",
+                healthPath: "/api/invitations/send", startupTimeoutMs: 1_000 },
+            probes: [
+                { probeId: "048-phase-01-route-1", dimension: "ROUTE", behavior: "The page responds.",
+                    path: "/api/invitations/send", expectedStatus: 200 },
+                { probeId: "explicit-invitation-post", dimension: "PBOS_INTEGRATION", behavior: "The authorized test invitation is accepted.",
+                    path: "/api/invitations/send", method: "POST", requestBody: { test: true }, expectedStatus: 202 }
+            ],
+            browserJourneys: [{ journeyId: "048-PHASE-01", persona: "SCHOLAR", behavior: "The phase journey works.",
+                route: "/api/invitations/send", engine: "PLAYWRIGHT",
+                command: { command: "npx", args: ["playwright", "test"],
+                    requiredEnvironmentVariables: ["PBOS_TEST_AUTHORITY_ID"],
+                    publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: input.commit } },
+                viewports: ["DESKTOP_1440X900", "MOBILE_390X844"], screenshotArtifacts: ["desktop.png", "mobile.png"],
+                traceArtifact: "trace.zip", accessibilityArtifact: "a11y.json", acceptanceArtifact: "acceptance.json",
+                verifiedDimensions: ["AUTHORITY"] }]
+        };
+        fixture.runtime.recordFunctionalAcceptancePlan(run.runId, acceptance);
+
+        const normalized = fixture.runtime.normalizeFunctionalAcceptanceLineage(run.runId);
+        const plan = normalized.functionalAcceptancePlan!;
+
+        expect(normalized.currentCommit).toBe(input.commit);
+        expect(plan.launch.healthPath).toBe("/login");
+        expect(plan.browserJourneys[0].route).toBe("/login");
+        expect(plan.browserJourneys[0].command.requiredEnvironmentVariables).toEqual(["PBOS_TEST_AUTHORITY_ID"]);
+        expect(plan.browserJourneys[0].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT).toBe(input.commit);
+        expect(plan.probes).not.toEqual(expect.arrayContaining([expect.objectContaining({ probeId: "048-phase-01-route-1" })]));
+        expect(plan.probes).toEqual(expect.arrayContaining([
+            expect.objectContaining({ probeId: "048-phase-01-route-recovery", path: "/login", expectedStatus: 200 }),
+            expect.objectContaining({ probeId: "explicit-invitation-post", method: "POST" })
+        ]));
+        expect(fixture.runtime.events(run.runId).at(-1)?.type).toBe("FUNCTIONAL_ACCEPTANCE_ROUTES_NORMALIZED");
+    });
+
     it("repairs missing protected-environment declarations in a durable functional plan", () => {
         const fixture = runtime();
         const run = fixture.runtime.begin(input);

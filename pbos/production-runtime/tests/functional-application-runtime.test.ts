@@ -65,6 +65,14 @@ function canonicalJourney(path: string): Readonly<{
 }
 
 describe("PBS-5000 functional application runtime", () => {
+    it("rejects an API endpoint as the application startup health route", async () => {
+        const repo = repository();
+        const acceptance = plan(repo.path, repo.revision);
+        const invalid = { ...acceptance, launch: { ...acceptance.launch, healthPath: "/api/invitations/send" } };
+        await expect(new FunctionalApplicationRuntime().execute("health-route-run", invalid))
+            .rejects.toThrow("startup health checks must use a same-origin user-facing page route");
+    });
+
     it("derives functional evidence from an exact-revision runtime and browser journey", async () => {
         const repo = repository(); let stopped = false; const telemetry: string[] = [];
         const launcher: ApplicationLauncher = { launch: async () => ({ logs: () => "ready", stop: async () => { stopped = true; } }) };

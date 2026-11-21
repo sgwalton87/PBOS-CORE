@@ -7,6 +7,7 @@ import { ApplicationAcceptanceEvidence, ApplicationDeliveryProof, ExecutionLease
 import { assertProductionTransition, isTerminalProductionStatus } from "./status-machine";
 import { GovernedMissionQueue } from "./mission-queue";
 import { FunctionalAcceptanceVerifier } from "./functional-acceptance-verifier";
+import { isApplicationApiRoute, isBrowserPageRoute } from "./acceptance-route-policy";
 
 export interface BeginProductionRun {
     readonly runId?: string;
@@ -321,7 +322,28 @@ export class ProductionRuntimeService {
         const run = this.requireRun(runId);
         const current = run.functionalAcceptancePlan;
         if (!current) return run;
+        const isCanonPhasePlan = run.systemId === "PLAYBOOK-SYSTEM-001" &&
+            /^048-phase-\d{2}(?:-item-[a-z0-9-]+)?$/i.test(current.productNodeId);
+        const pageRoute = isCanonPhasePlan
+            ? current.browserJourneys.find(journey => isBrowserPageRoute(journey.route))?.route ??
+                current.probes.find(probe => probe.dimension === "ROUTE" && isBrowserPageRoute(probe.path) &&
+                    (probe.method ?? "GET") === "GET")?.path ?? "/login"
+            : undefined;
+        const healthPath = isCanonPhasePlan && !isBrowserPageRoute(current.launch.healthPath)
+            ? "/login" : current.launch.healthPath;
+        const probes = isCanonPhasePlan ? current.probes.filter(probe =>
+            !(probe.probeId.startsWith(`${current.productNodeId}-route-`) && isApplicationApiRoute(probe.path) &&
+                (probe.method ?? "GET") === "GET")) : current.probes;
+        const hasPageRouteProbe = pageRoute && probes.some(probe => probe.dimension === "ROUTE" &&
+            probe.path === pageRoute && (probe.method ?? "GET") === "GET");
+        const normalizedProbes = isCanonPhasePlan && pageRoute && !hasPageRouteProbe
+            ? [{ probeId: `${current.productNodeId}-route-recovery`, dimension: "ROUTE" as const,
+                behavior: `The user-facing page ${pageRoute} responds to a read-only request.`,
+                path: pageRoute, expectedStatus: 200 }, ...probes]
+            : probes;
+        const launch = healthPath === current.launch.healthPath ? current.launch : { ...current.launch, healthPath };
         const browserJourneys = current.browserJourneys.map(journey => ({ ...journey,
+            route: isCanonPhasePlan && !isBrowserPageRoute(journey.route) ? pageRoute ?? "/login" : journey.route,
             command: { ...journey.command,
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
@@ -331,27 +353,43 @@ export class ProductionRuntimeService {
                 publicEnvironment: journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT === undefined
                     ? journey.command.publicEnvironment
                     : { ...journey.command.publicEnvironment, PBOS_ACCEPTANCE_COMMIT: run.currentCommit } } }));
-        const changed = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
+        const lineageChanged = current.branch !== run.currentBranch || current.commit !== run.currentCommit ||
             browserJourneys.some((journey, index) =>
                 journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
                 current.browserJourneys[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT) ||
             (nativeJourneys ?? []).some((journey, index) =>
                 journey.command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT !==
                 current.nativeJourneys?.[index].command.publicEnvironment?.PBOS_ACCEPTANCE_COMMIT);
+        const routesChanged = healthPath !== current.launch.healthPath ||
+            browserJourneys.some((journey, index) => journey.route !== current.browserJourneys[index].route) ||
+            JSON.stringify(normalizedProbes) !== JSON.stringify(current.probes);
+        const changed = lineageChanged || routesChanged;
         if (!changed) return run;
         const previewDeployment = current.previewDeployment
             ? { ...current.previewDeployment, branch: run.currentBranch, commit: run.currentCommit } : undefined;
-        const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit,
+        const plan: FunctionalAcceptancePlan = { ...current, branch: run.currentBranch, commit: run.currentCommit, launch,
+            probes: normalizedProbes,
             previewDeployment, durablePreview: current.commit === run.currentCommit ? current.durablePreview : undefined,
-            browserJourneys, nativeJourneys, planId: `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` };
+            browserJourneys, nativeJourneys, planId: lineageChanged
+                ? `${current.planId.split(":lineage:")[0]}:lineage:${run.currentCommit}` : current.planId };
+        const invalidatedAcceptanceSources: readonly ApplicationAcceptanceEvidence["source"][] = [
+            "RUNTIME_PROBE", "BROWSER_JOURNEY", "NATIVE_JOURNEY", "ACCESSIBILITY_AUDIT", "PREVIEW_PROBE"
+        ];
         const updated: ProductionRun = { ...run, functionalAcceptancePlan: plan,
-            acceptanceEvidence: current.commit === run.currentCommit ? run.acceptanceEvidence : [],
-            previewArtifactIds: current.commit === run.currentCommit ? run.previewArtifactIds : [],
+            acceptanceEvidence: current.commit === run.currentCommit
+                ? routesChanged ? run.acceptanceEvidence.filter(item => !invalidatedAcceptanceSources.includes(item.source))
+                    : run.acceptanceEvidence
+                : [],
+            previewArtifactIds: current.commit === run.currentCommit && !routesChanged ? run.previewArtifactIds : [],
             lastHeartbeatAt: this.now().toISOString() };
         this.state.saveProductionRun(updated);
-        this.event(updated, "FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED",
-            "Durable functional acceptance lineage synchronized to the governed repository revision.", {
-                branch: run.currentBranch, commit: run.currentCommit, planId: plan.planId
+        this.event(updated, lineageChanged ? "FUNCTIONAL_ACCEPTANCE_LINEAGE_NORMALIZED" : "FUNCTIONAL_ACCEPTANCE_ROUTES_NORMALIZED",
+            lineageChanged
+                ? "Durable functional acceptance lineage synchronized to the governed revision and unsafe phase routes normalized."
+                : "Legacy phase acceptance plan no longer uses an API endpoint for startup or page-route checks.", {
+                branch: run.currentBranch, commit: run.currentCommit, planId: plan.planId,
+                healthPath: plan.launch.healthPath, pageRoute: pageRoute ?? null,
+                removedUnsafeRouteProbes: current.probes.length - normalizedProbes.length
             });
         return updated;
     }

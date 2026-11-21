@@ -7,6 +7,7 @@ import { ApplicationAcceptanceEvidence, BrowserJourneyPlan, FunctionalAcceptance
     FunctionalRuntimeCommand, FunctionalRuntimeProbe, NativeJourneyPlan, PreviewManifest } from "./contracts";
 import { ProtectedEnvironmentResolver } from "./protected-environment";
 import { DistributedPlatformGraph } from "../platform-convergence";
+import { isBrowserPageRoute } from "./acceptance-route-policy";
 
 const exactRevision = /^[a-f0-9]{7,40}$/i;
 
@@ -669,6 +670,13 @@ export class FunctionalApplicationRuntime {
         }
         const base = new URL(plan.launch.baseUrl);
         if (!["http:", "https:"].includes(base.protocol)) throw new Error("Functional application runtime requires an HTTP or HTTPS base URL.");
+        const healthUrl = new URL(plan.launch.healthPath, base);
+        if (!isBrowserPageRoute(plan.launch.healthPath) || healthUrl.origin !== base.origin) {
+            throw new Error("Application startup health checks must use a same-origin user-facing page route, not an API endpoint.");
+        }
+        if (plan.browserJourneys.some(journey => !isBrowserPageRoute(journey.route))) {
+            throw new Error("Browser journeys must declare a user-facing page route; exercise API endpoints from the acceptance journey.");
+        }
         if (plan.durablePreview) {
             const urls = [plan.durablePreview.webUrl, plan.durablePreview.mobileUrl,
                 plan.durablePreview.iosUrl, plan.durablePreview.androidUrl].filter((value): value is string => Boolean(value));

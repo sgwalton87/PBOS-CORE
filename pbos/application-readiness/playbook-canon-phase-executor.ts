@@ -10,6 +10,7 @@ import { ResumableRemediationEngine } from "../validation-automation";
 import { PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT, playbookScholarProtectedEnvironmentFiles } from "./playbook-functional-acceptance";
 import { PLAYBOOK_CANON_SOURCES } from "./playbook-canon-product-graph";
 import { playbookCanonChecklistItemMissionId } from "./playbook-full-canonical-roadmap";
+import { isBrowserPageRoute } from "../production-runtime/acceptance-route-policy";
 
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
@@ -86,6 +87,7 @@ Create or update one Playwright acceptance spec that exercises real desktop and 
 - ${artifactRoot}.json with {"schemaVersion":1,"journeyId":"${journeyId}","commit":process.env.PBOS_ACCEPTANCE_COMMIT,"checks":[{"dimension":"ROUTE","passed":true,"detail":"executed evidence"}, ...]} for ROUTE, DURABLE_DATA, AUTHORITY, PBOS_INTEGRATION, and SECURITY.
 Update only canonical checklist or roadmap items proven by this package and recalculate affected percentages honestly. Do not set completionClaim true while any mission-scoped item remains. Write ${request.manifestPath} as JSON with:
 {"schemaVersion":1,"missionId":"${request.missionId}","completionClaim":true,"completedItems":["exact checklist item"],"remainingItems":["still unfinished"],"routes":["/concrete-route"],"browserSpec":"tests/acceptance/spec.ts","acceptance":[{"dimension":"ROUTE","behavior":"specific behavior","artifact":"path","source":"IMPLEMENTATION"}]}
+The routes array contains only user-facing page routes. Never put /api endpoints in routes or use an API endpoint as the startup health path. Exercise API behavior through the mission's real browser acceptance journey or an explicit, authorized runtime probe.
 completionClaim means the selected implementation package is ready for PBOS Kernel's later exact-revision functional acceptance; it is not certification and does not claim that protected or external acceptance has already run. Do not withhold implementation completion merely because PBOS_ACCEPTANCE_COMMIT, protected credentials, a live preview, or external providers are unavailable inside this secret-isolated worker. PBOS Kernel owns those later gates. Do withhold completion when scoped behavior, local deterministic validation, the browser specification, or required implementation artifacts are incomplete. completedItems must be nonempty. For phase missions they must exactly match checklist items moved to complete; for OS, onboarding, or domain missions they must name the exact canon-scoped behaviors completed. remainingItems must be empty whenever completionClaim is true. Acceptance must contain all of: ${requiredDimensions.join(", ")}. Every referenced implementation artifact must exist. Never claim evidence you did not execute.`;
         const result = await this.process.run(["exec", "--ephemeral", "--json", "--sandbox", "workspace-write",
             "--config", 'approval_policy="never"', "--color", "never",
@@ -220,9 +222,13 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         }
         const dimensions = new Set(manifest.acceptance.map(item => item.dimension));
         const missing = requiredDimensions.filter(dimension => !dimensions.has(dimension));
+        const invalidPageRoute = manifest.routes.find(route => !isBrowserPageRoute(route));
+        if (invalidPageRoute) {
+            throw new Error(`Canon phase routes must be user-facing page routes; API or nonlocal route is invalid: ${invalidPageRoute}.`);
+        }
         if (missing.length || !manifest.completedItems?.length || !Array.isArray(manifest.remainingItems) ||
             !manifest.routes.length || !manifest.browserSpec || !paths.length ||
-            manifest.routes.some(route => !route.startsWith("/") || route.includes("[") || route.includes("]"))) {
+            manifest.routes.some(route => route.includes("[") || route.includes("]"))) {
             throw new Error(`Canon phase evidence contract incomplete: ${missing.join(", ")}.`);
         }
         await assertManifestArtifacts(manifest, workingDirectory);
@@ -248,7 +254,7 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
             protectedEnvironmentFiles: playbookScholarProtectedEnvironmentFiles(workingDirectory), minimumFreeBytes: 1024 * 1024 * 1024,
             prerequisites: [{ command: "npm", args: ["ci", "--no-audit", "--no-fund"], timeoutMs: 600_000 }],
             launch: { command: "npm", args: ["run", "dev", "--", "--hostname", "127.0.0.1", "--port", "4319"], baseUrl,
-                healthPath: manifest.routes[0], startupTimeoutMs: 120_000,
+                healthPath: "/login", startupTimeoutMs: 120_000,
                 requiredEnvironmentVariables: PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT },
             probes: manifest.routes.map((path, index) => ({ probeId: `${context.mission.missionId}-route-${index + 1}`,
                 dimension: "ROUTE" as const, behavior: `${context.mission.title} exposes ${path}.`, path, expectedStatus: 200 })),

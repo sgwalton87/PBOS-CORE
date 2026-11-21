@@ -10,7 +10,8 @@ const dimensions: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_IN
     "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
 const checklistBefore = `# Phase 1 — Identity & Authentication\n\n**Completion:** 41%\n\n- 🟦 Google Login\n- 🟨 Hostinger Email\n\n# Phase 2 — Onboarding\n`;
 
-async function workspace(completionClaim = true, leaveRemaining = false): Promise<{ directory: string; agent: CanonPhaseImplementationAgent }> {
+async function workspace(completionClaim = true, leaveRemaining = false,
+    routes: readonly string[] = ["/login"]): Promise<{ directory: string; agent: CanonPhaseImplementationAgent }> {
     const directory = await mkdtemp(join(tmpdir(), "pbos-phase-test-"));
     const agent: CanonPhaseImplementationAgent = { execute: async request => {
         await mkdir(join(directory, "pbos/readiness"), { recursive: true });
@@ -25,7 +26,7 @@ async function workspace(completionClaim = true, leaveRemaining = false): Promis
         await writeFile(join(directory, request.manifestPath), `${JSON.stringify({ schemaVersion: 1,
             missionId: request.missionId, completionClaim, completedItems: completionClaim
                 ? (leaveRemaining ? ["Google Login"] : ["Google Login", "Hostinger Email"]) : [],
-            remainingItems: leaveRemaining || !completionClaim ? ["Hostinger Email"] : [], routes: ["/login"], browserSpec: "tests/acceptance/phase.spec.ts",
+            remainingItems: leaveRemaining || !completionClaim ? ["Hostinger Email"] : [], routes, browserSpec: "tests/acceptance/phase.spec.ts",
             acceptance: dimensions.map(dimension => ({ dimension, behavior: `${dimension} implemented`,
                 artifact: "evidence.txt", source: "IMPLEMENTATION" })),
             blockers: completionClaim ? [] : ["Google OAuth is not functional"] }, null, 2)}\n`, "utf8");
@@ -67,6 +68,7 @@ describe("Playbook canon phase execution adapter", () => {
             "artifacts/playwright/local.json"]));
         expect(result.acceptanceEvidence).toHaveLength(8);
         expect(result.functionalAcceptancePlan).toMatchObject({ commit: "bcdef12",
+            launch: { healthPath: "/login" },
             browserJourneys: [{ engine: "PLAYWRIGHT", viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
                 verifiedDimensions: ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "SECURITY"] }] });
     });
@@ -83,6 +85,13 @@ describe("Playbook canon phase execution adapter", () => {
         const setup = dependencies(target.directory, target.agent);
         await expect(playbookCanonPhaseExecutor(setup.dependencies as never)(context as never))
             .rejects.toThrow("Canon mission cannot complete with 1 remaining item(s)");
+    });
+
+    it("rejects API endpoints in the generated browser-route manifest", async () => {
+        const target = await workspace(true, false, ["/api/invitations/send"]);
+        const setup = dependencies(target.directory, target.agent);
+        await expect(playbookCanonPhaseExecutor(setup.dependencies as never)(context as never))
+            .rejects.toThrow("Canon phase routes must be user-facing page routes");
     });
 
     it("executes a complete role-onboarding mission through the same governed adapter", async () => {
@@ -110,6 +119,7 @@ describe("Playbook canon phase execution adapter", () => {
         expect(calls[0]?.args).toEqual(expect.arrayContaining(["--config", 'approval_policy="never"']));
         const prompt = calls[0]?.args.at(-1) ?? "";
         expect(prompt).toContain("Do not commit, push, open a PR, merge, or deploy");
+        expect(prompt).toContain("routes array contains only user-facing page routes");
         expect(prompt).toContain("PBOS_ACCEPTANCE_COMMIT");
     });
 });
