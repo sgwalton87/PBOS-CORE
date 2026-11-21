@@ -112,8 +112,8 @@ jobs:
           environment_id="$(jq -er '
             select(.name == "mb032-vcr-publish" and
               .deployment_branch_policy.custom_branch_policies == true and
-              .deployment_branch_policy.protected_branches == false)
-            | select(if has("can_admins_bypass") then .can_admins_bypass == false else true end)
+              .deployment_branch_policy.protected_branches == false and
+              .can_admins_bypass == false)
             | .id | select(type == "number")
           ' <<<"$environment")"
           reviewers="$(jq -ce --arg dispatcher "$GITHUB_ACTOR_ID" '
