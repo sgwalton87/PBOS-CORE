@@ -53,7 +53,10 @@ describe("MB-03.2 concrete SDK provider with synthetic transport", () => {
         const f = setup();
         await expect(f.provider.probe(f.signal)).resolves.toMatchObject({ status: "READY_WITHOUT_MODEL", sourceSha: sha });
         expect(f.api.create).toHaveBeenCalledWith(expect.objectContaining({ persistent: false, networkPolicy: "deny-all",
-            ports: [], timeout: 60_000, source: expect.objectContaining({ revision: sha }) }));
+            ports: [], timeout: 60_000 }));
+        expect(f.api.create.mock.calls[0][0]).not.toHaveProperty("source");
+        expect(f.vm.runCommand.mock.calls[0][0]).toMatchObject({ cmd: "python3",
+            args: expect.arrayContaining(["/opt/pbos-source", sha]) });
         expect(f.vm.runCommand.mock.calls.map(([command]) => command.cmd)).toEqual(["python3", "curl"]);
         expect(f.policy.dispatch.reserve).not.toHaveBeenCalled();
         expect(f.policy.modelLeases.issue).not.toHaveBeenCalled();
