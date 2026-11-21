@@ -13,6 +13,7 @@ import { PLAYBOOK_CANON_SOURCES, parsePlaybookCanonPhases } from "./playbook-can
 const SYSTEM_ID = "PLAYBOOK-SYSTEM-001";
 const REPOSITORY = "sgwalton87/playbook-platform";
 const MASTER_CHECKLIST = "docs/MASTER_CHECKLIST.md";
+const ACCEPTANCE_BASE_URL = "http://127.0.0.1:4319";
 const requiredDimensions: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_INTERFACE", "DURABLE_DATA", "AUTHORITY",
     "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
 const browserVerifiedDimensions = ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "SECURITY"] as const;
@@ -77,7 +78,7 @@ Execute only mission ${request.missionId}: ${request.title}.
 Reason: ${request.rationale}
 Complete the scoped mission as one cohesive, reviewable work package. Implement its actual application behavior end to end. Reuse existing architecture; do not create parallel runtimes, demo data, placeholders, false completion, secrets, production deployment, or unrelated changes.
 Run the repository's lint, tests, build, and relevant browser/mobile acceptance. Do not commit, push, open a PR, merge, or deploy.
-Create or update one Playwright acceptance spec that exercises real desktop and mobile behavior. When PBOS later runs it with PBOS_ACCEPTANCE_COMMIT, it must create these nonempty exact-revision artifacts:
+Create or update one Playwright acceptance spec that exercises real desktop and mobile behavior. Exercise every listed API route in the spec with its actual HTTP method and assert the expected response and authority checks. PBOS independently probes UI routes with GET. When PBOS later runs it with PBOS_ACCEPTANCE_COMMIT, it must create these nonempty exact-revision artifacts:
 - ${artifactRoot}-desktop.png
 - ${artifactRoot}-mobile.png
 - ${artifactRoot}-trace.zip
@@ -216,7 +217,8 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         const missing = requiredDimensions.filter(dimension => !dimensions.has(dimension));
         if (missing.length || !manifest.completedItems?.length || !Array.isArray(manifest.remainingItems) ||
             !manifest.routes.length || !manifest.browserSpec || !paths.length ||
-            manifest.routes.some(route => !route.startsWith("/") || route.includes("[") || route.includes("]"))) {
+            manifest.routes.some(route => !route.startsWith("/") || route.startsWith("//") || route.includes("\\") ||
+                route.includes("[") || route.includes("]") || new URL(route, ACCEPTANCE_BASE_URL).origin !== ACCEPTANCE_BASE_URL)) {
             throw new Error(`Canon phase evidence contract incomplete: ${missing.join(", ")}.`);
         }
         await assertManifestArtifacts(manifest, workingDirectory);
@@ -235,23 +237,28 @@ export function playbookCanonPhaseExecutor(dependencies: PlaybookCanonPhaseExecu
         const acceptanceEvidence: readonly ApplicationAcceptanceEvidence[] = manifest.acceptance.map(item => ({ ...item,
             evidenceId: `${context.mission.missionId}:${item.dimension.toLowerCase()}:${revision}`, repository: REPOSITORY,
             commit: revision, passed: true }));
-        const baseUrl = "http://127.0.0.1:4319";
+        // API routes may be mutation-only. The mandatory exact-revision browser spec
+        // tests those routes with their method and authority context.
+        const pageRoutes = manifest.routes.filter(route => {
+            const { pathname } = new URL(route, ACCEPTANCE_BASE_URL);
+            return pathname !== "/api" && !pathname.startsWith("/api/");
+        });
         const functionalAcceptancePlan: FunctionalAcceptancePlan = { planId: `${context.mission.missionId}:${revision}`,
             systemId: SYSTEM_ID, productNodeId: context.mission.missionId, journeyId: context.mission.missionId.toUpperCase(),
             repository: REPOSITORY, branch, commit: revision, workingDirectory,
             protectedEnvironmentFiles: playbookScholarProtectedEnvironmentFiles(workingDirectory), minimumFreeBytes: 1024 * 1024 * 1024,
             prerequisites: [{ command: "npm", args: ["ci", "--no-audit", "--no-fund"], timeoutMs: 600_000 }],
-            launch: { command: "npm", args: ["run", "dev", "--", "--hostname", "127.0.0.1", "--port", "4319"], baseUrl,
-                healthPath: manifest.routes[0], startupTimeoutMs: 120_000,
+            launch: { command: "npm", args: ["run", "dev", "--", "--hostname", "127.0.0.1", "--port", "4319"], baseUrl: ACCEPTANCE_BASE_URL,
+                healthPath: "/login", startupTimeoutMs: 120_000,
                 requiredEnvironmentVariables: PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT },
-            probes: manifest.routes.map((path, index) => ({ probeId: `${context.mission.missionId}-route-${index + 1}`,
+            probes: pageRoutes.map((path, index) => ({ probeId: `${context.mission.missionId}-route-${index + 1}`,
                 dimension: "ROUTE" as const, behavior: `${context.mission.title} exposes ${path}.`, path, expectedStatus: 200 })),
             browserJourneys: [{ journeyId: context.mission.missionId.toUpperCase(), persona: "canonical Playbook user",
                 behavior: `${context.mission.title} works with real authority and durable state on desktop and mobile.`,
-                route: manifest.routes[0], engine: "PLAYWRIGHT",
+                route: pageRoutes[0] ?? "/login", engine: "PLAYWRIGHT",
                 command: { command: "npx", args: ["playwright", "test", manifest.browserSpec, "--project=chromium"],
                     requiredEnvironmentVariables: PLAYBOOK_SCHOLAR_ACCEPTANCE_ENVIRONMENT,
-                    publicEnvironment: { PLAYWRIGHT_BASE_URL: baseUrl, PBOS_ACCEPTANCE_COMMIT: revision } },
+                    publicEnvironment: { PLAYWRIGHT_BASE_URL: ACCEPTANCE_BASE_URL, PBOS_ACCEPTANCE_COMMIT: revision } },
                 viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
                 screenshotArtifacts: [`artifacts/pbos-acceptance/${context.mission.missionId}-desktop.png`, `artifacts/pbos-acceptance/${context.mission.missionId}-mobile.png`],
                 traceArtifact: `artifacts/pbos-acceptance/${context.mission.missionId}-trace.zip`,

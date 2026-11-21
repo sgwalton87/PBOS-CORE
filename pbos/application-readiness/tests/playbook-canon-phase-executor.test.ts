@@ -10,7 +10,7 @@ const dimensions: readonly ApplicationAcceptanceDimension[] = ["ROUTE", "USER_IN
     "PBOS_INTEGRATION", "ACCEPTANCE_TEST", "ACCESSIBILITY", "SECURITY"];
 const checklistBefore = `# Phase 1 — Identity & Authentication\n\n**Completion:** 41%\n\n- 🟦 Google Login\n- 🟨 Hostinger Email\n\n# Phase 2 — Onboarding\n`;
 
-async function workspace(completionClaim = true, leaveRemaining = false): Promise<{ directory: string; agent: CanonPhaseImplementationAgent }> {
+async function workspace(completionClaim = true, leaveRemaining = false, routes = ["/login"]): Promise<{ directory: string; agent: CanonPhaseImplementationAgent }> {
     const directory = await mkdtemp(join(tmpdir(), "pbos-phase-test-"));
     const agent: CanonPhaseImplementationAgent = { execute: async request => {
         await mkdir(join(directory, "pbos/readiness"), { recursive: true });
@@ -25,7 +25,7 @@ async function workspace(completionClaim = true, leaveRemaining = false): Promis
         await writeFile(join(directory, request.manifestPath), `${JSON.stringify({ schemaVersion: 1,
             missionId: request.missionId, completionClaim, completedItems: completionClaim
                 ? (leaveRemaining ? ["Google Login"] : ["Google Login", "Hostinger Email"]) : [],
-            remainingItems: leaveRemaining || !completionClaim ? ["Hostinger Email"] : [], routes: ["/login"], browserSpec: "tests/acceptance/phase.spec.ts",
+            remainingItems: leaveRemaining || !completionClaim ? ["Hostinger Email"] : [], routes, browserSpec: "tests/acceptance/phase.spec.ts",
             acceptance: dimensions.map(dimension => ({ dimension, behavior: `${dimension} implemented`,
                 artifact: "evidence.txt", source: "IMPLEMENTATION" })),
             blockers: completionClaim ? [] : ["Google OAuth is not functional"] }, null, 2)}\n`, "utf8");
@@ -86,6 +86,27 @@ describe("Playbook canon phase execution adapter", () => {
         expect(result.functionalAcceptancePlan).toMatchObject({ commit: "bcdef12",
             browserJourneys: [{ engine: "PLAYWRIGHT", viewports: ["DESKTOP_1440X900", "MOBILE_390X844"],
                 verifiedDimensions: ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_INTEGRATION", "SECURITY"] }] });
+    });
+
+    it("launches on login and keeps mutation-only routes in mandatory browser acceptance", async () => {
+        const target = await workspace(true, false, ["/api/invitations/send", "/api/mail-gateway/hostinger", "/check-email"]);
+        const setup = dependencies(target.directory, target.agent);
+        const result = await playbookCanonPhaseExecutor(setup.dependencies as never)(context as never);
+        expect(result.functionalAcceptancePlan).toMatchObject({
+            launch: { healthPath: "/login" },
+            probes: [{ path: "/check-email", expectedStatus: 200 }],
+            browserJourneys: [{ route: "/check-email", command: { args: expect.arrayContaining(["tests/acceptance/phase.spec.ts"]),
+                publicEnvironment: { PBOS_ACCEPTANCE_COMMIT: "bcdef12" } },
+                verifiedDimensions: expect.arrayContaining(["ROUTE", "AUTHORITY", "SECURITY"]) }]
+        });
+        expect(result.functionalAcceptancePlan?.probes).toHaveLength(1);
+    });
+
+    it.each(["//other.example/api", "/\\other.example/api", "/\t/other.example/api"])("rejects nonlocal acceptance route %s", async route => {
+        const target = await workspace(true, false, [route]);
+        const setup = dependencies(target.directory, target.agent);
+        await expect(playbookCanonPhaseExecutor(setup.dependencies as never)(context as never))
+            .rejects.toThrow("Canon phase evidence contract incomplete");
     });
 
     it("refuses to publish a worker result that truthfully reports remaining blockers", async () => {
