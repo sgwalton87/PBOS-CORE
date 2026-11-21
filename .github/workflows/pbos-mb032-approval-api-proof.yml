@@ -1,0 +1,33 @@
+name: PBOS MB-03.2 GitHub Approval API Proof
+on:
+  push:
+    branches: [audit/mb032-github-approval-access]
+permissions:
+  actions: read
+jobs:
+  read-approval-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check live permissions using the runner token
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = sgwalton87/PBOS-CORE
+          base="repos/$GITHUB_REPOSITORY"
+          gh api "$base/actions/runs/$GITHUB_RUN_ID/approvals" |
+            jq -e 'type == "array"' >/dev/null
+          printf 'Runner token with Actions read can read this run approval history.\n'
+          gh api "$base/environments" |
+            jq -e '.environments | type == "array"' >/dev/null
+          printf 'Runner token with Actions read can list repository environments.\n'
+          if gh api "$base/environments/mb032-vcr-publish" > "$RUNNER_TEMP/environment.json"; then
+            jq -e '.name == "mb032-vcr-publish" and (.protection_rules | type == "array")' "$RUNNER_TEMP/environment.json" >/dev/null
+            gh api "$base/environments/mb032-vcr-publish/deployment-branch-policies" |
+              jq -e '.branch_policies | type == "array"' >/dev/null
+            printf 'Live environment and branch-policy JSON shapes verified.\n'
+          else
+            jq -e '.status == "404"' "$RUNNER_TEMP/environment.json" >/dev/null
+            printf 'Protected environment does not exist. Its policy and a positive approval remain unverified.\n'
+          fi
