@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       image_source_sha:
-        description: Reviewed PR 100 image-definition commit
+        description: Reviewed PR 104 Git-compatible image commit
         required: true
         type: string
       publish:
@@ -20,7 +20,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE_SOURCE_SHA: 4e5c45a8dd6d0e5ce58ee5bb975ddfdcb3efdb0e
+  IMAGE_SOURCE_SHA: c291244bec2a9071c5fed3d87c6e4aa6fdcc072c
+  IMAGE_PARENT_SHA: 4e5c45a8dd6d0e5ce58ee5bb975ddfdcb3efdb0e
   CANARY_RUNTIME_SHA: 121ce910d47ef65e76416d666220204ef17496e9
   CODEX_SHA256: b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0
   VCR_TEAM_ID: team_uEIqx3HHy04a9D2ePf3NwRdl
@@ -48,13 +49,14 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.IMAGE_SOURCE_SHA }}
-          fetch-depth: 2
+          fetch-depth: 3
           persist-credentials: false
       - name: Build and verify the reviewed AMD64 image
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$IMAGE_SOURCE_SHA"
-          test "$(git rev-parse HEAD^)" = "$CANARY_RUNTIME_SHA"
+          test "$(git rev-parse HEAD^)" = "$IMAGE_PARENT_SHA"
+          test "$(git rev-parse HEAD^^)" = "$CANARY_RUNTIME_SHA"
 
           docker build --platform linux/amd64 --tag pbos-mb032-canary:validated containers/mb032-canary
           test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' pbos-mb032-canary:validated)" = linux/amd64
