@@ -18,6 +18,7 @@ process.stdout.write(JSON.stringify({
   status: eligibleForApprovalReview ? "READY_FOR_SEPARATE_SIGNED_APPROVAL" : "BLOCKED",
   canonicalInspection: result,
   missionExecutionAuthorized: false,
+  nextRequiredControls: eligibleForApprovalReview ? ["SIGNED_MISSION_APPROVAL", "FENCED_EXECUTION_LEASE", "HOST_ATTESTATION"] : ["ENCRYPTED_DURABLE_GENESIS_STATE", "OPERATOR_IDENTITY", "INTEGRITY_VERIFICATION"],
   note: "This is not host attestation, migration authorization, signed mission admission or certification."
 }) + "\n");
 if (!eligibleForApprovalReview) process.exitCode = 2;
