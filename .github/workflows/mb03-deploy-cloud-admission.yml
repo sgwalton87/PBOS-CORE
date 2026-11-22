@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           gcloud config set project pbos-genesis-staging
-          gcloud builds submit . --region=us-west1 --config=/dev/null --tag="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" --file=Dockerfile.mb03-admission
+          gcloud builds submit . --region=us-west1 --config=cloudbuild.mb03-admission.yaml --substitutions="_IMAGE=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
       - name: Deploy a disabled-by-default admission job (never executes a mission)
         shell: bash
         run: |
