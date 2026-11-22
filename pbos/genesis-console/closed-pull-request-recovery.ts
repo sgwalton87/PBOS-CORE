@@ -133,14 +133,37 @@ export async function verifyClosedPullRequestRecoveryCheckout(commands: CommandR
 type PreparedRecovery = Awaited<ReturnType<typeof prepareClosedPullRequestRecovery>>;
 
 export function verifyClosedPullRequestRecoveryApproval(identities: OperatorIdentityService, operator: AuthenticatedOperator,
-    session: GenesisBuildSession, approval: VerifiableApproval, resource: string, now = new Date()): void {
+    session: GenesisBuildSession, approval: VerifiableApproval, resource: string, now = new Date(), rebound = false): void {
     if (session.grant.issuedBy !== operator.operatorId || session.grant.mode !== "HUMAN_GATED" ||
         approval.operatorId !== operator.operatorId || approval.organizationId !== operator.organizationId ||
-        !(session.grant.issuedAt.getTime() <= Date.parse(approval.issuedAt)) ||
+        (!rebound && !(session.grant.issuedAt.getTime() <= Date.parse(approval.issuedAt))) ||
         !(Date.parse(approval.issuedAt) <= now.getTime()) || !(Date.parse(approval.expiresAt) > now.getTime()) ||
         !identities.verify(approval, CLOSED_PR_RECOVERY_ACTION, resource, now)) {
         throw new Error("A current operator-signed, exact-lineage recovery approval and human-gated build grant are required.");
     }
+}
+
+/** Attach a newly issued human-gated grant to an existing valid exact-scope signature. */
+export function rebindRegisteredRecoveryGrant(state: GenesisStateRepository, control: GenesisControlPlane,
+    identities: OperatorIdentityService, operator: AuthenticatedOperator, session: GenesisBuildSession,
+    prepared: Awaited<ReturnType<typeof prepareRegisteredRecoveryRenewal>>): void {
+    const { run, remediation, binding } = prepared;
+    const oldSession = state.sessions().find(item => item.sessionId === binding.sessionId);
+    const approval = state.audit().find(item => item.eventId === binding.approvalId)?.evidence.approval as VerifiableApproval | undefined;
+    if (!oldSession || !approval || run.actorId !== operator.operatorId || session.system.systemId !== run.systemId ||
+        session.system.repository !== run.repository || session.grant.issuedBy !== operator.operatorId ||
+        session.grant.mode !== "HUMAN_GATED") throw new Error("Existing approval or replacement grant is unavailable.");
+    const previouslyRebound = state.audit().some(item => item.type === "RECOVERY_GRANT_REBOUND" && item.actorId === operator.operatorId &&
+        item.resource === binding.resource && item.evidence.sessionId === oldSession.sessionId && item.evidence.approvalId === approval.approvalId);
+    verifyClosedPullRequestRecoveryApproval(identities, operator, oldSession, approval, binding.resource, new Date(), previouslyRebound);
+    if (!control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", run.currentBranch, approval.approvalId).allowed) {
+        throw new Error("Fresh recovery build grant is unavailable.");
+    }
+    const now = new Date().toISOString();
+    const updated = { ...remediation, closedPullRequestReplacement: { ...binding, sessionId: session.sessionId }, updatedAt: now };
+    state.renewClosedPullRequestApproval(remediation, updated, session.grant.grantId,
+        { eventId: randomUUID(), type: "RECOVERY_GRANT_REBOUND", actorId: operator.operatorId, resource: binding.resource,
+            occurredAt: now, evidence: { sessionId: session.sessionId, approvalId: approval.approvalId, grantId: session.grant.grantId } }, run.runId);
 }
 
 export function registerClosedPullRequestRecovery(state: GenesisStateRepository, control: GenesisControlPlane,

@@ -9,7 +9,7 @@ import { FunctionalAcceptancePlan, ProductionRuntimeService } from "../../produc
 import { GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
     registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery,
-    recoveryApprovalDuration, MAX_RECOVERY_APPROVAL_MINUTES, preflightRecoveryBrowser } from "../closed-pull-request-recovery";
+    recoveryApprovalDuration, MAX_RECOVERY_APPROVAL_MINUTES, preflightRecoveryBrowser, rebindRegisteredRecoveryGrant } from "../closed-pull-request-recovery";
 import { GenesisControlPlane } from "../genesis-control-plane";
 import { GenesisSystemCatalog } from "../system-catalog";
 import { REFERENCE_SYSTEMS } from "../system-definition";
@@ -201,6 +201,42 @@ describe("governed closed pull request recovery", () => {
         f.control.revokeSession(f.session.sessionId, "fixture revocation");
         expect(f.control.authorizeAction(f.session.sessionId, "PROPOSE_CHANGE", "MEDIUM", branch, approval.approvalId).allowed).toBe(false);
         expect(f.state.productionRun(f.before.runId)?.repairAttempts).toBe(1);
+    });
+
+    it("rebinds a fresh approved grant without issuing another recovery signature", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource, 43200);
+        const replacement = registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session, approval, prepared, f.directory);
+        const before = f.state.productionRun(f.before.runId);
+        const issuance = f.identities.approve(f.operator, "ISSUE_BUILD_GRANT", system.systemId);
+        const freshSession = f.control.activateSystem(system.systemId, "HUMAN_GATED", f.operator.operatorId, issuance.approvalId);
+        const refreshed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        rebindRegisteredRecoveryGrant(f.state, f.control, f.identities, f.operator, freshSession, refreshed);
+        const binding = f.state.remediationRun(replacement.runId)!.closedPullRequestReplacement!;
+        expect(binding).toMatchObject({ approvalId: approval.approvalId, sessionId: freshSession.sessionId, resource: prepared.resource });
+        expect(f.state.audit().filter(item => item.eventId === approval.approvalId)).toHaveLength(1);
+        expect(f.state.audit().filter(item => item.type === "RECOVERY_GRANT_REBOUND")).toHaveLength(1);
+        expect(f.state.productionRun(f.before.runId)).toEqual(before);
+        expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, freshSession, approval, binding.resource, new Date(), true)).not.toThrow();
+        expect(() => rebindRegisteredRecoveryGrant(f.state, f.control, f.identities, f.operator, freshSession, refreshed)).toThrow(/changed before approval renewal/);
+    });
+
+    it("refuses to rebind an expired signature or a revoked fresh grant", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session, approval, prepared, f.directory);
+        const issuance = f.identities.approve(f.operator, "ISSUE_BUILD_GRANT", system.systemId);
+        const freshSession = f.control.activateSystem(system.systemId, "HUMAN_GATED", f.operator.operatorId, issuance.approvalId);
+        const refreshed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        vi.useFakeTimers();
+        try {
+            vi.setSystemTime(new Date(approval.expiresAt));
+            expect(() => rebindRegisteredRecoveryGrant(f.state, f.control, f.identities, f.operator, freshSession, refreshed)).toThrow(/operator-signed/);
+        } finally { vi.useRealTimers(); }
+        f.control.revokeSession(freshSession.sessionId, "fixture revocation");
+        expect(() => rebindRegisteredRecoveryGrant(f.state, f.control, f.identities, f.operator, freshSession, refreshed)).toThrow(/grant/);
     });
 
     it("rejects original Genesis and an alias to its inode", () => {
