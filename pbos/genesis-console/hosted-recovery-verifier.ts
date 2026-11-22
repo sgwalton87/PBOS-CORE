@@ -115,7 +115,14 @@ export async function verifyHostedRecoveryEvidence(input: {
         await writeFile(archivePath, input.archive, { mode: 0o600 });
         const listing = await promisify(execFile)("unzip", ["-Z1", archivePath], { maxBuffer: 1024 * 1024, timeout: 10_000 });
         const names = listing.stdout.trim().split("\n");
-        for (const name of ["receipt.json", "desktop.png", "mobile.png", "trace.zip", "accessibility.json", "playwright-results.json"]) {
+        const required = ["receipt.json", "desktop.png", "mobile.png", "trace.zip", "accessibility.json", "playwright-results.json"];
+        // Reject unrecognized and duplicate ZIP entries before extracting anything. In particular,
+        // never allow an artifact to smuggle absolute paths, traversal, or ambiguous evidence.
+        if (names.length !== required.length || new Set(names).size !== names.length ||
+            names.some(name => !required.includes(name))) {
+            throw new Error("Hosted recovery artifact contains unexpected or duplicate entries.");
+        }
+        for (const name of required) {
             if (names.filter(item => item === name).length !== 1) throw new Error(`Hosted recovery artifact is missing ${name}.`);
             const part = await promisify(execFile)("unzip", ["-p", archivePath, name], { encoding: "buffer", maxBuffer: 20 * 1024 * 1024, timeout: 10_000 });
             if (!part.stdout.length) throw new Error(`Hosted recovery artifact is empty: ${name}.`);
