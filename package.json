@@ -57,6 +57,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@neondatabase/serverless": "^1.0.2",
     "@vercel/sandbox": "4.1.0",
     "dotenv": "^17.4.2",
     "openai": "^7.3.0",

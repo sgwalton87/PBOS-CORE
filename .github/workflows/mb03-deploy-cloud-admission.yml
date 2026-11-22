@@ -7,6 +7,7 @@ on:
       - '.github/workflows/mb03-deploy-cloud-admission.yml'
       - 'Dockerfile.mb03-admission'
       - 'pbos/tools/mb03-hosted-admission-observation.ts'
+      - 'pbos/tools/mb03-hosted-executor.ts'
       - 'pbos/boot/pps-canon-snapshot-verifier.ts'
       - 'tests/hosted-approved-mission.test.ts'
       - 'tests/hosted-signed-mission-approval.test.ts'
@@ -18,6 +19,8 @@ on:
       - 'tests/neon-fenced-mission-checkpoint.test.ts'
       - 'tests/fenced-playbook-pr-executor.test.ts'
       - 'tests/github-app-playbook-pr-api.test.ts'
+      - 'tests/hosted-playbook-mission-executable.test.ts'
+      - 'tests/mb03-hosted-executor.test.ts'
       - 'pbos/production-runtime/hosted-neon-executor-composition.ts'
       - 'pbos/production-runtime/operator-readonly-preflight.ts'
       - 'pbos/production-runtime/**'
@@ -50,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts tests/fenced-playbook-pr-executor.test.ts tests/github-app-playbook-pr-api.test.ts
+          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts tests/fenced-playbook-pr-executor.test.ts tests/github-app-playbook-pr-api.test.ts tests/hosted-playbook-mission-executable.test.ts tests/mb03-hosted-executor.test.ts
           npx tsc --noEmit
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
@@ -91,7 +94,7 @@ jobs:
             --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
             --cpu=1 --memory=1Gi \
             --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
-          echo "Job deployed; NOT executed. No private state mounted and no mission authority granted."
+          echo "Executable job image deployed; NOT executed. Runtime authority and mission inputs remain separately gated."
       - name: Verify deployed Cloud Run job identity and image without executing
         shell: bash
         run: |

@@ -8,4 +8,4 @@ RUN npm ci
 COPY pbos ./pbos
 COPY tsconfig*.json ./
 USER node
-CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-hosted-admission-observation.ts"]
+CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-hosted-executor.ts"]
