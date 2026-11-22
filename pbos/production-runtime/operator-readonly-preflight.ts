@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, lstatSync } from "node:fs";
 import { join } from "node:path";
 import { GenesisStateRepository, OperatorIdentityService } from "../genesis-state";
 import { ProductionRuntimeService } from "../production-runtime";
@@ -47,6 +47,20 @@ export function inspectExistingOperatorRuntime(stateHome: string): OperatorPrefl
     const required = ["profile.json", "operators.json", "genesis-state.json"] as const;
     const missing = required.filter(file => !existsSync(join(stateHome, file)));
     if (missing.length) return blocked(missing);
+
+    // Do not trust a writable or redirected identity/state file on a hosted
+    // worker. A successful JSON parse is not sufficient to admit authority.
+    for (const file of required) {
+        try {
+            const metadata = lstatSync(join(stateHome, file));
+            if (!metadata.isFile() || metadata.isSymbolicLink() ||
+                metadata.size === 0 || (metadata.mode & 0o077) !== 0) {
+                return blocked();
+            }
+        } catch {
+            return blocked();
+        }
+    }
 
     const statePaths = required.map(file => join(stateHome, file));
     const sha256 = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
