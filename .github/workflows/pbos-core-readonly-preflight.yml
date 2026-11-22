@@ -15,6 +15,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hostinger-linux-browser-smoke:
+    name: Exact Platform Chromium and FFmpeg smoke (no runtime authority)
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 113
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact public Platform revision
+        uses: actions/checkout@v4
+        with:
+          repository: sgwalton87/playbook-platform
+          ref: 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6
+          persist-credentials: false
+      - name: Check exact source revision
+        run: test "$(git rev-parse HEAD)" = 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install locked test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify Playwright version and install its Chromium dependencies
+        run: |
+          test "$(node -p 'require("@playwright/test/package.json").version')" = 1.62.1
+          npx playwright install --with-deps chromium
+      - name: Smoke-test Chromium and FFmpeg without network access
+        run: |
+          node <<'NODE'
+          const { chromium } = require('@playwright/test');
+          const { mkdtempSync, writeFileSync } = require('node:fs');
+          const { join } = require('node:path');
+          (async () => {
+            const dir = mkdtempSync(join(process.env.RUNNER_TEMP, 'pbos-browser-smoke-'));
+            const browser = await chromium.launch();
+            try {
+              const context = await browser.newContext({ recordVideo: { dir } });
+              await context.route('**/*', route => route.abort());
+              const page = await context.newPage();
+              await page.setContent('<title>PBOS isolated browser smoke</title>');
+              if (await page.title() !== 'PBOS isolated browser smoke') throw Error('Unexpected page title');
+              await context.close();
+              writeFileSync(join(process.env.RUNNER_TEMP, 'pbos-browser-smoke.txt'),
+                'Platform 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6\nPlaywright 1.62.1\nChromium and video context: PASS\n');
+            } finally { await browser.close(); }
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          NODE
+      - name: Preserve sanitized smoke evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: hostinger-linux-browser-smoke
+          path: ${{ runner.temp }}/pbos-browser-smoke.txt
+          if-no-files-found: error
+          retention-days: 7
+
   core-certification-preflight:
     name: Typecheck, tests and build (no runtime authority)
     runs-on: ubuntu-latest
