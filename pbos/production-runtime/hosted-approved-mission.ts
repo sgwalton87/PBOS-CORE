@@ -20,7 +20,7 @@ export interface HostedExecutionDependencies {
   readonly acquireFencedLease: (resource: string, ownerId: string) => Promise<HostedExecutionLease | null>;
   readonly assertFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly releaseFencedLease: (lease: HostedExecutionLease) => Promise<void>;
-  readonly renewFencedLease?: (lease: HostedExecutionLease) => Promise<boolean>;
+  readonly renewFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly recordApprovalNonce: (nonce: string, expiresAt: string) => Promise<boolean>;
 }
 export async function runHostedApprovedMission(
@@ -48,13 +48,13 @@ export async function runHostedApprovedMission(
   }
   let leaseLost = false;
   let renewing = false;
-  const heartbeat = dependencies.renewFencedLease ? setInterval(async () => {
+  const heartbeat = setInterval(async () => {
     if (renewing || leaseLost) return;
     renewing = true;
-    try { if (!(await dependencies.renewFencedLease!(lease))) leaseLost = true; }
+    try { if (!(await dependencies.renewFencedLease(lease))) leaseLost = true; }
     catch { leaseLost = true; }
     finally { renewing = false; }
-  }, 10_000) : undefined;
+  }, 10_000);
   try {
     if (!(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost.");
     // Nonce persistence MUST be atomic/unique on the durable host. A false result
