@@ -45,22 +45,22 @@ describe("MB03 hosted execution boundary", () => {
   });
   it("blocks unverified Genesis and does not acquire a lease", async () => {
     const s = setup();
-    s.dependencies.canonicalStateVerified = async () => false;
-    await expect(runHostedApprovedMission(s.runner,request,approval(),s.dependencies,() => undefined)).rejects.toThrow("Genesis");
+    const blocked = { ...s.dependencies, canonicalStateVerified: async () => false };
+    await expect(runHostedApprovedMission(s.runner,request,approval(),blocked,() => undefined)).rejects.toThrow("Genesis");
     expect(s.run).not.toHaveBeenCalled();
     expect(s.dependencies.acquireFencedLease).not.toHaveBeenCalled();
   });
   it("blocks lease loss and releases the lease", async () => {
     const s = setup();
-    s.dependencies.assertFencedLease = async () => false;
-    await expect(runHostedApprovedMission(s.runner,request,approval(),s.dependencies,() => undefined)).rejects.toThrow("lease");
+    const lost = { ...s.dependencies, assertFencedLease: async () => false };
+    await expect(runHostedApprovedMission(s.runner,request,approval(),lost,() => undefined)).rejects.toThrow("lease");
     expect(s.run).not.toHaveBeenCalled();
     expect(s.dependencies.releaseFencedLease).toHaveBeenCalledOnce();
   });
   it("blocks replayed approval and continuation", async () => {
     const s = setup();
-    s.dependencies.recordApprovalNonce = async () => false;
-    await expect(runHostedApprovedMission(s.runner,request,approval(),s.dependencies,() => undefined)).rejects.toThrow("nonce");
+    const replay = { ...s.dependencies, recordApprovalNonce: async () => false };
+    await expect(runHostedApprovedMission(s.runner,request,approval(),replay,() => undefined)).rejects.toThrow("nonce");
     await expect(runHostedApprovedMission(s.runner,{...request,autonomousContinuation:true},approval(),s.dependencies,() => undefined)).rejects.toThrow("one explicitly");
     expect(s.run).not.toHaveBeenCalled();
   });
