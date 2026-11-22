@@ -16,6 +16,7 @@ import { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playboo
 import { executeHostedPlaybookMission, type HostedPlaybookMissionInput } from "../production-runtime/hosted-playbook-mission-executable";
 import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
 import { verifyHostedNeonReadiness } from "../production-runtime/hosted-neon-readiness";
+import { verifyHostedCanonArchive } from "../production-runtime/hosted-canon-archive";
 import { generateHostedPlaybookProposal } from "../master-builder/hosted-playbook-proposal";
 
 const REQUIRED = [
@@ -152,13 +153,7 @@ export async function verifyHostedExecutorBindings(env: NodeJS.ProcessEnv = proc
   if (!(await verifyGoogleWorkloadIdentity(account, fetch, env))) throw new Error("Hosted workload identity verification failed.");
   verifyHostedOperatorKey((await readBoundedFile(keyPath, 16_384)).toString("utf8"), fingerprint);
 
-  const sql = neon(connection, { fullResults: true, fetchOptions: { signal: AbortSignal.timeout(10_000) } });
-  const db: NeonLeaseSql = {
-    async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
-      const [result] = await sql.transaction(tx => [tx.query(query, [...params])], { readOnly: true });
-      return { rows: result.rows as T[] };
-    }
-  };
+  const db = createReadOnlyNeonClient(connection);
   if (!(await verifyHostedNeonReadiness(db, "pbos_runner", expectedRole))) {
     throw new Error("Hosted Neon role or durable runner catalog verification failed.");
   }
@@ -166,10 +161,41 @@ export async function verifyHostedExecutorBindings(env: NodeJS.ProcessEnv = proc
     operatorPublicKeyVerified: true, neonCatalogVerified: true };
 }
 
+function createReadOnlyNeonClient(connection: string): NeonLeaseSql {
+  const sql = neon(connection, { fullResults: true, fetchOptions: { signal: AbortSignal.timeout(15_000) } });
+  return {
+    async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
+      const [result] = await sql.transaction(tx => [tx.query(query, [...params])], { readOnly: true });
+      return { rows: result.rows as T[] };
+    }
+  };
+}
+
+export async function verifyHostedArchiveBindings(env: NodeJS.ProcessEnv = process.env) {
+  const { PBOS_ARCHIVE_DATABASE_URL: connection, PBOS_EXPECTED_ARCHIVE_NEON_HOST: host,
+    PBOS_EXPECTED_ARCHIVE_NEON_ROLE: role, PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT: account,
+    PBOS_ARCHIVE_PPS_SOURCE_SHA: source, PBOS_ARCHIVE_PPS_MANIFEST_SHA256: pin } = env;
+  if (!connection || !host || !role || !account || !source || !pin || !/^[a-f0-9]{40}$/.test(source) ||
+      !/^[a-f0-9]{64}$/.test(pin) || role === "pbos_runner_owner") throw new Error("Invalid hosted archive binding configuration.");
+  const url = new URL(connection);
+  if (url.protocol !== "postgresql:" || !host.endsWith(".neon.tech") || url.hostname !== host ||
+      url.pathname !== "/pbos_runner" || decodeURIComponent(url.username) !== role) throw new Error("Hosted archive endpoint pin mismatch.");
+  if (!(await verifyGoogleWorkloadIdentity(account, fetch, env))) throw new Error("Hosted workload identity verification failed.");
+  const response = await fetch(`https://raw.githubusercontent.com/sgwalton87/playbook-platform/${source}/docs/PPS/manifest.json`,
+    { redirect: "error", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error("Pinned Playbook Canon manifest retrieval failed.");
+  const manifest = await response.text();
+  if (Buffer.byteLength(manifest) > 64 * 1024) throw new Error("Pinned Playbook Canon manifest exceeds its read bound.");
+  const verified = await verifyHostedCanonArchive(createReadOnlyNeonClient(connection), role, manifest, pin);
+  return { schema: "pbos.hosted-canon-archive-readiness.v1", sourceSha: source, workloadIdentityVerified: true, ...verified };
+}
+
 if (require.main === module) {
   const verifying = process.argv[2] === "--verify-bindings";
+  const verifyingArchive = process.argv[2] === "--verify-canon-archive";
   const generating = process.argv[2] === "--generate-proposal";
   const result = verifying && process.argv.length === 3 ? verifyHostedExecutorBindings()
+    : verifyingArchive && process.argv.length === 3 ? verifyHostedArchiveBindings()
     : generating && process.argv.length === 5 ? generateHostedPlaybookProposal(process.argv[3], process.argv[4],
       process.env.PBOS_PPS_MANIFEST_SHA256 ?? "", (path, sha) =>
         new GitHubAppPlaybookPrApi(process.env.PBOS_GITHUB_READ_TOKEN ?? "").readPinnedProposalSource(path, sha))
@@ -178,7 +204,8 @@ if (require.main === module) {
   result.then(output => process.stdout.write(JSON.stringify(output) + "\n")).catch(() => {
     process.stderr.write(JSON.stringify({
       schema: "pbos.hosted-mission-error.v1",
-      error: verifying ? "Hosted binding verification failed." : "Hosted execution failed."
+      error: verifyingArchive ? "Hosted Canon archive verification failed."
+        : verifying ? "Hosted binding verification failed." : "Hosted execution failed."
     }) + "\n");
     process.exitCode = 1;
   });

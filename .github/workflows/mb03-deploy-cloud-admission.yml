@@ -23,6 +23,7 @@ on:
       - 'tests/hosted-playbook-mission-executable.test.ts'
       - 'tests/mb03-hosted-executor.test.ts'
       - 'tests/hosted-playbook-proposal.test.ts'
+      - 'tests/hosted-canon-archive.test.ts'
       - 'pbos/production-runtime/hosted-neon-executor-composition.ts'
       - 'pbos/production-runtime/operator-readonly-preflight.ts'
       - 'pbos/production-runtime/**'
@@ -39,6 +40,10 @@ on:
         type: string
       bind_readiness_resources:
         description: 'Attach reviewed Secret Manager references for read-only readiness'
+        type: boolean
+        default: false
+      bind_canon_archive:
+        description: 'Attach the reviewed read-only Canon archive connection'
         type: boolean
         default: false
 concurrency:
@@ -61,6 +66,7 @@ jobs:
           npm ci
           npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts tests/fenced-playbook-pr-executor.test.ts tests/github-app-playbook-pr-api.test.ts tests/hosted-playbook-mission-executable.test.ts tests/mb03-hosted-executor.test.ts tests/hosted-playbook-proposal.test.ts
           npx tsc --noEmit
+          npx vitest run tests/hosted-canon-archive.test.ts
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
         with:
@@ -93,24 +99,41 @@ jobs:
         shell: bash
         env:
           BIND_READINESS: ${{ github.event_name == 'workflow_dispatch' && inputs.bind_readiness_resources }}
+          BIND_ARCHIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.bind_canon_archive }}
           RUNTIME_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
           NEON_SECRET: ${{ vars.MB03_NEON_SECRET_VERSION }}
           OPERATOR_KEY_SECRET: ${{ vars.MB03_OPERATOR_PUBLIC_KEY_VERSION }}
           NEON_HOST: ${{ vars.MB03_NEON_HOST }}
           NEON_ROLE: ${{ vars.MB03_NEON_ROLE }}
           KEY_FINGERPRINT: ${{ vars.MB03_OPERATOR_PUBLIC_KEY_SHA256 }}
+          ARCHIVE_SECRET: ${{ vars.MB03_ARCHIVE_NEON_SECRET_VERSION }}
+          ARCHIVE_HOST: ${{ vars.MB03_ARCHIVE_NEON_HOST }}
+          ARCHIVE_ROLE: ${{ vars.MB03_ARCHIVE_NEON_ROLE }}
+          ARCHIVE_PPS_SOURCE: ${{ vars.MB03_ARCHIVE_PPS_SOURCE_SHA }}
+          ARCHIVE_PPS_PIN: ${{ vars.MB03_ARCHIVE_PPS_MANIFEST_SHA256 }}
         run: |
           set -euo pipefail
-          args=(--update-env-vars=PBOS_STATE_HOME=/var/lib/pbos)
+          env_vars=PBOS_STATE_HOME=/var/lib/pbos
+          secret_refs=""
+          if [[ "$BIND_READINESS" == true || "$BIND_ARCHIVE" == true ]]; then
+            [[ "$RUNTIME_ACCOUNT" == pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com ]]
+            env_vars+=",PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT=$RUNTIME_ACCOUNT"
+          fi
           if [[ "$BIND_READINESS" == true ]]; then
             [[ "$NEON_SECRET" =~ ^[A-Za-z0-9_-]+:[1-9][0-9]*$ && "$OPERATOR_KEY_SECRET" =~ ^[A-Za-z0-9_-]+:[1-9][0-9]*$ ]]
             [[ "$NEON_HOST" =~ ^[a-z0-9.-]+\.neon\.tech$ && "$NEON_ROLE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$KEY_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]]
-            [[ "$RUNTIME_ACCOUNT" == pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com ]]
-            args=(
-              "--update-secrets=PBOS_DATABASE_URL=$NEON_SECRET,/var/run/pbos-operator/public.pem=$OPERATOR_KEY_SECRET"
-              "--update-env-vars=PBOS_STATE_HOME=/var/lib/pbos,PBOS_EXPECTED_NEON_HOST=$NEON_HOST,PBOS_EXPECTED_NEON_ROLE=$NEON_ROLE,PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT=$RUNTIME_ACCOUNT,PBOS_APPROVAL_PUBLIC_KEY_FILE=/var/run/pbos-operator/public.pem,PBOS_APPROVAL_PUBLIC_KEY_SHA256=$KEY_FINGERPRINT"
-            )
+            secret_refs="PBOS_DATABASE_URL=$NEON_SECRET,/var/run/pbos-operator/public.pem=$OPERATOR_KEY_SECRET"
+            env_vars+=",PBOS_EXPECTED_NEON_HOST=$NEON_HOST,PBOS_EXPECTED_NEON_ROLE=$NEON_ROLE,PBOS_APPROVAL_PUBLIC_KEY_FILE=/var/run/pbos-operator/public.pem,PBOS_APPROVAL_PUBLIC_KEY_SHA256=$KEY_FINGERPRINT"
           fi
+          if [[ "$BIND_ARCHIVE" == true ]]; then
+            [[ "$ARCHIVE_SECRET" =~ ^[A-Za-z0-9_-]+:[1-9][0-9]*$ && "${ARCHIVE_SECRET%%:*}" != "${NEON_SECRET%%:*}" ]]
+            [[ "$ARCHIVE_HOST" =~ ^[a-z0-9.-]+\.neon\.tech$ && "$ARCHIVE_ROLE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$ARCHIVE_ROLE" != pbos_runner_owner && "$ARCHIVE_ROLE" != "$NEON_ROLE" ]]
+            [[ "$ARCHIVE_PPS_SOURCE" =~ ^[a-f0-9]{40}$ && "$ARCHIVE_PPS_PIN" =~ ^[a-f0-9]{64}$ ]]
+            secret_refs+="${secret_refs:+,}PBOS_ARCHIVE_DATABASE_URL=$ARCHIVE_SECRET"
+            env_vars+=",PBOS_EXPECTED_ARCHIVE_NEON_HOST=$ARCHIVE_HOST,PBOS_EXPECTED_ARCHIVE_NEON_ROLE=$ARCHIVE_ROLE,PBOS_ARCHIVE_PPS_SOURCE_SHA=$ARCHIVE_PPS_SOURCE,PBOS_ARCHIVE_PPS_MANIFEST_SHA256=$ARCHIVE_PPS_PIN"
+          fi
+          args=("--update-env-vars=$env_vars")
+          if [[ -n "$secret_refs" ]]; then args+=("--update-secrets=$secret_refs"); fi
           gcloud run jobs deploy pbos-genesis-admission \
             --project=pbos-genesis-staging --region=us-west1 \
             --image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" \
