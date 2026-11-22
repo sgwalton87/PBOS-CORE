@@ -8,6 +8,7 @@ on:
       - 'Dockerfile.mb03-admission'
       - 'pbos/tools/mb03-hosted-admission-observation.ts'
       - 'pbos/tools/mb03-hosted-executor.ts'
+      - 'pbos/master-builder/hosted-playbook-proposal.ts'
       - 'pbos/boot/pps-canon-snapshot-verifier.ts'
       - 'tests/hosted-approved-mission.test.ts'
       - 'tests/hosted-signed-mission-approval.test.ts'
@@ -21,6 +22,7 @@ on:
       - 'tests/github-app-playbook-pr-api.test.ts'
       - 'tests/hosted-playbook-mission-executable.test.ts'
       - 'tests/mb03-hosted-executor.test.ts'
+      - 'tests/hosted-playbook-proposal.test.ts'
       - 'pbos/production-runtime/hosted-neon-executor-composition.ts'
       - 'pbos/production-runtime/operator-readonly-preflight.ts'
       - 'pbos/production-runtime/**'
@@ -35,6 +37,10 @@ on:
         description: 'Type DEPLOY-STAGING-ADMISSION (no autonomous missions)'
         required: true
         type: string
+      bind_readiness_resources:
+        description: 'Attach reviewed Secret Manager references for read-only readiness'
+        type: boolean
+        default: false
 concurrency:
   group: mb03-staging-admission
   cancel-in-progress: true
@@ -53,7 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts tests/fenced-playbook-pr-executor.test.ts tests/github-app-playbook-pr-api.test.ts tests/hosted-playbook-mission-executable.test.ts tests/mb03-hosted-executor.test.ts
+          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts tests/fenced-playbook-pr-executor.test.ts tests/github-app-playbook-pr-api.test.ts tests/hosted-playbook-mission-executable.test.ts tests/mb03-hosted-executor.test.ts tests/hosted-playbook-proposal.test.ts
           npx tsc --noEmit
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
@@ -85,15 +91,33 @@ jobs:
           docker push "${IMAGE}"
       - name: Deploy a disabled-by-default admission job (never executes a mission)
         shell: bash
+        env:
+          BIND_READINESS: ${{ github.event_name == 'workflow_dispatch' && inputs.bind_readiness_resources }}
+          RUNTIME_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
+          NEON_SECRET: ${{ vars.MB03_NEON_SECRET_VERSION }}
+          OPERATOR_KEY_SECRET: ${{ vars.MB03_OPERATOR_PUBLIC_KEY_VERSION }}
+          NEON_HOST: ${{ vars.MB03_NEON_HOST }}
+          NEON_ROLE: ${{ vars.MB03_NEON_ROLE }}
+          KEY_FINGERPRINT: ${{ vars.MB03_OPERATOR_PUBLIC_KEY_SHA256 }}
         run: |
           set -euo pipefail
+          args=(--update-env-vars=PBOS_STATE_HOME=/var/lib/pbos)
+          if [[ "$BIND_READINESS" == true ]]; then
+            [[ "$NEON_SECRET" =~ ^[A-Za-z0-9_-]+:[1-9][0-9]*$ && "$OPERATOR_KEY_SECRET" =~ ^[A-Za-z0-9_-]+:[1-9][0-9]*$ ]]
+            [[ "$NEON_HOST" =~ ^[a-z0-9.-]+\.neon\.tech$ && "$NEON_ROLE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ && "$KEY_FINGERPRINT" =~ ^[a-f0-9]{64}$ ]]
+            [[ "$RUNTIME_ACCOUNT" == pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com ]]
+            args=(
+              "--update-secrets=PBOS_DATABASE_URL=$NEON_SECRET,/var/run/pbos-operator/public.pem=$OPERATOR_KEY_SECRET"
+              "--update-env-vars=PBOS_STATE_HOME=/var/lib/pbos,PBOS_EXPECTED_NEON_HOST=$NEON_HOST,PBOS_EXPECTED_NEON_ROLE=$NEON_ROLE,PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT=$RUNTIME_ACCOUNT,PBOS_APPROVAL_PUBLIC_KEY_FILE=/var/run/pbos-operator/public.pem,PBOS_APPROVAL_PUBLIC_KEY_SHA256=$KEY_FINGERPRINT"
+            )
+          fi
           gcloud run jobs deploy pbos-genesis-admission \
             --project=pbos-genesis-staging --region=us-west1 \
             --image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" \
             --tasks=1 --max-retries=0 --task-timeout=600s \
-            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
+            --service-account="$RUNTIME_ACCOUNT" \
             --cpu=1 --memory=1Gi \
-            --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
+            "${args[@]}"
           echo "Admission observer image deployed; NOT executed."
       - name: Verify deployed Cloud Run job identity and image without executing
         shell: bash
@@ -101,8 +125,8 @@ jobs:
           set -euo pipefail
           EXPECTED_IMAGE="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
           EXPECTED_SA="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}"
-          ACTUAL_IMAGE="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(template.template.containers[0].image)')"
-          ACTUAL_SA="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(template.template.serviceAccount)')"
+          ACTUAL_IMAGE="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(spec.template.spec.template.spec.containers[0].image)')"
+          ACTUAL_SA="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(spec.template.spec.template.spec.serviceAccountName)')"
           test -n "${ACTUAL_IMAGE}" && test "${ACTUAL_IMAGE}" = "${EXPECTED_IMAGE}"
           test -n "${ACTUAL_SA}" && test "${ACTUAL_SA}" = "${EXPECTED_SA}"
           echo "Verified deployed image: ${ACTUAL_IMAGE}"

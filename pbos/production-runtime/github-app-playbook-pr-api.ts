@@ -24,6 +24,19 @@ export class GitHubAppPlaybookPrApi implements GitHubPrApi {
     if(repository!=="sgwalton87/playbook-platform")throw new Error("GitHub App repository not allowlisted.");
     return "/repos/sgwalton87/playbook-platform";
   }
+  async readPinnedProposalSource(path: string, sha: string): Promise<string> {
+    if (!/^[a-f0-9]{40}$/.test(sha) ||
+        !/^(package\.json|\.github\/workflows\/(ci|platform-qa)\.yml|docs\/PPS\/(manifest\.json|PPS-\d{3}_[A-Za-z0-9_]+\.md))$/.test(path)) {
+      throw new Error("Pinned proposal source is not allowlisted.");
+    }
+    const j = await this.api("GET", `${this.repo("sgwalton87/playbook-platform")}/contents/${path}?ref=${sha}`);
+    if (j.type !== "file" || j.path !== path || j.encoding !== "base64" ||
+        typeof j.content !== "string" || j.content.length > 360000) throw new Error("Invalid pinned proposal source response.");
+    const content = j.content.replace(/\s/g, "");
+    const bytes = Buffer.from(content, "base64");
+    if (bytes.toString("base64") !== content) throw new Error("Invalid pinned proposal source encoding.");
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  }
   async getBranchSha(repository:string,branch:string):Promise<string> {
     if(!/^(main|pbos\/mission-[a-zA-Z0-9_-]{1,90})$/.test(branch))throw new Error("GitHub branch not allowlisted.");
     const j=await this.api("GET",`${this.repo(repository)}/git/ref/heads/${branch}`);

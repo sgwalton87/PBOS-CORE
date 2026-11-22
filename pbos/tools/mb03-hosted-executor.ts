@@ -16,6 +16,7 @@ import { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playboo
 import { executeHostedPlaybookMission, type HostedPlaybookMissionInput } from "../production-runtime/hosted-playbook-mission-executable";
 import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
 import { verifyHostedNeonReadiness } from "../production-runtime/hosted-neon-readiness";
+import { generateHostedPlaybookProposal } from "../master-builder/hosted-playbook-proposal";
 
 const REQUIRED = [
   "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY", "PBOS_PPS_MANIFEST_SHA256",
@@ -90,12 +91,17 @@ export function checkpointSealer(keyBase64: string): (plaintext: Uint8Array) => 
 
 export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): Promise<Readonly<Record<string, unknown>>> {
   const config = requireHostedExecutorEnvironment(env);
+  await verifyHostedExecutorBindings(env);
   const [publicKey, inputBytes] = await Promise.all([
     readBoundedFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384),
     readBoundedFile(config.PBOS_MISSION_INPUT_FILE, 128 * 1024)
   ]);
   const trustedPublicKeyPem = verifyHostedOperatorKey(publicKey.toString("utf8"), config.PBOS_APPROVAL_PUBLIC_KEY_SHA256);
-  const input = JSON.parse(inputBytes.toString("utf8")) as HostedPlaybookMissionInput;
+  const input = JSON.parse(inputBytes.toString("utf8")) as Pick<HostedPlaybookMissionInput, "request" | "approval">;
+  if (Object.hasOwn(input, "proposal")) throw new Error("Hosted mission envelopes cannot supply proposal content.");
+  const github = new GitHubAppPlaybookPrApi(config.PBOS_GITHUB_APP_INSTALLATION_TOKEN);
+  const generated = await generateHostedPlaybookProposal(input.approval.payload.missionId, input.request.commit,
+    config.PBOS_PPS_MANIFEST_SHA256, (path, sha) => github.readPinnedProposalSource(path, sha));
   const state = new GenesisStateRepository(config.PBOS_STATE_FILE, config.PBOS_STATE_NAMESPACE);
   const runtime = new ProductionRuntimeService(state);
   const sql = neon(config.PBOS_DATABASE_URL, { fullResults: true });
@@ -115,15 +121,17 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     },
     verifyWorkloadIdentity: () => verifyGoogleWorkloadIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, fetch, env)
   });
-  const result = await executeHostedPlaybookMission(input, {
+  const result = await executeHostedPlaybookMission({ request: input.request, approval: input.approval, proposal: generated.proposal }, {
     runner: new ProductionMissionRunner(state, runtime), admission: composed.dependencies,
     checkpoints: composed.checkpoints,
-    github: new GitHubAppPlaybookPrApi(config.PBOS_GITHUB_APP_INSTALLATION_TOKEN),
+    github,
     sealCheckpoint: checkpointSealer(config.PBOS_CHECKPOINT_KEY_BASE64)
   });
   return {
     schema: "pbos.hosted-mission-result.v1",
     executionKind: "BOUNDED_DRAFT_PR",
+    proposalContentSha256: generated.contentSha256,
+    proposalProvenance: generated.provenance,
     stopReason: result.stopReason,
     runs: result.runs.map(run => ({runId:run.runId,status:run.status,currentCommit:run.currentCommit,evidenceIds:run.evidenceIds}))
   };
@@ -159,7 +167,11 @@ export async function verifyHostedExecutorBindings(env: NodeJS.ProcessEnv = proc
 
 if (require.main === module) {
   const verifying = process.argv[2] === "--verify-bindings";
+  const generating = process.argv[2] === "--generate-proposal";
   const result = verifying && process.argv.length === 3 ? verifyHostedExecutorBindings()
+    : generating && process.argv.length === 5 ? generateHostedPlaybookProposal(process.argv[3], process.argv[4],
+      process.env.PBOS_PPS_MANIFEST_SHA256 ?? "", (path, sha) =>
+        new GitHubAppPlaybookPrApi(process.env.PBOS_GITHUB_READ_TOKEN ?? "").readPinnedProposalSource(path, sha))
     : process.argv.length === 2 ? runHostedExecutor()
     : Promise.reject(new Error("Unsupported hosted executor arguments."));
   result.then(output => process.stdout.write(JSON.stringify(output) + "\n")).catch(() => {
