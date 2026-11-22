@@ -9,7 +9,7 @@ import { FunctionalAcceptancePlan, ProductionRuntimeService } from "../../produc
 import { GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
     registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery,
-    recoveryApprovalDuration, MAX_RECOVERY_APPROVAL_MINUTES } from "../closed-pull-request-recovery";
+    recoveryApprovalDuration, MAX_RECOVERY_APPROVAL_MINUTES, preflightRecoveryBrowser } from "../closed-pull-request-recovery";
 import { GenesisControlPlane } from "../genesis-control-plane";
 import { GenesisSystemCatalog } from "../system-catalog";
 import { REFERENCE_SYSTEMS } from "../system-definition";
@@ -73,6 +73,15 @@ function fixture() {
 }
 
 describe("governed closed pull request recovery", () => {
+    it("fails browser environment preflight before changing the recovery or repair budget", async () => {
+        const f = fixture();
+        const before = f.state.productionRun(f.before.runId);
+        const commands = { run: vi.fn().mockRejectedValue(new Error("missing FFmpeg")) };
+        await expect(preflightRecoveryBrowser(commands, f.directory)).rejects.toThrow(/preflight failed.*missing FFmpeg/);
+        expect(commands.run).toHaveBeenCalledWith(process.execPath, expect.any(Array), f.directory, { timeoutMs: 60_000 });
+        expect(f.state.productionRun(f.before.runId)).toEqual(before);
+        expect(f.state.productionRun(f.before.runId)?.repairAttempts).toBe(1);
+    });
     it("preserves the old PR and repair budget while attaching only the signed exact head", async () => {
         const f = fixture();
         const prepared = await f.prepare();

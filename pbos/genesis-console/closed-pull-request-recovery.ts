@@ -20,6 +20,37 @@ export function recoveryApprovalDuration(value: string | undefined): number {
 }
 const HOSTINGER_MISSION = "048-phase-01-item-hostinger-email";
 const BROWSER_SPEC = "tests/acceptance/pbos-hostinger-email.spec.ts";
+const BROWSER_PREFLIGHT = String.raw`
+const { chromium } = require('@playwright/test');
+const { release } = require('node:os');
+const { mkdtempSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
+(async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pbos-browser-preflight-'));
+  let browser;
+  try {
+    const channel = process.platform === 'darwin' && Number(release().split('.')[0]) <= 21 ? 'chrome' : undefined;
+    browser = await chromium.launch({ channel });
+    const context = await browser.newContext({ recordVideo: { dir } });
+    const page = await context.newPage();
+    await page.goto('about:blank');
+    await context.close();
+  } finally {
+    if (browser) await browser.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+})().catch(e => { console.error(e.message); process.exitCode = 1; });`;
+
+/** Test the actual configured browser and video dependency before entering governed recovery. */
+export async function preflightRecoveryBrowser(commands: CommandRunner, checkout: string): Promise<void> {
+    try {
+        await commands.run(process.execPath, ["-e", BROWSER_PREFLIGHT], checkout, { timeoutMs: 60_000 });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Browser environment preflight failed before governed recovery: ${reason}`);
+    }
+}
 const REQUIRED_ENVIRONMENT = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY", "SMTP_USER", "SMTP_PASS", "MAIL_GATEWAY_SECRET"] as const;
 

@@ -72,7 +72,8 @@ import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
     inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
     registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval,
-    verifyClosedPullRequestRecoveryCheckout, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery, recoveryApprovalDuration } from "./closed-pull-request-recovery";
+    verifyClosedPullRequestRecoveryCheckout, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery, recoveryApprovalDuration,
+    preflightRecoveryBrowser } from "./closed-pull-request-recovery";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition,
     functionalAcceptanceAuthorityDefinitions } from "./functional-acceptance-authority";
 
@@ -584,6 +585,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     const replacement = remediationRun.closedPullRequestReplacement;
     if (replacement && productionRun.status !== "AWAITING_APPROVAL") {
         await authorizeRegisteredClosedPullRequestRecovery(services, productionRun, remediationRun, replacement.sessionId);
+        await preflightRecoveryBrowser(new NodeCommandRunner(), productionRun.functionalAcceptancePlan!.workingDirectory);
     }
     const currentBudget = services.production.repairBudget(productionRun.runId);
     if (productionRun.status === "BLOCKED" && currentBudget.remaining === 0) {
