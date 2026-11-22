@@ -31,6 +31,13 @@ function inspect(home, options = {}) {
       return { ready: false, reason: "INVALID_STATE_FILE", file: name };
     }
   }
+  const expected = options.expectedGenesisSha256;
+  if (!expected || !/^[a-f0-9]{64}$/.test(expected)) {
+    return { ready: false, reason: "CANONICAL_FINGERPRINT_REQUIRED" };
+  }
+  if (files["genesis-state.json"] !== expected) {
+    return { ready: false, reason: "CANONICAL_FINGERPRINT_MISMATCH" };
+  }
   // A filesystem lock is NOT a distributed lease; no cloud execution allowed.
   return {
     ready: false,
@@ -40,7 +47,8 @@ function inspect(home, options = {}) {
 }
 if (require.main === module) {
   const result = inspect(process.env.PBOS_STATE_HOME, {
-    ephemeral: process.env.GITHUB_ACTIONS === "true" || process.env.RUNNER_TEMP !== undefined
+    ephemeral: process.env.GITHUB_ACTIONS === "true" || process.env.RUNNER_TEMP !== undefined,
+    expectedGenesisSha256: process.env.PBOS_CANONICAL_GENESIS_SHA256
   });
   process.stdout.write(JSON.stringify(result) + "\n");
   process.exitCode = 2; // Never authorize cloud mission execution from inspection alone.
