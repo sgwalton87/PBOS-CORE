@@ -1,4 +1,6 @@
-import { linkSync, mkdtempSync, realpathSync, writeFileSync } from "fs";
+import { linkSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { execFileSync } from "child_process";
+import { createHash } from "crypto";
 import { tmpdir } from "os";
 import { join } from "path";
 import { describe, expect, it, vi } from "vitest";
@@ -13,6 +15,7 @@ import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPu
 import { GenesisControlPlane } from "../genesis-control-plane";
 import { GenesisSystemCatalog } from "../system-catalog";
 import { REFERENCE_SYSTEMS } from "../system-definition";
+import { verifyHostedRecoveryEvidence } from "../hosted-recovery-verifier";
 
 const system = REFERENCE_SYSTEMS.find(item => item.systemId === "PLAYBOOK-SYSTEM-001")!;
 const base = "a".repeat(40), oldCommit = "b".repeat(40), closedHead = "c".repeat(40), head = "d".repeat(40);
@@ -73,6 +76,49 @@ function fixture() {
 }
 
 describe("governed closed pull request recovery", () => {
+    it("verifies a hosted result against local authority, GitHub identity, exact PR and archive bytes", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session, approval, prepared, f.directory);
+        const checkpoint = { runId: f.before.runId, githubRunId: 123, coreSha: "f".repeat(40), platformSha: head,
+            baseSha: base, pullRequest: 999, workflowPath: ".github/workflows/pbos-core-readonly-preflight.yml", actorId: 456, nonce: "1".repeat(64) };
+        const receipt = { schemaVersion: 1, runId: checkpoint.runId, nonce: checkpoint.nonce, platformSha: head,
+            pullRequest: 999, githubRunId: 123, checks: ["ROUTE", "AUTHORITY", "DURABLE_DATA", "PBOS_INTEGRATION", "SECURITY"]
+                .map(dimension => ({ dimension, passed: true, detail: "fixture verified" })) };
+        writeFileSync(join(f.directory, "receipt.json"), JSON.stringify(receipt));
+        const evidenceFiles = ["receipt.json", "desktop.png", "mobile.png", "trace.zip", "accessibility.json", "playwright-results.json"];
+        for (const name of evidenceFiles.slice(1)) writeFileSync(join(f.directory, name), "fixture evidence");
+        execFileSync("zip", ["-q", "evidence.zip", ...evidenceFiles], { cwd: f.directory });
+        const archive = readFileSync(join(f.directory, "evidence.zip"));
+        const metadata = { id: 123, event: "workflow_dispatch", status: "completed", conclusion: "success", head_sha: checkpoint.coreSha,
+            run_attempt: 1, path: checkpoint.workflowPath, actor: { id: 456 }, repository: { id: 1321290119, full_name: "sgwalton87/PBOS-CORE" },
+            created_at: new Date(Date.now() + 1000).toISOString() };
+        const pr = { state: "open", merged: false, base: { sha: base }, head: { sha: head, repo: { full_name: system.repository } } };
+        const artifact = { name: `hostinger-acceptance-${checkpoint.nonce}`, expired: false,
+            digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`, workflow_run: { id: 123, head_sha: checkpoint.coreSha } };
+        const jobs = { jobs: [{ name: "hostinger-governed-acceptance", status: "completed", conclusion: "success",
+            steps: [{ name: "Run exact Hostinger acceptance", conclusion: "success" }] }] };
+        const run = vi.fn(async (_command: string, args: readonly string[]) => ({ stdout: JSON.stringify(
+            args[1].endsWith("/artifacts") ? { artifacts: [artifact] } : args[1].includes("/jobs?") ? jobs : args[1].includes("/pulls/") ? pr : metadata), stderr: "" }));
+        const input = { state: f.state, identities: f.identities, operator: f.operator, session: f.session, control: f.control,
+            approval, resource: prepared.resource, checkpoint, commands: { run }, archive };
+        await expect(verifyHostedRecoveryEvidence(input)).resolves.toBeUndefined();
+        await expect(verifyHostedRecoveryEvidence({ ...input, archive: Buffer.from("tampered") })).rejects.toThrow(/digest/);
+        await expect(verifyHostedRecoveryEvidence({ ...input, checkpoint: { ...checkpoint, platformSha: "9".repeat(40) } })).rejects.toThrow(/scope/);
+        jobs.jobs[0].conclusion = "failure";
+        await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/acceptance job/);
+        jobs.jobs[0].conclusion = "success";
+        pr.head.sha = "9".repeat(40);
+        await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/PR moved/);
+        pr.head.sha = head;
+        metadata.actor.id = 999;
+        await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/run identity/);
+        metadata.actor.id = 456;
+        f.control.revokeSession(f.session.sessionId, "fixture revocation");
+        await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/grant/);
+        expect(f.state.productionRun(f.before.runId)?.repairAttempts).toBe(1);
+    });
     it("fails browser environment preflight before changing the recovery or repair budget", async () => {
         const f = fixture();
         const before = f.state.productionRun(f.before.runId);
