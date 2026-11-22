@@ -1,10 +1,19 @@
 name: MB-03 Deploy Isolated Cloud Admission Job
-# Rebuild when admission preflight security changes; environment approval remains required.
+# Rebuild when admission preflight or its image inputs change; staging approval remains required.
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/mb03-deploy-cloud-admission.yml'
+      - 'Dockerfile.mb03-admission'
+      - 'pbos/tools/mb03-hosted-admission-observation.ts'
+      - 'pbos/production-runtime/operator-readonly-preflight.ts'
+      - 'pbos/production-runtime/**'
+      - 'pbos/genesis-state/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig*.json'
   workflow_dispatch:
     inputs:
       confirm_staging_only:
