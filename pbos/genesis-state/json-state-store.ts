@@ -9,7 +9,14 @@ export class JsonStateStore<T> {
         try {
             return JSON.parse(readFileSync(this.path, "utf8")) as T;
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ENOENT") return this.initial();
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                // Cloud workers must never silently bootstrap a new empty Genesis.
+                // An empty state would discard mission lineage and authority.
+                if (process.env.PBOS_CLOUD_RUNNER === "true") {
+                    throw new Error("PBOS cloud runner refuses missing canonical Genesis state");
+                }
+                return this.initial();
+            }
             throw error;
         }
     }
