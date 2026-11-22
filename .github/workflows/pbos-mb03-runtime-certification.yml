@@ -1,0 +1,170 @@
+name: PBOS MB-03 Isolated Runtime Certification Checks
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/pbos-mb03-runtime-certification.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CONTROLLER_SHA: 1d57e06f249ed6527c336a538767bef055ba7ea3
+  RUNTIME_SHA: 121ce910d47ef65e76416d666220204ef17496e9
+  IMAGE: vcr.vercel.com/pbos-genesis/pbos-mb03-canary/canary@sha256:d396b7ebc80af48a43190f2de62f5ec95688aa92e4326428e48a9cfa29ef1131
+  CODEX_SHA256: b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0
+  VCR_TEAM_ID: team_uEIqx3HHy04a9D2ePf3NwRdl
+  VCR_PROJECT_ID: prj_1zGe3VEqWFxaBgxRfKYPI9hafyg9
+  SUITE: >-
+    pbos/master-builder/tests/mb03-disposable-mission.test.ts
+    pbos/master-builder/tests/remote-attempt-replay.test.ts
+    pbos/master-builder/tests/mb032-vercel-canary.test.ts
+    pbos/master-builder/tests/disposable-change-boundary.test.ts
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Run deterministic recovery, interruption and duplicate-prevention fixtures
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          state="$(mktemp -d "$RUNNER_TEMP/pbos-fixture-state.XXXXXX")"
+          npm ci --ignore-scripts
+          read -r -a tests <<<"$SUITE"
+          printf 'mode=synthetic-fixtures only\ncontroller=%s\n' "$CONTROLLER_SHA" >"$RUNNER_TEMP/mb03-fixtures.log"
+          env -i PATH="$PATH" HOME="$state" PBOS_STATE_HOME="$state" CI=true \
+            node node_modules/vitest/vitest.mjs run --reporter=verbose "${tests[@]}" |
+            tee -a "$RUNNER_TEMP/mb03-fixtures.log"
+      - name: Retain fixture evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mb03-fixture-rehearsal
+          path: ${{ runner.temp }}/mb03-fixtures.log
+          retention-days: 90
+
+  published-image:
+    needs: fixtures
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    environment: mb03-runtime-certify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - name: Require main-only protection and independent approval before OIDC
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONFIGURED_TEAM: ${{ vars.PBOS_VCR_TEAM_ID }}
+          CONFIGURED_PROJECT: ${{ vars.PBOS_VCR_PROJECT_ID }}
+          READ_POLICY_ID: ${{ vars.PBOS_MB03_VCR_READ_POLICY_ID }}
+        run: |
+          set -euo pipefail
+          test "$CONFIGURED_TEAM" = "$VCR_TEAM_ID"
+          test "$CONFIGURED_PROJECT" = "$VCR_PROJECT_ID"
+          [[ "$READ_POLICY_ID" =~ ^pol_[a-zA-Z0-9-]+$ ]]
+          test "$READ_POLICY_ID" != pol_4bdf2200-5d17-41b7-9cbf-f3f55a769fcb
+          protection="repos/$GITHUB_REPOSITORY/environments/mb03-runtime-certify"
+          environment="$(gh api "$protection")"
+          id="$(jq -er '
+            select(.name == "mb03-runtime-certify" and .can_admins_bypass == false
+              and .deployment_branch_policy.custom_branch_policies == true
+              and .deployment_branch_policy.protected_branches == false)
+            | .id | select(type == "number")
+          ' <<<"$environment")"
+          reviewer="$(jq -er --arg dispatcher "$GITHUB_ACTOR_ID" '
+            [.protection_rules[] | select(.type == "required_reviewers" and .prevent_self_review == true)
+             | .reviewers[] | select(.type == "User" and .reviewer.id == 359396399)
+             | .reviewer.id | select(tostring != $dispatcher)]
+            | unique | select(length == 1) | .[0]
+          ' <<<"$environment")"
+          gh api "$protection/deployment-branch-policies" |
+            jq -e '.total_count == 1 and (.branch_policies | length) == 1
+              and .branch_policies[0].name == "main"
+              and (.branch_policies[0].type // "branch") == "branch"' >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" |
+            jq -e --argjson reviewer "$reviewer" --argjson id "$id" '
+              any(.[]; .state == "approved" and .user.id == $reviewer and
+                any(.environments[]; .id == $id and .name == "mb03-runtime-certify"))
+            ' >/dev/null
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ env.CONTROLLER_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Prepare locked fixture dependencies
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$CONTROLLER_SHA"
+          npm ci --ignore-scripts
+      - name: Log in with dedicated read-only VCR OIDC policy
+        uses: vercel/vcr-action/login@6888f841cb0d2255ef9dab40f068cba07234ef47 # v1
+        with:
+          team: ${{ env.VCR_TEAM_ID }}
+          audience: https://vercel.com/pbos-genesis/mb03-runtime-certify
+          policy: ${{ vars.PBOS_MB03_VCR_READ_POLICY_ID }}
+          engines: docker
+          registry: vcr.vercel.com
+          logout: true
+          revoke: true
+      - name: Pull and verify the published image
+        run: |
+          set -euo pipefail
+          docker pull --platform linux/amd64 "$IMAGE"
+          docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$IMAGE" | grep -Fx -- "$IMAGE"
+          test "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$IMAGE")" = linux/amd64
+          printf 'image=%s\nruntime=%s\ncontroller=%s\nmode=offline-image-and-synthetic-fixtures\n' \
+            "$IMAGE" "$RUNTIME_SHA" "$CONTROLLER_SHA" >"$RUNNER_TEMP/mb03-runtime.log"
+      - name: Verify bundled source and execute the existing acceptance checks offline
+        env:
+          RUNTIME_EVIDENCE: ${{ runner.temp }}/mb03-runtime.log
+        run: |
+          set -euo pipefail
+          checks="$(mktemp -d "$RUNNER_TEMP/mb03-image-checks.XXXXXX")"
+          python3 containers/mb032-canary/extract-probes.py pbos/master-builder/vercel-remote-provider.ts "$checks"
+          cp containers/mb032-canary/smoke.sh "$checks/"
+          docker run --rm --pull never --network none --security-opt no-new-privileges \
+            --mount "type=bind,src=$checks,dst=/checks,readonly" --entrypoint /bin/sh "$IMAGE" /checks/smoke.sh |
+            tee -a "$RUNTIME_EVIDENCE"
+          docker run --rm --pull never --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --env "RUNTIME_SHA=$RUNTIME_SHA" --env "CODEX_SHA256=$CODEX_SHA256" \
+            --entrypoint /bin/sh "$IMAGE" -ec '
+              test "$(git -C /opt/pbos-source rev-parse HEAD)" = "$RUNTIME_SHA"
+              test "$(git -C /opt/pbos-source rev-parse --abbrev-ref HEAD)" = HEAD
+              printf "%s  %s\n" "$CODEX_SHA256" /usr/local/bin/codex | sha256sum -c -
+            ' | tee -a "$RUNTIME_EVIDENCE"
+          node_home="$(dirname "$(dirname "$(command -v node)")")"
+          read -r -a tests <<<"$SUITE"
+          docker run --rm --pull never --network none --read-only --cap-drop ALL \
+            --security-opt no-new-privileges --user 65534:65534 --tmpfs /tmp:mode=1777 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/controller,readonly" \
+            --mount "type=bind,src=$node_home,dst=/toolchain,readonly" \
+            --workdir /controller --env PATH=/toolchain/bin:/usr/local/bin:/usr/bin:/bin \
+            --env HOME=/tmp --env PBOS_STATE_HOME=/tmp/pbos-fixtures --env CI=true \
+            --entrypoint /bin/sh "$IMAGE" -ec '
+              cp -R /controller /tmp/mb03-controller
+              cd /tmp/mb03-controller
+              exec node node_modules/vitest/vitest.mjs run --reporter=verbose "$@"
+            ' -- "${tests[@]}" |
+            tee -a "$RUNTIME_EVIDENCE"
+      - name: Retain sanitized image and test evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: mb03-isolated-runtime-evidence
+          path: ${{ runner.temp }}/mb03-runtime.log
+          retention-days: 90
