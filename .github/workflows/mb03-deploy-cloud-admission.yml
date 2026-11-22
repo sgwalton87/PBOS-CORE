@@ -49,3 +49,16 @@ jobs:
             --cpu=1 --memory=1Gi \
             --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
           echo "Job deployed; NOT executed. No private state mounted and no mission authority granted."
+      - name: Verify deployed Cloud Run job identity and image without executing
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_IMAGE="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
+          EXPECTED_SA="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}"
+          ACTUAL_IMAGE="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(template.template.containers[0].image)')"
+          ACTUAL_SA="$(gcloud run jobs describe pbos-genesis-admission --project=pbos-genesis-staging --region=us-west1 --format='value(template.template.serviceAccount)')"
+          test -n "${ACTUAL_IMAGE}" && test "${ACTUAL_IMAGE}" = "${EXPECTED_IMAGE}"
+          test -n "${ACTUAL_SA}" && test "${ACTUAL_SA}" = "${EXPECTED_SA}"
+          echo "Verified deployed image: ${ACTUAL_IMAGE}"
+          echo "Verified runtime identity: ${ACTUAL_SA}"
+          echo "Job has not been executed; mission authority remains disabled."
