@@ -1,5 +1,5 @@
 import { describe,it,expect,vi } from "vitest";
-import { createFencedPlaybookPr, type GitHubPrApi, type FencedPrInput } from "../pbos/production-runtime/fenced-playbook-pr-executor";
+import { createFencedPlaybookPr, type FencedPrInput } from "../pbos/production-runtime/fenced-playbook-pr-executor";
 const lease={resource:"pbos:mission:sgwalton87/playbook-platform:smoke1",ownerId:"12345678-1234-1234-1234-123456789abc",fencingToken:2n};
 const input:FencedPrInput={repository:"sgwalton87/playbook-platform",baseSha:"a".repeat(40),missionId:"smoke1",branch:"pbos/mission-smoke1",path:"docs/pbos-missions/smoke1.md",content:"Bounded mission evidence",title:"PBOS bounded mission smoke1",body:"Non-production test mission"};
 function setup() {
@@ -7,7 +7,7 @@ function setup() {
    getBranchSha:vi.fn(async (_repo:string,branch:string)=>{if(branch==="main")return input.baseSha;throw new Error("GITHUB_BRANCH_NOT_FOUND");}),
    createBranch:vi.fn(async()=>{}),createFile:vi.fn(async()=>{}),
    createPullRequest:vi.fn(async()=>({url:"https://github.com/sgwalton87/playbook-platform/pull/123",number:123})),
-   findPullRequest:vi.fn(async()=>null)
+   findPullRequest:vi.fn(async():Promise<{url:string;number:number}|null>=>null)
  };
  return api;
 }
