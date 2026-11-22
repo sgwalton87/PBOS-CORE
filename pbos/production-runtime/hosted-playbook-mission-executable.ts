@@ -108,6 +108,7 @@ export async function executeHostedPlaybookMission(
             pullRequestNumber: pullRequest.number
           },
           evidenceIds: [admittedEvidence, proposedEvidence],
+          evidenceNeedsIndependentReview: true,
           files: { added: [input.proposal.path] },
           commands: [{ command: "github-app:create-bounded-draft-pr", exitCode: 0, durationMs: 0 }],
           validations: [

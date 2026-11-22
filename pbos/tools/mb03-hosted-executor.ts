@@ -113,6 +113,7 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     }
   };
   const composed = composeHostedNeonExecutor(db, {
+    disposableNamespace: config.PBOS_STATE_NAMESPACE,
     trustedPublicKeyPem,
     verifyConstitution: async () => {
       const [integrity, pps] = await Promise.all([

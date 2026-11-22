@@ -18,6 +18,7 @@ export interface MissionExecutionResult {
     readonly commands?: readonly Readonly<{ command: string; exitCode: number; durationMs: number; output?: string }>[];
     readonly validations: readonly Readonly<{ name: string; passed: boolean; durationMs: number; evidenceId: string }>[];
     readonly deferredValidation?: Readonly<{ remediationRunId: string; pullRequestUrl: string }>;
+    readonly evidenceNeedsIndependentReview?: boolean;
     readonly acceptanceEvidence?: readonly ApplicationAcceptanceEvidence[];
     readonly functionalAcceptancePlan?: FunctionalAcceptancePlan;
 }
@@ -48,7 +49,7 @@ export interface ProductionMissionRequest {
 
 export interface ProductionMissionSequence {
     readonly runs: readonly ProductionRun[];
-    readonly stopReason: "APPROVAL_REQUIRED" | "VALIDATION_IN_PROGRESS" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
+    readonly stopReason: "APPROVAL_REQUIRED" | "INDEPENDENT_VERIFICATION_REQUIRED" | "VALIDATION_IN_PROGRESS" | "NO_ELIGIBLE_MISSION" | "NO_EXECUTION_ADAPTER" | "MISSION_LIMIT_REACHED";
     readonly nextMission?: MissionQueueItem;
 }
 
@@ -56,6 +57,23 @@ export class ProductionMissionRunner {
     constructor(private readonly state: GenesisStateRepository,
         private readonly runtime = new ProductionRuntimeService(state),
         private readonly report: (stage: string, message: string) => void = () => undefined) {}
+
+    assertHostedDisposableAdmission(request: ProductionMissionRequest, attempt: DisposableProductionAttempt): void {
+        this.state.assertDisposableNamespace(attempt.namespace);
+        if (this.runtime.activeRun(request.repository) || this.state.executionLeases().some(lease =>
+            lease.repository.toLowerCase() === request.repository.toLowerCase() && lease.status === "ACTIVE")) {
+            throw new Error("Hosted repository already has an active run or lease.");
+        }
+        if (this.state.productionRuns().some(run => run.authorizationArtifactId === request.authorizationArtifactId ||
+            run.disposableAttempt?.attemptId === attempt.attemptId ||
+            (run.repository.toLowerCase() === request.repository.toLowerCase() && run.disposableAttempt?.missionId === attempt.missionId))) {
+            throw new Error("Hosted disposable mission or approval was already claimed.");
+        }
+        if (new GovernedMissionQueue().next(this.state.missionQueue(request.systemId))?.missionId !== attempt.missionId ||
+            !this.state.missionQueue(request.systemId).some(mission => mission.missionId === attempt.missionId && mission.approvalRequired)) {
+            throw new Error("Hosted mission is not the approval-required queue head.");
+        }
+    }
 
     async run(request: ProductionMissionRequest,
         executorFor: (mission: MissionQueueItem) => ProductionMissionExecutor | undefined): Promise<ProductionMissionSequence> {
@@ -177,6 +195,11 @@ export class ProductionMissionRunner {
                         failures: failed.map(item => item.name)
                     });
                     throw new Error(`Mission validation failed: ${failed.map(item => item.name).join(", ")}`);
+                }
+                if (disposable && result.evidenceNeedsIndependentReview) {
+                    run = this.runtime.transition(run.runId, "PAUSED", "Disposable proposal is pending independent verification.");
+                    completed.push(run);
+                    return { runs: completed, stopReason: "INDEPENDENT_VERIFICATION_REQUIRED" };
                 }
                 if (mission.approvalRequired) {
                     run = this.runtime.transition(run.runId, "AWAITING_APPROVAL", "Mission validation passed; human certification is required.");
