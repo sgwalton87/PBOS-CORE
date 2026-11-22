@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { inspect } = require("./cloud-runner-state-guard.cjs");
 
 test("missing absolute state path blocks cloud mission", () => {
@@ -24,7 +25,11 @@ test("even complete isolated files cannot authorize a distributed mission", () =
   try {
     for (const name of ["profile.json", "operators.json", "genesis-state.json"])
       fs.writeFileSync(path.join(home, name), "{}", { mode: 0o600 });
-    const result = inspect(home);
+    const missingPin = inspect(home);
+    assert.equal(missingPin.reason, "CANONICAL_FINGERPRINT_REQUIRED");
+    const expected = crypto.createHash("sha256").update("{}").digest("hex");
+    assert.equal(inspect(home, { expectedGenesisSha256: "0".repeat(64) }).reason, "CANONICAL_FINGERPRINT_MISMATCH");
+    const result = inspect(home, { expectedGenesisSha256: expected });
     assert.equal(result.ready, false);
     assert.equal(result.reason, "DISTRIBUTED_FENCED_LEASE_AND_AUTHORITY_NOT_VERIFIED");
   } finally { fs.rmSync(home, { recursive: true, force: true }); }
