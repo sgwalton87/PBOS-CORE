@@ -1,0 +1,41 @@
+name: MB-03 Deploy Isolated Cloud Admission Job
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_staging_only:
+        description: 'Type DEPLOY-STAGING-ADMISSION (no autonomous missions)'
+        required: true
+        type: string
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deploy:
+    if: ${{ inputs.confirm_staging_only == 'DEPLOY-STAGING-ADMISSION' }}
+    runs-on: ubuntu-latest
+    environment: pbos-genesis-staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to Google Cloud using short-lived identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build isolated admission image in Google Cloud
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud config set project pbos-genesis-staging
+          gcloud builds submit . --region=us-west1 --config=/dev/null --tag="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" --file=Dockerfile.mb03-admission
+      - name: Deploy a disabled-by-default admission job (never executes a mission)
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run jobs deploy pbos-genesis-admission \
+            --project=pbos-genesis-staging --region=us-west1 \
+            --image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" \
+            --tasks=1 --max-retries=0 --task-timeout=600s \
+            --cpu=1 --memory=1Gi \
+            --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
+          echo "Job deployed; NOT executed. No private state mounted and no mission authority granted."
