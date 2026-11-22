@@ -55,9 +55,12 @@ CREATE OR REPLACE FUNCTION pbos_runner.release_execution_lease(
 ) RETURNS boolean LANGUAGE plpgsql SECURITY INVOKER AS $$
 DECLARE changed integer;
 BEGIN
-  DELETE FROM pbos_runner.execution_lease
+  -- Preserve the row and token so the next acquisition strictly increases the fence.
+  UPDATE pbos_runner.execution_lease SET
+    expires_at = clock_timestamp() - interval '1 millisecond',
+    updated_at = clock_timestamp()
   WHERE resource = p_resource AND owner_id = p_owner
-    AND fencing_token = p_token;
+    AND fencing_token = p_token AND expires_at > clock_timestamp();
   GET DIAGNOSTICS changed = ROW_COUNT;
   RETURN changed = 1;
 END $$;
