@@ -8,12 +8,19 @@ export interface PpsCanonVerification {
   readonly verifiedDocuments: number;
   readonly errors: readonly string[];
 }
-export async function verifyPpsCanon(ppsDirectory: string): Promise<PpsCanonVerification> {
+export async function verifyPpsCanon(ppsDirectory: string, expectedManifestSha256?: string): Promise<PpsCanonVerification> {
   const root = resolve(ppsDirectory);
   const errors: string[] = [];
   let verifiedDocuments = 0;
   let manifest: unknown;
-  try { manifest = JSON.parse(await readFile(join(root,"manifest.json"),"utf8")); }
+  try {
+    const bytes = await readFile(join(root, "manifest.json"));
+    if (expectedManifestSha256 !== undefined &&
+        createHash("sha256").update(bytes).digest("hex") !== expectedManifestSha256) {
+      return {valid:false,verifiedDocuments,errors:["PPS_MANIFEST_PIN_MISMATCH"]};
+    }
+    manifest = JSON.parse(bytes.toString("utf8"));
+  }
   catch { return {valid:false,verifiedDocuments,errors:["PPS_MANIFEST_UNREADABLE"]}; }
   const docs = (manifest as {documents?: unknown}).documents;
   if (!Array.isArray(docs) || docs.length === 0) return {valid:false,verifiedDocuments,errors:["PPS_MANIFEST_INVALID"]};

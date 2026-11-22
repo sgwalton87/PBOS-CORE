@@ -5,7 +5,8 @@ describe("MB03 hosted executable configuration", () => {
   const complete = {
     PBOS_DATABASE_URL:"postgresql://runner:test@db.invalid/pbos?sslmode=require",
     PBOS_STATE_FILE:"/var/lib/pbos/genesis-state.json", PBOS_STATE_NAMESPACE:"mb03-hosted",
-    PBOS_PPS_DIRECTORY:"/var/lib/pbos/pps", PBOS_APPROVAL_PUBLIC_KEY_FILE:"/var/run/secrets/approval.pem",
+    PBOS_PPS_DIRECTORY:"/var/lib/pbos/pps", PBOS_PPS_MANIFEST_SHA256:"a".repeat(64),
+    PBOS_APPROVAL_PUBLIC_KEY_FILE:"/var/run/secrets/approval.pem",
     PBOS_GITHUB_APP_INSTALLATION_TOKEN:"short-lived", PBOS_CHECKPOINT_KEY_BASE64:Buffer.alloc(32,7).toString("base64"),
     PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT:"pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com",
     PBOS_MISSION_INPUT_FILE:"/var/run/pbos/mission.json"

@@ -23,6 +23,11 @@ describe("GitHub PPS canonical snapshot verification", () => {
       expect(first.verifiedDocuments).toBe(1);
       expect(first.valid).toBe(false);
       expect(first.errors).toContain("PPS_CORE_MISSING:1");
+      expect(await verifyPpsCanon(root, "a".repeat(64))).toMatchObject({
+        valid: false, verifiedDocuments: 0, errors: ["PPS_MANIFEST_PIN_MISMATCH"]
+      });
+      const pin = createHash("sha256").update(JSON.stringify({documents})).digest("hex");
+      expect(await verifyPpsCanon(root, pin)).toEqual(first);
       await writeFile(join(root,"PPS-000_PLATFORM_OVERVIEW.md"),"tampered");
       expect((await verifyPpsCanon(root)).errors).toContain("PPS_HASH_MISMATCH:PPS-000");
     } finally { await rm(root,{recursive:true,force:true}); }

@@ -6,10 +6,6 @@ import type { SignedHostedMissionApproval } from "./hosted-signed-mission-approv
 import type { NeonFencedMissionCheckpoint } from "./neon-fenced-mission-checkpoint";
 import type { ProductionMissionRequest, ProductionMissionRunner, ProductionMissionSequence } from "./production-mission-runner";
 
-export const HOSTED_MISSION_EVIDENCE_STAGES = [
-  "SELECT", "PLAN", "BUILD", "TEST", "VERIFY", "DOCUMENT", "PROPOSE"
-] as const;
-
 export interface HostedPlaybookMissionInput {
   readonly request: ProductionMissionRequest;
   readonly approval: SignedHostedMissionApproval;
@@ -43,7 +39,6 @@ function checkpointPayload(
     path: input.proposal.path,
     contentSha256: contentSha256(input.proposal.content),
     approvalNonce: input.approval.payload.nonce,
-    evidenceStages: HOSTED_MISSION_EVIDENCE_STAGES,
     ...extra
   }), "utf8");
 }
@@ -97,12 +92,11 @@ export async function executeHostedPlaybookMission(
           revision,
           admittedVersion: admittedVersion.toString()
         }));
-        await adapters.checkpoints.commit(
+        const proposedVersion = await adapters.checkpoints.commit(
           lease, mission.missionId, input.request.repository, admittedVersion, proposed
         );
-        const evidenceIds = HOSTED_MISSION_EVIDENCE_STAGES.map(stage =>
-          `hosted:${mission.missionId}:${stage.toLowerCase()}:${revision}`
-        );
+        const admittedEvidence = `hosted-proposal:${mission.missionId}:admitted:v${admittedVersion}`;
+        const proposedEvidence = `hosted-proposal:${mission.missionId}:proposed:v${proposedVersion}`;
         return {
           outputs: {
             branch: pullRequest.branch,
@@ -110,13 +104,12 @@ export async function executeHostedPlaybookMission(
             pullRequestUrl: pullRequest.url,
             pullRequestNumber: pullRequest.number
           },
-          evidenceIds,
+          evidenceIds: [admittedEvidence, proposedEvidence],
           files: { added: [input.proposal.path] },
           commands: [{ command: "github-app:create-bounded-draft-pr", exitCode: 0, durationMs: 0 }],
           validations: [
-            { name: "exact signed mission scope", passed: true, durationMs: 0, evidenceId: evidenceIds[1] },
-            { name: "fenced draft PR creation", passed: true, durationMs: 0, evidenceId: evidenceIds[6] },
-            { name: "durable encrypted checkpoint", passed: true, durationMs: 0, evidenceId: evidenceIds[4] }
+            { name: "exact signed mission scope", passed: true, durationMs: 0, evidenceId: admittedEvidence },
+            { name: "fenced draft PR recorded in encrypted checkpoint", passed: true, durationMs: 0, evidenceId: proposedEvidence }
           ]
         };
       };

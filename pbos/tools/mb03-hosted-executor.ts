@@ -1,5 +1,5 @@
 /**
- * Executable MB-03 Cloud Run job. This is the mutation boundary: it requires an
+ * Hosted Playbook draft-PR command. This is the mutation boundary: it requires an
  * exact signed mission envelope, private canonical state, verified PPS Canon,
  * Google workload identity, durable Neon fencing, and a scoped GitHub App token.
  */
@@ -17,7 +17,7 @@ import { executeHostedPlaybookMission, type HostedPlaybookMissionInput } from ".
 import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
 
 const REQUIRED = [
-  "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY",
+  "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY", "PBOS_PPS_MANIFEST_SHA256",
   "PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_GITHUB_APP_INSTALLATION_TOKEN",
   "PBOS_CHECKPOINT_KEY_BASE64", "PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT", "PBOS_MISSION_INPUT_FILE"
 ] as const;
@@ -27,7 +27,11 @@ export type HostedExecutorEnvironment = Record<(typeof REQUIRED)[number], string
 export function requireHostedExecutorEnvironment(env: NodeJS.ProcessEnv): HostedExecutorEnvironment {
   const missing = REQUIRED.filter(name => !env[name]?.trim());
   if (missing.length) throw new Error(`Hosted executor configuration missing: ${missing.join(", ")}`);
-  return Object.fromEntries(REQUIRED.map(name => [name, env[name]!.trim()])) as HostedExecutorEnvironment;
+  const config = Object.fromEntries(REQUIRED.map(name => [name, env[name]!.trim()])) as HostedExecutorEnvironment;
+  if (!/^[a-f0-9]{64}$/.test(config.PBOS_PPS_MANIFEST_SHA256)) {
+    throw new Error("Invalid PBOS_PPS_MANIFEST_SHA256.");
+  }
+  return config;
 }
 
 async function readBoundedFile(path: string, maximumBytes: number): Promise<Buffer> {
@@ -86,7 +90,7 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     trustedPublicKeyPem: publicKey.toString("utf8"),
     verifyConstitution: async () => {
       const [integrity, pps] = await Promise.all([
-        Promise.resolve(runtime.verifyIntegrity()), verifyPpsCanon(config.PBOS_PPS_DIRECTORY)
+        Promise.resolve(runtime.verifyIntegrity()), verifyPpsCanon(config.PBOS_PPS_DIRECTORY, config.PBOS_PPS_MANIFEST_SHA256)
       ]);
       return integrity.valid && pps.valid;
     },
@@ -100,6 +104,7 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
   });
   return {
     schema: "pbos.hosted-mission-result.v1",
+    executionKind: "BOUNDED_DRAFT_PR",
     stopReason: result.stopReason,
     runs: result.runs.map(run => ({runId:run.runId,status:run.status,currentCommit:run.currentCommit,evidenceIds:run.evidenceIds}))
   };

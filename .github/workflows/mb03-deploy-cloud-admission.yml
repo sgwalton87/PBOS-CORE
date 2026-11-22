@@ -94,7 +94,7 @@ jobs:
             --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
             --cpu=1 --memory=1Gi \
             --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
-          echo "Executable job image deployed; NOT executed. Runtime authority and mission inputs remain separately gated."
+          echo "Admission observer image deployed; NOT executed."
       - name: Verify deployed Cloud Run job identity and image without executing
         shell: bash
         run: |

@@ -66,7 +66,7 @@ describe("hosted Playbook mission executable", () => {
       createPullRequest: vi.fn(async () => ({url:"https://github.com/sgwalton87/playbook-platform/pull/999",number:999})),
       findPullRequest: vi.fn(async () => null)
     };
-    const commit = vi.fn(async (_lease,_mission,_repository,version) => version + 1n);
+    const commit = vi.fn(async (_lease, _mission, _repository, version: bigint, _bytes: Uint8Array) => version + 1n);
     const checkpoints = { commit } as unknown as NeonFencedMissionCheckpoint;
     return { state, request, proposal, approval, admission, github, checkpoints, commit,
       runner: new ProductionMissionRunner(state,runtime) };
@@ -81,7 +81,13 @@ describe("hosted Playbook mission executable", () => {
     expect(result.stopReason).toBe("APPROVAL_REQUIRED");
     expect(result.runs).toHaveLength(1);
     expect(result.runs[0].status).toBe("AWAITING_APPROVAL");
-    expect(result.runs[0].evidenceIds).toHaveLength(7);
+    expect(result.runs[0].evidenceIds).toEqual([
+      `hosted-proposal:${f.proposal.missionId}:admitted:v1`,
+      `hosted-proposal:${f.proposal.missionId}:proposed:v2`
+    ]);
+    for (const [, , , , bytes] of f.commit.mock.calls) {
+      expect(JSON.parse(Buffer.from(bytes).toString("utf8"))).not.toHaveProperty("evidenceStages");
+    }
     expect(f.commit).toHaveBeenCalledTimes(2);
     expect(f.github.createPullRequest).toHaveBeenCalledOnce();
   });
