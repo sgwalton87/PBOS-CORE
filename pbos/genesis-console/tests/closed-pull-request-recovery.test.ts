@@ -185,6 +185,24 @@ describe("governed closed pull request recovery", () => {
         expect(() => renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, signed, renewed)).toThrow(/grant/);
     });
 
+    it("reuses an unexpired exact-scope approval after an interruption while independently checking the grant", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const approval = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource, 43200);
+        registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session, approval, prepared, f.directory);
+        const resumed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        for (let attempt = 0; attempt < 2; attempt++) {
+            expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, f.session,
+                approval, resumed.binding.resource)).not.toThrow();
+            expect(f.control.authorizeAction(f.session.sessionId, "PROPOSE_CHANGE", "MEDIUM", branch, approval.approvalId).allowed).toBe(true);
+        }
+        expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, f.session,
+            approval, resumed.binding.resource + "changed")).toThrow();
+        f.control.revokeSession(f.session.sessionId, "fixture revocation");
+        expect(f.control.authorizeAction(f.session.sessionId, "PROPOSE_CHANGE", "MEDIUM", branch, approval.approvalId).allowed).toBe(false);
+        expect(f.state.productionRun(f.before.runId)?.repairAttempts).toBe(1);
+    });
+
     it("rejects original Genesis and an alias to its inode", () => {
         const original = mkdtempSync(join(tmpdir(), "pbos-original-"));
         const candidate = mkdtempSync(join(tmpdir(), "pbos-copy-"));
