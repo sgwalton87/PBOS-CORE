@@ -1,0 +1,34 @@
+name: PBOS MB-03.2 Canary Image
+
+on:
+  pull_request:
+    paths:
+      - "containers/mb032-canary/**"
+      - "pbos/master-builder/vercel-remote-provider.ts"
+      - ".github/workflows/pbos-mb032-canary-image.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Assert exact proposal revision
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Build Linux image locally in CI
+        run: docker build --platform linux/amd64 --tag pbos-mb032-canary:ci containers/mb032-canary
+      - name: Verify packaged executable and actual file boundary
+        run: |
+          checks="$(mktemp -d "$RUNNER_TEMP/pbos-image-checks.XXXXXX")"
+          python3 containers/mb032-canary/extract-probes.py pbos/master-builder/vercel-remote-provider.ts "$checks"
+          cp containers/mb032-canary/smoke.sh "$checks/"
+          docker run --rm --network none --entrypoint /bin/sh \
+            --mount "type=bind,src=$checks,dst=/checks,readonly" pbos-mb032-canary:ci /checks/smoke.sh

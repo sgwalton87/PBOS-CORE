@@ -57,6 +57,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@vercel/sandbox": "4.1.0",
     "dotenv": "^17.4.2",
     "openai": "^7.3.0",
     "zod": "^4.4.3"
@@ -67,5 +68,10 @@
     "tsx": "^4.23.5",
     "typescript": "^5.9.2",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "@vercel/cli-config": {
+      "zod": "4.6.7"
+    }
   }
 }
