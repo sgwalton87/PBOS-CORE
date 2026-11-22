@@ -1,0 +1,11 @@
+# Isolated MB-03 Cloud Run admission image.
+# No state or credentials are baked into the image.
+FROM node:22-bookworm-slim
+WORKDIR /app
+COPY package*.json ./
+COPY packages ./packages
+RUN npm ci
+COPY pbos ./pbos
+COPY tsconfig*.json ./
+USER node
+CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-hosted-admission-observation.ts"]
