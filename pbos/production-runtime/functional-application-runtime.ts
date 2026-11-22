@@ -336,7 +336,9 @@ export class NodeApplicationLauncher implements ApplicationLauncher {
         const deadline = Date.now() + plan.launch.startupTimeoutMs;
         const url = new URL(plan.launch.healthPath, plan.launch.baseUrl).toString();
         let lastFailure = "No response";
+        let attempts = 0;
         while (Date.now() < deadline) {
+            attempts++;
             try {
                 const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
                 if (response.ok) return;
@@ -346,7 +348,7 @@ export class NodeApplicationLauncher implements ApplicationLauncher {
             }
             await new Promise(resolve => setTimeout(resolve, 250));
         }
-        throw new Error(`Application did not become healthy at ${url}: ${lastFailure}`);
+        throw new Error(`Application did not become healthy at ${url} within ${plan.launch.startupTimeoutMs}ms after ${attempts} attempt(s): ${lastFailure}`);
     }
 }
 

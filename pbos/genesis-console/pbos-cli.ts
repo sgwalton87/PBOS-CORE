@@ -72,7 +72,7 @@ import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
     inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
     registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval,
-    verifyClosedPullRequestRecoveryCheckout, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery } from "./closed-pull-request-recovery";
+    verifyClosedPullRequestRecoveryCheckout, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery, recoveryApprovalDuration } from "./closed-pull-request-recovery";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition,
     functionalAcceptanceAuthorityDefinitions } from "./functional-acceptance-authority";
 
@@ -1696,7 +1696,10 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
     }
     if (args[0] === "renew-recovery") {
         const runId = args[1];
-        if (!runId || args.length !== 2) throw new Error("Usage: pbos renew-recovery <run-id>");
+        if (!runId || (args.length !== 2 && (args.length !== 4 || args[2] !== "--minutes"))) {
+            throw new Error("Usage: pbos renew-recovery <run-id> [--minutes <1-43200>]");
+        }
+        const durationMinutes = recoveryApprovalDuration(args[3]);
         assertIsolatedRecoveryState(stateRoot, join(homedir(), ".pbos"));
         const services = runtime();
         await ensureGitHubAuthentication(profile());
@@ -1706,6 +1709,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
         const io = new NodeTerminalIO();
         try {
             io.write(`Recovery scope: ${prepared.binding.resource}`);
+            io.write(`Recovery approval validity: ${durationMinutes} minutes; build grants retain their existing limits.`);
             if ((await io.prompt("Type ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001 to issue a human-gated build grant: ")).trim() !==
                 "ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001") return 1;
             const issuance = await services.sessionAuthority.authorize(prepared.run.systemId);
@@ -1716,7 +1720,7 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
             if (fresh.binding.resource !== prepared.binding.resource || fresh.binding.approvalId !== prepared.binding.approvalId) {
                 throw new Error("The registered recovery changed during approval.");
             }
-            const approval = services.identities.approve(services.operator, CLOSED_PR_RECOVERY_ACTION, fresh.binding.resource, 30);
+            const approval = services.identities.approve(services.operator, CLOSED_PR_RECOVERY_ACTION, fresh.binding.resource, durationMinutes);
             renewRegisteredRecovery(services.state, services.control, services.identities, services.operator, session, approval, fresh);
             io.write("Exact recovery approval renewed. Browser acceptance has not started.");
             return 0;

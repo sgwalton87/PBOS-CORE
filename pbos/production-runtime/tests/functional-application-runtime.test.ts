@@ -3,9 +3,10 @@ import { createHash } from "crypto";
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApplicationLauncher, BrowserJourneyRuntime, CommandBrowserJourneyRuntime, CommandNativeJourneyRuntime, FunctionalAcceptancePlan, FunctionalApplicationRuntime,
     resolveFunctionalPrerequisites, RuntimeProbeRunner, verifyVisualCanonContract } from "../index";
+import { NodeApplicationLauncher } from "../functional-application-runtime";
 
 function repository(): Readonly<{ path: string; revision: string }> {
     const path = mkdtempSync(join(tmpdir(), "pbos-functional-app-"));
@@ -65,6 +66,21 @@ function canonicalJourney(path: string): Readonly<{
 }
 
 describe("PBS-5000 functional application runtime", () => {
+    it("retries delayed readiness and reports a bounded timeout", async () => {
+        const launcher = new NodeApplicationLauncher() as unknown as { waitUntilHealthy(p: FunctionalAcceptancePlan): Promise<void> };
+        const acceptance = plan("/tmp", "abcdef1");
+        const fetchSpy = vi.spyOn(globalThis, "fetch")
+            .mockResolvedValueOnce(new Response("starting", { status: 503 }))
+            .mockResolvedValueOnce(new Response("ready", { status: 200 }));
+        try {
+            await expect(launcher.waitUntilHealthy(acceptance)).resolves.toBeUndefined();
+            expect(fetchSpy).toHaveBeenCalledTimes(2);
+            fetchSpy.mockReset().mockResolvedValue(new Response("starting", { status: 503 }));
+            await expect(launcher.waitUntilHealthy({ ...acceptance, launch: { ...acceptance.launch, startupTimeoutMs: 300 } }))
+                .rejects.toThrow(/within 300ms after .*HTTP 503/);
+        } finally { fetchSpy.mockRestore(); }
+    });
+
     it("rejects an API endpoint as the application startup health route", async () => {
         const repo = repository();
         const acceptance = plan(repo.path, repo.revision);

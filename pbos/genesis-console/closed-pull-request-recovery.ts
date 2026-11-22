@@ -8,6 +8,16 @@ import { GitHubCheckCollector, RemediationRun } from "../validation-automation";
 import { GenesisBuildSession, GenesisControlPlane } from "./genesis-control-plane";
 
 export const CLOSED_PR_RECOVERY_ACTION = "RECOVER_CLOSED_PULL_REQUEST";
+export const MAX_RECOVERY_APPROVAL_MINUTES = 30 * 24 * 60;
+export function recoveryApprovalDuration(value: string | undefined): number {
+    if (value === undefined) return 30;
+    if (!/^\d+$/.test(value)) throw new Error("Recovery approval duration must be a whole number of minutes.");
+    const minutes = Number(value);
+    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > MAX_RECOVERY_APPROVAL_MINUTES) {
+        throw new Error(`Recovery approval duration must be between 1 and ${MAX_RECOVERY_APPROVAL_MINUTES} minutes.`);
+    }
+    return minutes;
+}
 const HOSTINGER_MISSION = "048-phase-01-item-hostinger-email";
 const BROWSER_SPEC = "tests/acceptance/pbos-hostinger-email.spec.ts";
 const REQUIRED_ENVIRONMENT = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY",
@@ -182,6 +192,10 @@ export function renewRegisteredRecovery(state: GenesisStateRepository, control: 
     approval: VerifiableApproval, prepared: Awaited<ReturnType<typeof prepareRegisteredRecoveryRenewal>>): void {
     const { run, remediation, binding } = prepared;
     verifyClosedPullRequestRecoveryApproval(identities, operator, session, approval, binding.resource);
+    const duration = Date.parse(approval.expiresAt) - Date.parse(approval.issuedAt);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_RECOVERY_APPROVAL_MINUTES * 60_000) {
+        throw new Error("Recovery approval duration exceeds the allowed limit.");
+    }
     if (run.actorId !== operator.operatorId || session.system.systemId !== run.systemId ||
         session.system.repository !== run.repository ||
         !control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", run.currentBranch, approval.approvalId).allowed) {

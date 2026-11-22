@@ -8,7 +8,8 @@ import { BackgroundMonitor } from "../../operator-continuity";
 import { FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
 import { GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
-    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery } from "../closed-pull-request-recovery";
+    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery,
+    recoveryApprovalDuration, MAX_RECOVERY_APPROVAL_MINUTES } from "../closed-pull-request-recovery";
 import { GenesisControlPlane } from "../genesis-control-plane";
 import { GenesisSystemCatalog } from "../system-catalog";
 import { REFERENCE_SYSTEMS } from "../system-definition";
@@ -133,6 +134,46 @@ describe("governed closed pull request recovery", () => {
         expect(() => verifyClosedPullRequestRecoveryApproval(f.identities, f.operator, f.session,
             approval, prepared.resource, new Date(approval.expiresAt))).toThrow(/operator-signed/);
         expect(f.state.productionRun(f.before.runId)?.currentCommit).toBe(oldCommit);
+    });
+
+    it("bounds configurable renewal duration and verifies a 30-day exact-scope signature", async () => {
+        expect(recoveryApprovalDuration(undefined)).toBe(30);
+        expect(recoveryApprovalDuration("43200")).toBe(MAX_RECOVERY_APPROVAL_MINUTES);
+        for (const value of ["0", "43201", "1.5", "-1", "Infinity", ""]) {
+            expect(() => recoveryApprovalDuration(value)).toThrow(/duration/);
+        }
+        const f = fixture();
+        const prepared = await f.prepare();
+        const initial = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        const replacement = registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session,
+            initial, prepared, f.directory);
+        const renewed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        const signed = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource, 43200);
+        expect(Date.parse(signed.expiresAt) - Date.parse(signed.issuedAt)).toBeGreaterThanOrEqual(43200 * 60_000);
+        expect(f.identities.verify(signed, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource,
+            new Date(Date.parse(signed.expiresAt) - 1))).toBe(true);
+        expect(f.identities.verify(signed, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource,
+            new Date(signed.expiresAt))).toBe(false);
+        expect(f.identities.verify(signed, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource + "changed")).toBe(false);
+        renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, signed, renewed);
+        expect(f.state.remediationRun(replacement.runId)?.closedPullRequestReplacement?.approvalId).toBe(signed.approvalId);
+    });
+
+    it("rejects excessive duration, a different operator, and a revoked build grant", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const initial = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session, initial, prepared, f.directory);
+        const renewed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        const excessive = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource, 43201);
+        expect(() => renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, excessive, renewed)).toThrow(/duration/);
+        const other = f.identities.enroll("synthetic", "Other operator");
+        const operator = f.identities.authenticate(other.operator.operatorId, other.credential);
+        const signedOther = f.identities.approve(operator, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource);
+        expect(() => renewRegisteredRecovery(f.state, f.control, f.identities, operator, f.session, signedOther, renewed)).toThrow();
+        const signed = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, renewed.binding.resource);
+        f.control.revokeSession(f.session.sessionId, "fixture revocation");
+        expect(() => renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, signed, renewed)).toThrow(/grant/);
     });
 
     it("rejects original Genesis and an alias to its inode", () => {
