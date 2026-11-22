@@ -31,7 +31,7 @@ describe("MB03 hosted execution boundary", () => {
       trustedPublicKeyPem: pem, canonicalStateVerified: vi.fn(async () => true),
       hostAttested: vi.fn(async () => true),
       acquireFencedLease: vi.fn(async (resource, ownerId) => ({resource,ownerId,fencingToken:1n})),
-      assertFencedLease: vi.fn(async () => true), releaseFencedLease: vi.fn(async () => {}),
+      assertFencedLease: vi.fn(async () => true), renewFencedLease: vi.fn(async () => true), releaseFencedLease: vi.fn(async () => {}),
       recordApprovalNonce: vi.fn(async () => true)
     };
     return {run,runner,dependencies};
