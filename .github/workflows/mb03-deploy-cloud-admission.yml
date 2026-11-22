@@ -22,6 +22,25 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
+      - name: Preflight cloud build dependencies before uploading source
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT=pbos-genesis-staging
+          REGION=us-west1
+          BUCKET="${PROJECT}_cloudbuild"
+          echo "::group::Cloud build source bucket"
+          gcloud storage buckets describe "gs://${BUCKET}" --project="${PROJECT}" --format='value(name)'
+          # The source upload uses this identity; test access without modifying objects.
+          gcloud storage ls "gs://${BUCKET}/" >/dev/null
+          echo "::endgroup::"
+          echo "::group::Cloud Build service account"
+          gcloud builds get-default-service-account --project="${PROJECT}" --region="${REGION}"
+          echo "::endgroup::"
+          echo "::group::Artifact Registry destination"
+          gcloud artifacts repositories describe pbos-executor --location="${REGION}" --project="${PROJECT}" --format='value(name)'
+          echo "::endgroup::"
+          echo "Preflight passed. This does not verify runtime mission authorization or downstream IAM."
       - name: Build isolated admission image in Google Cloud
         shell: bash
         run: |
