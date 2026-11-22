@@ -33,6 +33,12 @@ jobs:
     environment: pbos-genesis-staging
     steps:
       - uses: actions/checkout@v4
+      - name: Verify hosted admission gates before deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci
+          npx vitest run tests/mb03-hosted-admission-observation.test.ts
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
         with:
