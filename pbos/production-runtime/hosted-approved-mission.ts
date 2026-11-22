@@ -20,6 +20,7 @@ export interface HostedExecutionDependencies {
   readonly acquireFencedLease: (resource: string, ownerId: string) => Promise<HostedExecutionLease | null>;
   readonly assertFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly releaseFencedLease: (lease: HostedExecutionLease) => Promise<void>;
+  readonly renewFencedLease?: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly recordApprovalNonce: (nonce: string, expiresAt: string) => Promise<boolean>;
 }
 export async function runHostedApprovedMission(
@@ -45,6 +46,15 @@ export async function runHostedApprovedMission(
   if (!lease || lease.resource !== resource || lease.fencingToken < 1n) {
     throw new Error("Durable fenced execution lease unavailable.");
   }
+  let leaseLost = false;
+  let renewing = false;
+  const heartbeat = dependencies.renewFencedLease ? setInterval(async () => {
+    if (renewing || leaseLost) return;
+    renewing = true;
+    try { if (!(await dependencies.renewFencedLease!(lease))) leaseLost = true; }
+    catch { leaseLost = true; }
+    finally { renewing = false; }
+  }, 10_000) : undefined;
   try {
     if (!(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost.");
     // Nonce persistence MUST be atomic/unique on the durable host. A false result
@@ -56,11 +66,14 @@ export async function runHostedApprovedMission(
       const executor = executorFor(mission);
       if (!executor || mission.missionId !== approval.payload.missionId) return undefined;
       return async context => {
-        if (!(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost before mission execution.");
-        return executor(context);
+        if (leaseLost || !(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost before mission execution.");
+        const result = await executor(context);
+        if (leaseLost || !(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost during mission execution.");
+        return result;
       };
     });
   } finally {
+    if (heartbeat) clearInterval(heartbeat);
     await dependencies.releaseFencedLease(lease);
   }
 }
