@@ -121,7 +121,8 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     },
     verifyWorkloadIdentity: () => verifyGoogleWorkloadIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, fetch, env)
   });
-  const result = await executeHostedPlaybookMission({ request: input.request, approval: input.approval, proposal: generated.proposal }, {
+  const result = await executeHostedPlaybookMission({ request: input.request, approval: input.approval,
+    proposal: generated.proposal, proposalProvenance: generated.provenance }, {
     runner: new ProductionMissionRunner(state, runtime), admission: composed.dependencies,
     checkpoints: composed.checkpoints,
     github,

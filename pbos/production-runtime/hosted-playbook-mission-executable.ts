@@ -5,11 +5,13 @@ import { runHostedApprovedMission, type HostedExecutionDependencies, type Hosted
 import type { SignedHostedMissionApproval } from "./hosted-signed-mission-approval";
 import type { NeonFencedMissionCheckpoint } from "./neon-fenced-mission-checkpoint";
 import type { ProductionMissionRequest, ProductionMissionRunner, ProductionMissionSequence } from "./production-mission-runner";
+import type { generateHostedPlaybookProposal } from "../master-builder/hosted-playbook-proposal";
 
 export interface HostedPlaybookMissionInput {
   readonly request: ProductionMissionRequest;
   readonly approval: SignedHostedMissionApproval;
   readonly proposal: FencedPrInput;
+  readonly proposalProvenance?: Awaited<ReturnType<typeof generateHostedPlaybookProposal>>["provenance"];
 }
 
 export interface HostedPlaybookMissionAdapters {
@@ -39,6 +41,7 @@ function checkpointPayload(
     path: input.proposal.path,
     contentSha256: contentSha256(input.proposal.content),
     approvalNonce: input.approval.payload.nonce,
+    ...(input.proposalProvenance ? { proposalProvenance: input.proposalProvenance } : {}),
     ...extra
   }), "utf8");
 }

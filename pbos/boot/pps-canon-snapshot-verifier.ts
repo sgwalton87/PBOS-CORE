@@ -8,6 +8,38 @@ export interface PpsCanonVerification {
   readonly verifiedDocuments: number;
   readonly errors: readonly string[];
 }
+
+/** Resolve only the selected mission's dependencies from an exact manifest pin. */
+export async function resolvePinnedPpsDependencies(
+  manifest: string, expectedSha256: string, roots: readonly string[], read: (file: string) => Promise<string>
+) {
+  const hash = (value: string) => createHash("sha256").update(value, "utf8").digest("hex");
+  if (hash(manifest) !== expectedSha256) throw new Error("Proposal Canon pin mismatch.");
+  const rawEntries: unknown = JSON.parse(manifest)?.documents;
+  if (!Array.isArray(rawEntries) || !roots.length) throw new Error("Invalid proposal Canon manifest.");
+  const entries = rawEntries;
+  const verified = new Map<string, { id: string; file: string; sha256: string }>();
+  const visiting = new Set<string>();
+  async function visit(id: string) {
+    if (verified.has(id)) return;
+    if (visiting.has(id)) throw new Error("Proposal Canon dependency cycle.");
+    const matches = entries.filter(entry => entry?.id === id);
+    const entry = matches[0];
+    if (matches.length !== 1 || !/^PPS-\d{3,4}$/.test(id) ||
+        !/^PPS-\d{3,4}_[A-Za-z0-9_]+\.md$/.test(entry.file) || !entry.file.startsWith(`${id}_`) ||
+        !/^[a-f0-9]{64}$/.test(entry.sha256) || !Array.isArray(entry.dependencies) ||
+        entry.dependencies.some((dep: unknown) => typeof dep !== "string")) {
+      throw new Error(`Invalid, missing, or ambiguous proposal Canon reference: ${id}`);
+    }
+    visiting.add(id);
+    for (const dep of entry.dependencies) await visit(dep);
+    if (hash(await read(entry.file)) !== entry.sha256) throw new Error(`Proposal Canon document hash mismatch: ${id}`);
+    visiting.delete(id);
+    verified.set(id, { id, file: entry.file, sha256: entry.sha256 });
+  }
+  for (const id of roots) await visit(id);
+  return [...verified.values()];
+}
 export async function verifyPpsCanon(ppsDirectory: string, expectedManifestSha256?: string): Promise<PpsCanonVerification> {
   const root = resolve(ppsDirectory);
   const errors: string[] = [];

@@ -26,7 +26,7 @@ export class GitHubAppPlaybookPrApi implements GitHubPrApi {
   }
   async readPinnedProposalSource(path: string, sha: string): Promise<string> {
     if (!/^[a-f0-9]{40}$/.test(sha) ||
-        !/^(package\.json|\.github\/workflows\/(ci|platform-qa)\.yml|docs\/PPS\/(manifest\.json|PPS-\d{3}_[A-Za-z0-9_]+\.md))$/.test(path)) {
+        !/^(package\.json|\.github\/workflows\/(ci|platform-qa)\.yml|docs\/PPS\/(manifest\.json|PPS-\d{3,4}_[A-Za-z0-9_]+\.md))$/.test(path)) {
       throw new Error("Pinned proposal source is not allowlisted.");
     }
     const j = await this.api("GET", `${this.repo("sgwalton87/playbook-platform")}/contents/${path}?ref=${sha}`);

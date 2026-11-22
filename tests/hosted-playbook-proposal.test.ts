@@ -5,7 +5,8 @@ import { hostedMissionScopeDigest } from "../pbos/production-runtime/hosted-sign
 const revision = "a".repeat(40);
 
 function fixture() {
-  const documents = ["PPS-010", "PPS-012", "PPS-014", "PPS-015"].map(id => ({ id, file: `${id}_TEST.md`, sha256: proposalDigest(id) }));
+  const documents = ["PPS-000", "PPS-010", "PPS-012", "PPS-014", "PPS-015"].map(id => ({ id, file: `${id}_TEST.md`,
+    sha256: proposalDigest(id), dependencies: id === "PPS-010" ? ["PPS-000"] : [] }));
   const sources = new Map(documents.map(entry => [`docs/PPS/${entry.file}`, entry.id]));
   const manifest = JSON.stringify({ documents });
   sources.set("docs/PPS/manifest.json", manifest);
@@ -32,6 +33,7 @@ describe("hosted Playbook proposal generation", () => {
     expect(qa.contentSha256).toBe(proposalDigest(qa.proposal.content));
     expect(qa.contentSha256).not.toBe(evidence.contentSha256);
     expect(qa.provenance.inputs.map(i => i.path)).toContain(".github/workflows/platform-qa.yml");
+    expect(qa.provenance.canonDependencies.map(doc => doc.id)).toEqual(["PPS-000", "PPS-010", "PPS-012"]);
     expect(evidence.provenance.inputs.map(i => i.path)).toContain(".github/workflows/ci.yml");
     const scope = { branch: qa.proposal.branch, path: qa.proposal.path, contentSha256: qa.contentSha256 };
     expect(hostedMissionScopeDigest(scope)).not.toBe(hostedMissionScopeDigest({ ...scope, contentSha256: proposalDigest(qa.proposal.content + "x") }));
@@ -41,7 +43,7 @@ describe("hosted Playbook proposal generation", () => {
     const { read, sources, manifestSha256 } = fixture();
     await expect(generateHostedPlaybookProposal("unknown", revision, manifestSha256, read)).rejects.toThrow("reviewed mission");
     expect(read).not.toHaveBeenCalled();
-    sources.set("docs/PPS/PPS-010_TEST.md", "tampered");
+    sources.set("docs/PPS/PPS-000_TEST.md", "tampered");
     await expect(generateHostedPlaybookProposal("MB03-MISSION-001", revision, manifestSha256, read)).rejects.toThrow("document hash");
   });
 });

@@ -3,9 +3,20 @@ import { mkdtemp,writeFile,rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { verifyPpsCanon } from "../pbos/boot/pps-canon-snapshot-verifier";
+import { resolvePinnedPpsDependencies, verifyPpsCanon } from "../pbos/boot/pps-canon-snapshot-verifier";
 
 describe("GitHub PPS canonical snapshot verification", () => {
+  it("blocks missing or cyclic mission dependencies", async () => {
+    const hash = (content: string) => createHash("sha256").update(content).digest("hex");
+    const first = { id: "PPS-010", file: "PPS-010_TEST.md", sha256: hash("content"), dependencies: ["PPS-011"] };
+    const missing = JSON.stringify({ documents: [first] });
+    const cycle = JSON.stringify({ documents: [first,
+      { id: "PPS-011", file: "PPS-011_TEST.md", sha256: hash("content"), dependencies: ["PPS-010"] }] });
+    await expect(resolvePinnedPpsDependencies(missing, hash(missing), [first.id], async () => "content"))
+      .rejects.toThrow("missing");
+    await expect(resolvePinnedPpsDependencies(cycle, hash(cycle), [first.id], async () => "content"))
+      .rejects.toThrow("dependency cycle");
+  });
   it("fails closed on missing manifest", async () => {
     const root=await mkdtemp(join(tmpdir(),"pps-canon-"));
     try { expect((await verifyPpsCanon(root)).valid).toBe(false); }
