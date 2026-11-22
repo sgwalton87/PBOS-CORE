@@ -79,6 +79,13 @@ export async function verifyHostedRecoveryEvidence(input: {
         Date.parse(metadata.created_at) < Date.parse(approval.issuedAt)) {
         throw new Error("Hosted recovery GitHub run identity is invalid.");
     }
+    const corePr = JSON.parse((await commands.run("gh", ["api", `repos/${repo}/pulls/113`])).stdout) as {
+        state?: string; merged?: boolean; base?: { ref?: string }; head?: { sha?: string; repo?: { full_name?: string } }
+    };
+    if (corePr.state !== "open" || corePr.merged !== false || corePr.base?.ref !== "main" ||
+        corePr.head?.sha !== checkpoint.coreSha || corePr.head.repo?.full_name !== repo) {
+        throw new Error("Hosted recovery Core workflow proposal moved.");
+    }
     const pr = JSON.parse((await commands.run("gh", ["api", `repos/sgwalton87/playbook-platform/pulls/${checkpoint.pullRequest}`])).stdout) as {
         state?: string; merged?: boolean; base?: { sha?: string }; head?: { sha?: string; repo?: { full_name?: string } }
     };

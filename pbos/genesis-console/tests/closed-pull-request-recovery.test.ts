@@ -95,12 +95,14 @@ describe("governed closed pull request recovery", () => {
             run_attempt: 1, path: checkpoint.workflowPath, actor: { id: 456 }, repository: { id: 1321290119, full_name: "sgwalton87/PBOS-CORE" },
             created_at: new Date(Date.now() + 1000).toISOString() };
         const pr = { state: "open", merged: false, base: { sha: base }, head: { sha: head, repo: { full_name: system.repository } } };
+        const corePr = { state: "open", merged: false, base: { ref: "main" }, head: { sha: checkpoint.coreSha, repo: { full_name: "sgwalton87/PBOS-CORE" } } };
         const artifact = { name: `hostinger-acceptance-${checkpoint.nonce}`, expired: false,
             digest: `sha256:${createHash("sha256").update(archive).digest("hex")}`, workflow_run: { id: 123, head_sha: checkpoint.coreSha } };
         const jobs = { jobs: [{ name: "hostinger-governed-acceptance", status: "completed", conclusion: "success",
             steps: [{ name: "Run exact Hostinger acceptance", conclusion: "success" }] }] };
         const run = vi.fn(async (_command: string, args: readonly string[]) => ({ stdout: JSON.stringify(
-            args[1].endsWith("/artifacts") ? { artifacts: [artifact] } : args[1].includes("/jobs?") ? jobs : args[1].includes("/pulls/") ? pr : metadata), stderr: "" }));
+            args[1].endsWith("/artifacts") ? { artifacts: [artifact] } : args[1].includes("/jobs?") ? jobs :
+                args[1].includes("PBOS-CORE/pulls/") ? corePr : args[1].includes("/pulls/") ? pr : metadata), stderr: "" }));
         const input = { state: f.state, identities: f.identities, operator: f.operator, session: f.session, control: f.control,
             approval, resource: prepared.resource, checkpoint, commands: { run }, archive };
         await expect(verifyHostedRecoveryEvidence(input)).resolves.toBeUndefined();
@@ -112,6 +114,9 @@ describe("governed closed pull request recovery", () => {
         pr.head.sha = "9".repeat(40);
         await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/PR moved/);
         pr.head.sha = head;
+        corePr.head.sha = "9".repeat(40);
+        await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/Core workflow proposal moved/);
+        corePr.head.sha = checkpoint.coreSha;
         metadata.actor.id = 999;
         await expect(verifyHostedRecoveryEvidence(input)).rejects.toThrow(/run identity/);
         metadata.actor.id = 456;
