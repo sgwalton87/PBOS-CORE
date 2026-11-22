@@ -25,6 +25,21 @@ export class FencedCloudStateCoordinator {
     return { resource, ownerId, fencingToken: BigInt(rows[0].fencing_token), expiresAt: new Date(rows[0].expires_at) };
   }
 
+  /** Refuse cloud execution until the existing, encrypted Genesis state has been imported. */
+  async verifyCanonicalState(expectedSha256: string): Promise<bigint> {
+    if (!/^[a-f0-9]{64}$/.test(expectedSha256)) {
+      throw new Error("A verified canonical Genesis SHA-256 is required");
+    }
+    const rows = await this.db.query<{ version: string | number | bigint; plaintext_sha256: string }>(
+      "SELECT version, plaintext_sha256 FROM pbos_runner.canonical_state WHERE state_key = 'genesis'",
+      []);
+    if (rows.length !== 1) throw new Error("Canonical Genesis state is missing; refusing cloud execution");
+    if (rows[0].plaintext_sha256.trim() !== expectedSha256) {
+      throw new Error("Canonical Genesis fingerprint mismatch; refusing cloud execution");
+    }
+    return BigInt(rows[0].version);
+  }
+
   async commit(lease: Lease, expectedVersion: bigint, encryptedState: Uint8Array, sha256: string): Promise<bigint> {
     if (!/^[a-f0-9]{64}$/.test(sha256) || !encryptedState.length) {
       throw new Error("Invalid encrypted canonical state payload");
