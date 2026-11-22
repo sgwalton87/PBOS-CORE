@@ -59,15 +59,13 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "openai": "^7.3.0",
-    "zod": "^4.4.3",
-    "pg": "^8.16.3"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",
     "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.23.5",
     "typescript": "^5.9.2",
-    "vitest": "^4.1.10",
-    "@types/pg": "^8.15.5"
+    "vitest": "^4.1.10"
   }
 }
