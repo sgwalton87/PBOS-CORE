@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, chmodSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -33,6 +33,14 @@ describe("MB-03 canonical state preflight", () => {
       const result = run(fixture(value));
       expect(result.status).toBe(2);
     }
+  });
+  it("rejects a symlinked Genesis even when its target looks valid", () => {
+    const root = fixture();
+    const target = join(root, "target.json");
+    writeFileSync(target, '{"version":1}', { mode: 0o600 });
+    symlinkSync(target, join(root, "genesis-state.json"));
+    const result = run(root);
+    expect(result.status).toBe(2);
   });
   it("rejects group-readable Genesis", () => {
     const result = run(fixture('{"version":1}', 0o640));
