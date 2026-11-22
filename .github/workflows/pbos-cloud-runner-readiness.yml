@@ -10,6 +10,7 @@ on:
       - "pbos/production-runtime/**"
       - "pbos/genesis-console/**"
       - "pbos/autonomous-authority/**"
+      - "scripts/cloud-runner-state-guard*"
       - "package.json"
       - "package-lock.json"
 
@@ -49,6 +50,17 @@ jobs:
           echo "PASS: ephemeral isolated workspace; no Genesis authority imported"
       - name: Install exact locked dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
+      - name: Verify cloud state guard tests
+        run: node --test scripts/cloud-runner-state-guard.test.cjs
+      - name: Confirm ephemeral runner is denied mission authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          if node scripts/cloud-runner-state-guard.cjs; then
+            echo "ERROR: ephemeral runner was granted mission authority" >&2
+            exit 1
+          fi
+          echo "PASS: cloud mission execution denied without durable canonical state and fenced lease"
       - name: Typecheck PBOS Core
         run: npm run typecheck
       - name: Run PBOS Core tests
