@@ -7,6 +7,11 @@ on:
       - '.github/workflows/mb03-deploy-cloud-admission.yml'
       - 'Dockerfile.mb03-admission'
       - 'pbos/tools/mb03-hosted-admission-observation.ts'
+      - 'pbos/boot/pps-canon-snapshot-verifier.ts'
+      - 'tests/hosted-approved-mission.test.ts'
+      - 'tests/hosted-signed-mission-approval.test.ts'
+      - 'tests/mb03-hosted-admission-observation.test.ts'
+      - 'tests/pps-canon-snapshot-verifier.test.ts'
       - 'pbos/production-runtime/operator-readonly-preflight.ts'
       - 'pbos/production-runtime/**'
       - 'pbos/genesis-state/**'
@@ -38,7 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npx vitest run tests/mb03-hosted-admission-observation.test.ts
+          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts
+          npx tsc --noEmit
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
         with:
