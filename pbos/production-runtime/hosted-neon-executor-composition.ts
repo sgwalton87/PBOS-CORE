@@ -10,6 +10,7 @@ import { NeonFencedMissionCheckpoint } from "./neon-fenced-mission-checkpoint";
 import type { HostedExecutionDependencies } from "./hosted-approved-mission";
 
 export interface HostedWorkerIdentity {
+  readonly disposableNamespace: string;
   readonly trustedPublicKeyPem: string;
   readonly verifyConstitution: () => Promise<boolean>;
   readonly verifyWorkloadIdentity: () => Promise<boolean>;
@@ -20,6 +21,7 @@ export function composeHostedNeonExecutor(db: NeonLeaseSql, identity: HostedWork
   const nonces=new NeonMissionApprovalNonceLedger(db);
   const checkpoints=new NeonFencedMissionCheckpoint(db);
   const dependencies: HostedExecutionDependencies={
+    disposableNamespace: identity.disposableNamespace,
     trustedPublicKeyPem:identity.trustedPublicKeyPem,
     canonicalStateVerified:identity.verifyConstitution,
     hostAttested:identity.verifyWorkloadIdentity,

@@ -1,5 +1,5 @@
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -15,7 +15,9 @@ import type { NeonFencedMissionCheckpoint } from "../pbos/production-runtime/neo
 describe("hosted Playbook mission executable", () => {
   function fixture() {
     const keys = generateKeyPairSync("ed25519");
-    const state = new GenesisStateRepository(join(mkdtempSync(join(tmpdir(), "pbos-hosted-executable-")), "state.json"));
+    const namespace = "hosted-fixture";
+    const directory = realpathSync(mkdtempSync(join(tmpdir(), "pbos-hosted-executable-")));
+    const state = GenesisStateRepository.createDisposable(join(directory, "state.json"), namespace);
     const runtime = new ProductionRuntimeService(state);
     const missionId = "mb03-hosted-canary-a";
     const systemId = "PLAYBOOK-SYSTEM-001";
@@ -52,6 +54,7 @@ describe("hosted Playbook mission executable", () => {
       payload.operatorId,payload.scopeDigest,payload.issuedAt,payload.expiresAt,payload.nonce]);
     const approval = { payload, signatureBase64: sign(null, Buffer.from(canonical), keys.privateKey).toString("base64") };
     const admission: HostedExecutionDependencies = {
+      disposableNamespace: namespace,
       trustedPublicKeyPem: keys.publicKey.export({format:"pem",type:"spki"}).toString(),
       canonicalStateVerified: vi.fn(async () => true), hostAttested: vi.fn(async () => true),
       acquireFencedLease: vi.fn(async (resource,ownerId) => ({resource,ownerId,fencingToken:1n})),
@@ -78,9 +81,12 @@ describe("hosted Playbook mission executable", () => {
       runner:f.runner,admission:f.admission,checkpoints:f.checkpoints,github:f.github,
       sealCheckpoint:async bytes=>bytes
     });
-    expect(result.stopReason).toBe("APPROVAL_REQUIRED");
+    expect(result.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
     expect(result.runs).toHaveLength(1);
-    expect(result.runs[0].status).toBe("AWAITING_APPROVAL");
+    expect(result.runs[0].status).toBe("PAUSED");
+    expect(result.runs[0].disposableAttempt).toMatchObject({ namespace: f.admission.disposableNamespace,
+      missionId: f.approval.payload.missionId, attemptId: f.approval.payload.nonce, scopeDigest: f.approval.payload.scopeDigest });
+    expect(f.state.executionLeases().at(-1)?.status).toBe("RELEASED");
     expect(result.runs[0].evidenceIds).toEqual([
       `hosted-proposal:${f.proposal.missionId}:admitted:v1`,
       `hosted-proposal:${f.proposal.missionId}:proposed:v2`
@@ -90,6 +96,19 @@ describe("hosted Playbook mission executable", () => {
     }
     expect(f.commit).toHaveBeenCalledTimes(2);
     expect(f.github.createPullRequest).toHaveBeenCalledOnce();
+    expect(() => f.runner.certify(result.runs[0].runId, "fixture")).toThrow("not awaiting approval");
+  });
+
+  it("rejects the wrong namespace before claiming any lease, nonce or GitHub mutation", async () => {
+    const f = fixture();
+    await expect(executeHostedPlaybookMission({request:f.request,approval:f.approval,proposal:f.proposal}, {
+      runner:f.runner,admission:{...f.admission,disposableNamespace:"wrong"},checkpoints:f.checkpoints,github:f.github,
+      sealCheckpoint:async bytes=>bytes
+    })).rejects.toThrow("signed namespace");
+    expect(f.admission.acquireFencedLease).not.toHaveBeenCalled();
+    expect(f.admission.recordApprovalNonce).not.toHaveBeenCalled();
+    expect(f.state.productionRuns()).toEqual([]);
+    expect(f.github.createBranch).not.toHaveBeenCalled();
   });
 
   it("fails before GitHub mutation when authority or scope is invalid", async () => {

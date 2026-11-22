@@ -3,7 +3,7 @@
  * Deliberately injects persistent storage, attestation, and fenced lease providers;
  * never falls back to local JSON or an in-memory lease in hosted execution.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { ProductionMissionRunner, ProductionMissionRequest, ProductionMissionExecutor, ProductionMissionSequence } from "./production-mission-runner";
 import { MissionQueueItem } from "./contracts";
 import { HostedMissionScope, SignedHostedMissionApproval, verifyHostedMissionApproval } from "./hosted-signed-mission-approval";
@@ -14,6 +14,7 @@ export interface HostedExecutionLease {
   readonly fencingToken: bigint;
 }
 export interface HostedExecutionDependencies {
+  readonly disposableNamespace: string;
   readonly trustedPublicKeyPem: string;
   readonly canonicalStateVerified: () => Promise<boolean>;
   readonly hostAttested: () => Promise<boolean>;
@@ -31,7 +32,8 @@ export async function runHostedApprovedMission(
   missionScope: HostedMissionScope,
   executorFor: (mission: MissionQueueItem, lease: HostedExecutionLease) => ProductionMissionExecutor | undefined
 ): Promise<ProductionMissionSequence> {
-  if (request.autonomousContinuation !== false || request.maximumMissions !== 1 ||
+  if (request.disposableAttempt || request.triggerSource === "CONTINUATION" ||
+      request.autonomousContinuation !== false || request.maximumMissions !== 1 ||
       request.approvedMissionIds?.length !== 1 ||
       request.approvedMissionIds[0] !== approval.payload.missionId) {
     throw new Error("Hosted admission requires one explicitly approved mission and no autonomous continuation.");
@@ -42,6 +44,14 @@ export async function runHostedApprovedMission(
   }, dependencies.trustedPublicKeyPem)) throw new Error("Hosted mission signature or lineage invalid.");
   if (!(await dependencies.canonicalStateVerified())) throw new Error("Canonical Genesis state is not verified.");
   if (!(await dependencies.hostAttested())) throw new Error("Hosted execution identity is not attested.");
+  const attempt = {
+    missionId: approval.payload.missionId,
+    namespace: dependencies.disposableNamespace,
+    attemptId: approval.payload.nonce,
+    approvalDigest: createHash("sha256").update(approval.signatureBase64).digest("hex"),
+    scopeDigest: approval.payload.scopeDigest,
+  };
+  runner.assertHostedDisposableAdmission(request, attempt);
   const resource = `pbos:mission:${request.repository}:${request.approvedMissionIds[0]}`;
   const lease = await dependencies.acquireFencedLease(resource, randomUUID());
   if (!lease || lease.resource !== resource || lease.fencingToken < 1n) {
@@ -58,12 +68,13 @@ export async function runHostedApprovedMission(
   }, 10_000);
   try {
     if (!(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost.");
+    runner.assertHostedDisposableAdmission(request, attempt);
     // Nonce persistence MUST be atomic/unique on the durable host. A false result
     // means replay or storage failure. No mission starts before this succeeds.
     if (!(await dependencies.recordApprovalNonce(approval.payload.nonce, approval.payload.missionId, approval.payload.repository, approval.payload.expiresAt))) {
       throw new Error("Mission approval nonce already consumed or cannot be persisted.");
     }
-    return await runner.run(request, mission => {
+    return await runner.run({ ...request, disposableAttempt: attempt }, mission => {
       const executor = executorFor(mission, lease);
       if (!executor || mission.missionId !== approval.payload.missionId) return undefined;
       return async context => {

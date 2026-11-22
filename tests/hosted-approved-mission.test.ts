@@ -28,21 +28,34 @@ describe("MB03 hosted execution boundary", () => {
   }
   function setup() {
     const run = vi.fn(async () => ({ runs: [], stopReason: "NO_ELIGIBLE_MISSION" as const }));
-    const runner = { run } as unknown as ProductionMissionRunner;
+    const assertHostedDisposableAdmission = vi.fn();
+    const runner = { run, assertHostedDisposableAdmission } as unknown as ProductionMissionRunner;
     const dependencies: HostedExecutionDependencies = {
+      disposableNamespace: "test-hosted",
       trustedPublicKeyPem: pem, canonicalStateVerified: vi.fn(async () => true),
       hostAttested: vi.fn(async () => true),
       acquireFencedLease: vi.fn(async (resource, ownerId) => ({resource,ownerId,fencingToken:1n})),
       assertFencedLease: vi.fn(async () => true), renewFencedLease: vi.fn(async () => true), releaseFencedLease: vi.fn(async () => {}),
       recordApprovalNonce: vi.fn(async () => true)
     };
-    return {run,runner,dependencies};
+    return {run,runner,dependencies,assertHostedDisposableAdmission};
   }
   it("admits a signed single mission with a fenced lease", async () => {
     const s = setup();
     await runHostedApprovedMission(s.runner,request,approval(),s.dependencies,scope,() => undefined);
     expect(s.run).toHaveBeenCalledOnce();
+    expect(s.assertHostedDisposableAdmission).toHaveBeenCalledTimes(2);
     expect(s.dependencies.recordApprovalNonce).toHaveBeenCalledOnce();
+    expect(s.dependencies.releaseFencedLease).toHaveBeenCalledOnce();
+  });
+  it("does not consume a nonce when the queue changes before the fenced admission check", async () => {
+    const s = setup();
+    s.assertHostedDisposableAdmission.mockImplementationOnce(() => undefined).mockImplementationOnce(() => {
+      throw new Error("Queue changed");
+    });
+    await expect(runHostedApprovedMission(s.runner, request, approval(), s.dependencies, scope, () => undefined))
+      .rejects.toThrow("Queue changed");
+    expect(s.dependencies.recordApprovalNonce).not.toHaveBeenCalled();
     expect(s.dependencies.releaseFencedLease).toHaveBeenCalledOnce();
   });
   it("blocks unverified Genesis and does not acquire a lease", async () => {
