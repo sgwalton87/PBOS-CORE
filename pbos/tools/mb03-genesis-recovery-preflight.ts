@@ -4,7 +4,7 @@
  * Execute before any hosted worker is allowed to acquire a mission lease.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -15,8 +15,8 @@ const fail = (reason: string): never => {
   process.exit(2);
 };
 if (!existsSync(file)) fail("CANONICAL_GENESIS_STATE_NOT_FOUND: do not initialize or replace it");
-const metadata = statSync(file);
-if (!metadata.isFile() || metadata.size === 0) fail("CANONICAL_GENESIS_STATE_EMPTY_OR_NOT_FILE");
+const metadata = lstatSync(file);
+if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size === 0) fail("CANONICAL_GENESIS_STATE_EMPTY_OR_NOT_FILE");
 if ((metadata.mode & 0o077) !== 0) fail("CANONICAL_GENESIS_STATE_PERMISSIONS_TOO_BROAD");
 const bytes = readFileSync(file);
 let state: unknown;
