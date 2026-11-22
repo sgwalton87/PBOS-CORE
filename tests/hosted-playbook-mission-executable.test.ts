@@ -34,8 +34,8 @@ describe("hosted Playbook mission executable", () => {
       branch: proposal.branch, path: proposal.path,
       contentSha256: createHash("sha256").update(content).digest("hex")
     };
-    const request = {
-      systemId, actorId: "operator-1", authorizationArtifactId: "hosted-signed-approval",
+    const requestBase = {
+      systemId, actorId: "operator-1",
       repository: proposal.repository, branch: "main", commit: baseSha,
       approvedMissionIds: [missionId], maximumMissions: 1, autonomousContinuation: false,
       buildChannel: { channelId: "playbook-hosted", systemId, operatingSystemId: "PBOS",
@@ -43,10 +43,11 @@ describe("hosted Playbook mission executable", () => {
     };
     const payload = {
       schema: "pbos.hosted-mission-approval.v1" as const, missionId, repository: proposal.repository,
-      commit: baseSha, operatorId: request.actorId, scopeDigest: hostedMissionScopeDigest(scope),
+      commit: baseSha, operatorId: requestBase.actorId, scopeDigest: hostedMissionScopeDigest(scope),
       issuedAt: new Date(Date.now() - 1000).toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString(),
       nonce: randomUUID()
     };
+    const request = {...requestBase,authorizationArtifactId:`hosted-approval:${payload.nonce}`};
     const canonical = JSON.stringify([payload.schema,payload.missionId,payload.repository,payload.commit,
       payload.operatorId,payload.scopeDigest,payload.issuedAt,payload.expiresAt,payload.nonce]);
     const approval = { payload, signatureBase64: sign(null, Buffer.from(canonical), keys.privateKey).toString("base64") };
@@ -60,6 +61,7 @@ describe("hosted Playbook mission executable", () => {
     let branchCreated = false;
     const github: GitHubPrApi = {
       getBranchSha: vi.fn(async (_repo,branch) => branch === "main" ? baseSha : (branchCreated ? "c".repeat(40) : Promise.reject(new Error("GITHUB_BRANCH_NOT_FOUND")))),
+      getFileContent: vi.fn(async () => content),
       createBranch: vi.fn(async () => { branchCreated = true; }), createFile: vi.fn(async () => undefined),
       createPullRequest: vi.fn(async () => ({url:"https://github.com/sgwalton87/playbook-platform/pull/999",number:999})),
       findPullRequest: vi.fn(async () => null)

@@ -17,5 +17,12 @@ describe("GitHub App Playbook transport",()=>{
   await expect(api.createPullRequest("other/repo","pbos/mission-smoke1","main","Smoke","Evidence")).rejects.toThrow("allowlisted");
   expect(fetcher).not.toHaveBeenCalled();
  });
+ it("reads only the bounded mission file and validates its base64 encoding",async()=>{
+  const content="exact signed content";
+  const fetcher=vi.fn(async(_url:string,_options?:RequestInit)=>new Response(JSON.stringify({encoding:"base64",content:Buffer.from(content).toString("base64")}),{status:200}));
+  const api=new GitHubAppPlaybookPrApi("test-installation-token",fetcher as unknown as typeof fetch);
+  await expect(api.getFileContent("sgwalton87/playbook-platform","pbos/mission-smoke1","docs/pbos-missions/smoke1.md")).resolves.toBe(content);
+  expect(fetcher.mock.calls[0][0]).toContain("/contents/docs/pbos-missions/smoke1.md?ref=pbos%2Fmission-smoke1");
+ });
  it("rejects missing installation token",()=>expect(()=>new GitHubAppPlaybookPrApi("")).toThrow("token"));
 });

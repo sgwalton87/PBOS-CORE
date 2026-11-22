@@ -31,6 +31,16 @@ export class GitHubAppPlaybookPrApi implements GitHubPrApi {
     if(typeof sha!=="string"||!/^[a-f0-9]{40}$/i.test(sha))throw new Error("GitHub ref SHA invalid.");
     return sha;
   }
+  async getFileContent(repository:string,branch:string,path:string):Promise<string> {
+    if(!/^pbos\/mission-[a-zA-Z0-9_-]{1,90}$/.test(branch)||
+      !/^docs\/pbos-missions\/[a-zA-Z0-9_-]+\.md$/.test(path))throw new Error("GitHub file read is not allowlisted.");
+    const j=await this.api("GET",`${this.repo(repository)}/contents/${path}?ref=${encodeURIComponent(branch)}`);
+    if(j.encoding!=="base64"||typeof j.content!=="string"||j.content.length>30000)throw new Error("GitHub file response invalid.");
+    const compact=j.content.replace(/\s/g,"");
+    const decoded=Buffer.from(compact,"base64");
+    if(decoded.toString("base64")!==compact)throw new Error("GitHub file response encoding invalid.");
+    return decoded.toString("utf8");
+  }
   async createBranch(repository:string,branch:string,fromSha:string):Promise<void> {
     if(!/^pbos\/mission-[a-zA-Z0-9_-]{1,90}$/.test(branch)||!/^[a-f0-9]{40}$/i.test(fromSha))throw new Error("Branch mutation invalid.");
     await this.api("POST",`${this.repo(repository)}/git/refs`,{ref:`refs/heads/${branch}`,sha:fromSha});

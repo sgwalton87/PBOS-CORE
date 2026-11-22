@@ -56,6 +56,7 @@ function assertExactInput(input: HostedPlaybookMissionInput): void {
       proposal.missionId !== approval.payload.missionId ||
       request.approvedMissionIds?.length !== 1 ||
       request.approvedMissionIds[0] !== proposal.missionId ||
+      request.authorizationArtifactId !== `hosted-approval:${approval.payload.nonce}` ||
       request.branch !== "main" ||
       request.autonomousContinuation !== false ||
       request.maximumMissions !== 1) {

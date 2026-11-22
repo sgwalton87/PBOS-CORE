@@ -5,6 +5,7 @@ const input:FencedPrInput={repository:"sgwalton87/playbook-platform",baseSha:"a"
 function setup() {
  const api={
    getBranchSha:vi.fn(async (_repo:string,branch:string)=>{if(branch==="main")return input.baseSha;throw new Error("GITHUB_BRANCH_NOT_FOUND");}),
+   getFileContent:vi.fn(async()=>input.content),
    createBranch:vi.fn(async()=>{}),createFile:vi.fn(async()=>{}),
    createPullRequest:vi.fn(async()=>({url:"https://github.com/sgwalton87/playbook-platform/pull/123",number:123})),
    findPullRequest:vi.fn(async():Promise<{url:string;number:number}|null>=>null)
@@ -41,5 +42,11 @@ describe("bounded Playbook PR executor",()=>{
    await createFencedPlaybookPr(api,lease,async()=>true,input);
    expect(api.createBranch).not.toHaveBeenCalled();
    expect(api.createFile).not.toHaveBeenCalled();
+ });
+ it("rejects an existing PR whose file differs from the signed content",async()=>{
+   const api=setup();api.findPullRequest.mockImplementation(async()=>({url:"https://github.com/sgwalton87/playbook-platform/pull/123",number:123}));
+   api.getFileContent.mockImplementation(async()=>"stale content");
+   await expect(createFencedPlaybookPr(api,lease,async()=>true,input)).rejects.toThrow("differs");
+   expect(api.createBranch).not.toHaveBeenCalled();
  });
 });
