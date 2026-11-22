@@ -1,31 +1,58 @@
-name: MB-03 Hosted Recovery Admission (read-only)
+name: MB-03 Remote Executor Admission Rehearsal
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/mb03-hosted-admission.yml'
+      - 'pbos/tools/mb03-hosted-admission-observation.ts'
+      - 'pbos/tools/mb03-genesis-recovery-preflight.ts'
+      - 'pbos/production-runtime/operator-readonly-preflight.ts'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: mb03-hosted-admission
+  group: mb03-hosted-admission-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  admission:
+  fail-closed-rehearsal:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - name: Checkout candidate (no production credentials)
+      - name: Checkout exact candidate
         uses: actions/checkout@v4
-      - name: Node
+      - name: Configure Node
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
       - name: Install locked dependencies
         run: npm ci
-      - name: Inspect existing operator state without initialization
+      - name: Execute admission check in isolated remote runner
+        id: admission
+        shell: bash
         run: |
-          npm run pbos:preflight:readonly
-      - name: Admission gate (never grants mission authority)
+          mkdir -p "$RUNNER_TEMP/mb03-evidence"
+          set +e
+          npx tsx pbos/tools/mb03-hosted-admission-observation.ts > "$RUNNER_TEMP/mb03-evidence/admission.json" 2>&1
+          result=$?
+          set -e
+          echo "exit_code=$result" >> "$GITHUB_OUTPUT"
+          if [ "$result" -ne 2 ]; then
+            echo "Expected fail-closed exit 2 on a runner without operator-private state; received $result" >&2
+            exit 1
+          fi
+          node -e 'const fs=require("fs");const p=process.argv[1];const r=JSON.parse(fs.readFileSync(p,"utf8"));if(r.status!=="BLOCKED"||r.missionExecutionAuthorized!==false)process.exit(1)' "$RUNNER_TEMP/mb03-evidence/admission.json"
+          printf '{"repository":"%s","sha":"%s","run_id":"%s","result":"EXPECTED_BLOCKED","mission_execution_authorized":false}\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/mb03-evidence/receipt.json"
+      - name: Publish remote execution receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mb03-admission-rehearsal-${{ github.run_id }}
+          path: ${{ runner.temp }}/mb03-evidence/
+          retention-days: 14
+      - name: Assert no mission executed
         run: |
-          npx tsx pbos/tools/mb03-hosted-admission-observation.ts
+          test "${{ steps.admission.outputs.exit_code }}" = "2"
+          echo "Remote admission executed; intentionally blocked without canonical state and signed approval."
