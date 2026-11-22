@@ -22,13 +22,17 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Build isolated admission image in Google Cloud
+      - name: Build and push admission image directly from GitHub runner
         shell: bash
         run: |
           set -euo pipefail
-          gcloud config set project pbos-genesis-staging
+          IMAGE="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
+          # Avoid Cloud Build source-bucket upload entirely. Use the repository-scoped
+          # Artifact Registry Writer grant already configured for this identity.
           gcloud artifacts repositories describe pbos-executor --location=us-west1 --project=pbos-genesis-staging --format='value(name)'
-          gcloud builds submit . --region=us-west1 --config=cloudbuild.mb03-admission.yaml --substitutions="_IMAGE=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+          docker build --file Dockerfile.mb03-admission --tag "${IMAGE}" .
+          docker push "${IMAGE}"
       - name: Deploy a disabled-by-default admission job (never executes a mission)
         shell: bash
         run: |
