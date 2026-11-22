@@ -12,7 +12,6 @@ BEGIN
      OR p_ttl_seconds IS NULL THEN
     RAISE EXCEPTION 'Invalid execution lease request';
   END IF;
-  RETURN QUERY
   INSERT INTO pbos_runner.execution_lease
     (resource, owner_id, fencing_token, expires_at, updated_at)
   VALUES (p_resource, p_owner, 1, clock_timestamp() + make_interval(secs => p_ttl_seconds), clock_timestamp())
