@@ -20,25 +20,39 @@ const browserVerifiedDimensions = ["ROUTE", "DURABLE_DATA", "AUTHORITY", "PBOS_I
 
 export interface CanonPhaseImplementationRequest { readonly missionId: string; readonly title: string; readonly rationale: string;
     readonly repository: string; readonly revision: string; readonly workingDirectory: string; readonly manifestPath: string;
-    readonly report?: (message: string) => void; }
+    readonly disposableCore?: Readonly<{ allowedPaths: readonly string[]; home: string; codexHome: string; temporaryDirectory: string }>;
+    readonly report?: (message: string) => void; readonly signal?: AbortSignal; }
 export interface CanonPhaseImplementationAgent { execute(request: CanonPhaseImplementationRequest): Promise<Readonly<{ summary: string }>>; }
 
 export interface CodexWorkerProcess { run(args: readonly string[], workingDirectory: string,
-    onActivity: (event: string) => void, timeoutMs: number): Promise<Readonly<{ stdout: string; stderr: string }>>; }
+    onActivity: (event: string) => void, timeoutMs: number, signal?: AbortSignal): Promise<Readonly<{ stdout: string; stderr: string }>>; }
 
 export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
+    constructor(private readonly isolatedHome?: Readonly<{ home: string; codexHome: string; temporaryDirectory: string }>) {}
+
     run(args: readonly string[], workingDirectory: string, onActivity: (event: string) => void,
-        timeoutMs: number): Promise<Readonly<{ stdout: string; stderr: string }>> {
+        timeoutMs: number, signal?: AbortSignal): Promise<Readonly<{ stdout: string; stderr: string }>> {
         return new Promise((resolvePromise, reject) => {
+            signal?.throwIfAborted();
             const inherited = process.env; const environment: NodeJS.ProcessEnv = {};
             ["PATH", "HOME", "CODEX_HOME", "TMPDIR", "LANG", "LC_ALL", "USER", "SHELL"].forEach(name => {
                 if (inherited[name]) environment[name] = inherited[name];
             });
+            if (this.isolatedHome) {
+                environment.HOME = this.isolatedHome.home;
+                environment.CODEX_HOME = this.isolatedHome.codexHome;
+                environment.TMPDIR = this.isolatedHome.temporaryDirectory;
+            }
             const child = spawn("codex", [...args], { cwd: workingDirectory, env: environment, stdio: ["ignore", "pipe", "pipe"] });
             let stdout = ""; let stderr = ""; let settled = false; let activitySeen = false; let lastActivity = Date.now();
             let deadline: NodeJS.Timeout | undefined; let progress: NodeJS.Timeout | undefined;
+            const abort = (): void => {
+                child.kill("SIGKILL");
+                finish(new Error("Disposable Codex worker cancelled."));
+            };
             const finish = (error?: Error): void => {
                 if (settled) return; settled = true; if (deadline) clearTimeout(deadline); if (progress) clearInterval(progress);
+                signal?.removeEventListener("abort", abort);
                 if (error) reject(error); else resolvePromise({ stdout, stderr });
             };
             const observe = (stream: "stdout" | "stderr", chunk: Buffer): void => {
@@ -54,7 +68,9 @@ export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
             };
             child.stdout.on("data", chunk => observe("stdout", chunk)); child.stderr.on("data", chunk => observe("stderr", chunk));
             child.on("error", error => finish(error)); child.on("close", code => finish(code === 0 ? undefined
-                : new Error(`Codex worker exited ${code ?? "without a code"}: ${stderr.slice(-4_000)}`)));
+                : new Error(this.isolatedHome ? `Disposable Codex worker exited ${code ?? "without a code"}.`
+                    : `Codex worker exited ${code ?? "without a code"}: ${stderr.slice(-4_000)}`)));
+            signal?.addEventListener("abort", abort, { once: true });
             deadline = setTimeout(() => { child.kill("SIGTERM"); finish(new Error(`Codex worker exceeded ${timeoutMs}ms.`)); }, timeoutMs);
             progress = setInterval(() => {
                 const idle = Date.now() - lastActivity;
@@ -67,8 +83,18 @@ export class SpawnCodexWorkerProcess implements CodexWorkerProcess {
 }
 
 export class CodexCanonPhaseImplementationAgent implements CanonPhaseImplementationAgent {
-    constructor(private readonly process: CodexWorkerProcess = new SpawnCodexWorkerProcess()) {}
+    constructor(private readonly process?: CodexWorkerProcess) {}
     async execute(request: CanonPhaseImplementationRequest): Promise<Readonly<{ summary: string }>> {
+        if (request.disposableCore) {
+            const { allowedPaths } = request.disposableCore;
+            const prompt = `You are the bounded PBOS implementation worker for ${request.repository}@${request.revision}.
+Execute only mission ${request.missionId}: ${request.title}.
+Reason: ${request.rationale}
+Read applicable repository instructions. Edit only these exact tracked files: ${JSON.stringify(allowedPaths)}.
+Do not modify Git metadata, state, credentials, or any other path. Do not create files, stage, commit, push, open a PR, merge, or deploy.
+Leave the scoped edit unstaged and summarize the diff and any checks you actually ran. PBOS runs independent tests and scope verification.`;
+            return this.runWorker(request, prompt, this.process ?? new SpawnCodexWorkerProcess(request.disposableCore));
+        }
         const journeyId = request.missionId.toUpperCase();
         const artifactRoot = `artifacts/pbos-acceptance/${request.missionId}`;
         const prompt = `You are the bounded PBOS implementation worker for ${request.repository}@${request.revision}.
@@ -87,10 +113,20 @@ Create or update one Playwright acceptance spec that exercises real desktop and 
 Update only canonical checklist or roadmap items proven by this package and recalculate affected percentages honestly. Do not set completionClaim true while any mission-scoped item remains. Write ${request.manifestPath} as JSON with:
 {"schemaVersion":1,"missionId":"${request.missionId}","completionClaim":true,"completedItems":["exact checklist item"],"remainingItems":["still unfinished"],"routes":["/concrete-route"],"browserSpec":"tests/acceptance/spec.ts","acceptance":[{"dimension":"ROUTE","behavior":"specific behavior","artifact":"path","source":"IMPLEMENTATION"}]}
 completionClaim means the selected implementation package is ready for PBOS Kernel's later exact-revision functional acceptance; it is not certification and does not claim that protected or external acceptance has already run. Do not withhold implementation completion merely because PBOS_ACCEPTANCE_COMMIT, protected credentials, a live preview, or external providers are unavailable inside this secret-isolated worker. PBOS Kernel owns those later gates. Do withhold completion when scoped behavior, local deterministic validation, the browser specification, or required implementation artifacts are incomplete. completedItems must be nonempty. For phase missions they must exactly match checklist items moved to complete; for OS, onboarding, or domain missions they must name the exact canon-scoped behaviors completed. remainingItems must be empty whenever completionClaim is true. Acceptance must contain all of: ${requiredDimensions.join(", ")}. Every referenced implementation artifact must exist. Never claim evidence you did not execute.`;
-        const result = await this.process.run(["exec", "--ephemeral", "--json", "--sandbox", "workspace-write",
-            "--config", 'approval_policy="never"', "--color", "never",
+        return this.runWorker(request, prompt, this.process ?? new SpawnCodexWorkerProcess());
+    }
+
+    private async runWorker(request: CanonPhaseImplementationRequest, prompt: string,
+        worker: CodexWorkerProcess): Promise<Readonly<{ summary: string }>> {
+        const result = await worker.run(["exec", "--ephemeral", "--json", "--sandbox", "workspace-write",
+            "--config", 'approval_policy="never"',
+            ...(request.disposableCore ? ["--config", 'cli_auth_credentials_store="file"',
+                "--config", "sandbox_workspace_write.exclude_slash_tmp=true",
+                "--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+                "--config", "sandbox_workspace_write.network_access=false"] : []),
+            "--color", "never",
             "--cd", request.workingDirectory, prompt], request.workingDirectory,
-        message => request.report?.(message), 45 * 60 * 1000);
+        message => request.report?.(message), 45 * 60 * 1000, request.signal);
         return { summary: result.stdout.slice(-20_000) };
     }
 }

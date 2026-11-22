@@ -4,7 +4,19 @@
  * canonical Genesis identity, durable state, fenced lease, and host attestation
  * must be verified separately. No signing key is generated or stored here.
  */
-import { createPublicKey, verify } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
+
+export interface HostedMissionScope {
+  readonly branch: string;
+  readonly path: string;
+  readonly contentSha256: string;
+}
+
+export function hostedMissionScopeDigest(scope: HostedMissionScope): string {
+  return createHash("sha256").update(JSON.stringify([
+    scope.branch, scope.path, scope.contentSha256
+  ])).digest("hex");
+}
 
 export interface SignedHostedMissionApproval {
   readonly payload: {
@@ -13,6 +25,7 @@ export interface SignedHostedMissionApproval {
     readonly repository: string;
     readonly commit: string;
     readonly operatorId: string;
+    readonly scopeDigest: string;
     readonly issuedAt: string;
     readonly expiresAt: string;
     readonly nonce: string;
@@ -24,6 +37,7 @@ export interface HostedMissionLineage {
   readonly repository: string;
   readonly commit: string;
   readonly operatorId: string;
+  readonly scope: HostedMissionScope;
 }
 export function verifyHostedMissionApproval(
   approval: SignedHostedMissionApproval,
@@ -40,7 +54,9 @@ export function verifyHostedMissionApproval(
         p.missionId !== expected.missionId ||
         p.repository !== expected.repository ||
         p.commit !== expected.commit ||
-        p.operatorId !== expected.operatorId) return false;
+        p.operatorId !== expected.operatorId ||
+        !/^[a-f0-9]{64}$/.test(p.scopeDigest) ||
+        p.scopeDigest !== hostedMissionScopeDigest(expected.scope)) return false;
     const issued = Date.parse(p.issuedAt);
     const expires = Date.parse(p.expiresAt);
     if (!Number.isFinite(issued) || !Number.isFinite(expires) ||
@@ -51,7 +67,7 @@ export function verifyHostedMissionApproval(
     if (key.asymmetricKeyType !== "ed25519") return false;
     const canonical = JSON.stringify([
       p.schema, p.missionId, p.repository, p.commit, p.operatorId,
-      p.issuedAt, p.expiresAt, p.nonce
+      p.scopeDigest, p.issuedAt, p.expiresAt, p.nonce
     ]);
     return verify(null, Buffer.from(canonical, "utf8"), key,
       Buffer.from(approval.signatureBase64, "base64"));

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { runHostedApprovedMission, HostedExecutionDependencies } from "../pbos/production-runtime/hosted-approved-mission";
+import { hostedMissionScopeDigest } from "../pbos/production-runtime/hosted-signed-mission-approval";
 import type { ProductionMissionRunner, ProductionMissionRequest } from "../pbos/production-runtime/production-mission-runner";
 
 describe("MB03 hosted execution boundary", () => {
@@ -13,15 +14,16 @@ describe("MB03 hosted execution boundary", () => {
     buildChannel: { channelId: "channel", systemId: "test", operatingSystemId: "pbos",
       connectorId: "github", repository: "sgwalton87/PBOS-CORE", domainRegistrationIds: ["test"] }
   } as ProductionMissionRequest;
+  const scope = { branch: "pbos/mission-mission-1", path: "docs/pbos-missions/mission-1.md", contentSha256: "b".repeat(64) };
   const payload = () => ({
     schema: "pbos.hosted-mission-approval.v1" as const,
     missionId: "mission-1", repository: request.repository, commit: request.commit,
-    operatorId: request.actorId, issuedAt: new Date(Date.now() - 60_000).toISOString(),
+    operatorId: request.actorId, scopeDigest: hostedMissionScopeDigest(scope), issuedAt: new Date(Date.now() - 60_000).toISOString(),
     expiresAt: new Date(Date.now() + 60_000).toISOString(), nonce: randomUUID()
   });
   function approval() {
     const p = payload();
-    const data = JSON.stringify([p.schema,p.missionId,p.repository,p.commit,p.operatorId,p.issuedAt,p.expiresAt,p.nonce]);
+    const data = JSON.stringify([p.schema,p.missionId,p.repository,p.commit,p.operatorId,p.scopeDigest,p.issuedAt,p.expiresAt,p.nonce]);
     return { payload: p, signatureBase64: sign(null, Buffer.from(data), keys.privateKey).toString("base64") };
   }
   function setup() {
@@ -38,7 +40,7 @@ describe("MB03 hosted execution boundary", () => {
   }
   it("admits a signed single mission with a fenced lease", async () => {
     const s = setup();
-    await runHostedApprovedMission(s.runner,request,approval(),s.dependencies,() => undefined);
+    await runHostedApprovedMission(s.runner,request,approval(),s.dependencies,scope,() => undefined);
     expect(s.run).toHaveBeenCalledOnce();
     expect(s.dependencies.recordApprovalNonce).toHaveBeenCalledOnce();
     expect(s.dependencies.releaseFencedLease).toHaveBeenCalledOnce();
@@ -46,22 +48,22 @@ describe("MB03 hosted execution boundary", () => {
   it("blocks unverified Genesis and does not acquire a lease", async () => {
     const s = setup();
     const blocked = { ...s.dependencies, canonicalStateVerified: async () => false };
-    await expect(runHostedApprovedMission(s.runner,request,approval(),blocked,() => undefined)).rejects.toThrow("Genesis");
+    await expect(runHostedApprovedMission(s.runner,request,approval(),blocked,scope,() => undefined)).rejects.toThrow("Genesis");
     expect(s.run).not.toHaveBeenCalled();
     expect(s.dependencies.acquireFencedLease).not.toHaveBeenCalled();
   });
   it("blocks lease loss and releases the lease", async () => {
     const s = setup();
     const lost = { ...s.dependencies, assertFencedLease: async () => false };
-    await expect(runHostedApprovedMission(s.runner,request,approval(),lost,() => undefined)).rejects.toThrow("lease");
+    await expect(runHostedApprovedMission(s.runner,request,approval(),lost,scope,() => undefined)).rejects.toThrow("lease");
     expect(s.run).not.toHaveBeenCalled();
     expect(s.dependencies.releaseFencedLease).toHaveBeenCalledOnce();
   });
   it("blocks replayed approval and continuation", async () => {
     const s = setup();
     const replay = { ...s.dependencies, recordApprovalNonce: async () => false };
-    await expect(runHostedApprovedMission(s.runner,request,approval(),replay,() => undefined)).rejects.toThrow("nonce");
-    await expect(runHostedApprovedMission(s.runner,{...request,autonomousContinuation:true},approval(),s.dependencies,() => undefined)).rejects.toThrow("one explicitly");
+    await expect(runHostedApprovedMission(s.runner,request,approval(),replay,scope,() => undefined)).rejects.toThrow("nonce");
+    await expect(runHostedApprovedMission(s.runner,{...request,autonomousContinuation:true},approval(),s.dependencies,scope,() => undefined)).rejects.toThrow("one explicitly");
     expect(s.run).not.toHaveBeenCalled();
   });
 });

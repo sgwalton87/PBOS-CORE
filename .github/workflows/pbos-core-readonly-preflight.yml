@@ -38,6 +38,8 @@ jobs:
         run: npm run typecheck
       - name: Unit and integration tests
         run: npm run test:run
+      - name: MB-02 disposable worktree and signed worker admission regression
+        run: npx vitest run pbos/master-builder/tests/disposable-worker-handoff.test.ts pbos/master-builder/tests/disposable-runner-integration.test.ts pbos/master-builder/tests/disposable-cycle-evidence.test.ts pbos/master-builder/tests/disposable-change-boundary.test.ts
       - name: Build
         run: npm run build
       - name: Record no-authority boundary

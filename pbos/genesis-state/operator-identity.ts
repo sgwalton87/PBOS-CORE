@@ -29,7 +29,7 @@ export interface VerifiableApproval {
     readonly signature: string;
 }
 
-interface OperatorState { readonly operators: readonly OperatorIdentity[]; }
+interface OperatorState { readonly operators: readonly OperatorIdentity[]; readonly revokedApprovalIds?: readonly string[]; }
 
 export class OperatorIdentityService {
     private readonly state: JsonStateStore<OperatorState>;
@@ -47,7 +47,7 @@ export class OperatorIdentityService {
             credentialHash: this.hash(credential), signingKey: randomBytes(32).toString("base64url"),
             active: true, createdAt: new Date().toISOString()
         };
-        this.state.update(current => ({ operators: [...current.operators, identity] }));
+        this.state.update(current => ({ ...current, operators: [...current.operators, identity] }));
         return { operator: this.publicIdentity(identity), credential };
     }
 
@@ -63,7 +63,7 @@ export class OperatorIdentityService {
 
     approve(operator: AuthenticatedOperator, action: string, resource: string, durationMinutes = 30): VerifiableApproval {
         const identity = this.find(operator.operatorId);
-        if (identity.organizationId !== operator.organizationId || durationMinutes <= 0) throw new Error("Invalid approval authority.");
+        if (!identity.active || identity.organizationId !== operator.organizationId || !Number.isFinite(durationMinutes) || durationMinutes <= 0) throw new Error("Invalid approval authority.");
         const approval = {
             approvalId: randomUUID(), operatorId: identity.operatorId, organizationId: identity.organizationId,
             action, resource, issuedAt: new Date().toISOString(),
@@ -73,8 +73,25 @@ export class OperatorIdentityService {
     }
 
     verify(approval: VerifiableApproval, action: string, resource: string, at = new Date()): boolean {
-        const identity = this.find(approval.operatorId);
-        if (!identity.active || approval.action !== action || approval.resource !== resource || new Date(approval.expiresAt) <= at) return false;
+        return this.verifyInState(this.state.read(), approval, action, resource, at);
+    }
+
+    revokeApproval(operator: AuthenticatedOperator, approval: VerifiableApproval): void {
+        this.state.update(state => {
+            if (approval.operatorId !== operator.operatorId || approval.organizationId !== operator.organizationId ||
+                !this.verifyInState(state, approval, approval.action, approval.resource, new Date())) {
+                throw new Error("Only the authorized issuer can revoke an active signed approval.");
+            }
+            return { ...state, revokedApprovalIds: [...(state.revokedApprovalIds ?? []), approval.approvalId] };
+        });
+    }
+
+    private verifyInState(state: OperatorState, approval: VerifiableApproval, action: string, resource: string, at: Date): boolean {
+        const identity = state.operators.find(candidate => candidate.operatorId === approval.operatorId);
+        if (!identity?.active || identity.organizationId !== approval.organizationId ||
+            state.revokedApprovalIds?.includes(approval.approvalId) || approval.action !== action ||
+            approval.resource !== resource || !(Date.parse(approval.issuedAt) <= at.getTime()) ||
+            !(Date.parse(approval.expiresAt) > at.getTime())) return false;
         const { signature, ...unsigned } = approval;
         const actual = Buffer.from(signature);
         const expected = Buffer.from(this.sign(identity.signingKey, unsigned));

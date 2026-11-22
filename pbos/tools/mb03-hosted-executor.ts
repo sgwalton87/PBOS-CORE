@@ -1,0 +1,212 @@
+/**
+ * Hosted Playbook draft-PR command. This is the mutation boundary: it requires an
+ * exact signed mission envelope, private canonical state, verified PPS Canon,
+ * Google workload identity, durable Neon fencing, and a scoped GitHub App token.
+ */
+import { createCipheriv, createHash, createPublicKey, randomBytes } from "node:crypto";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import { resolve } from "node:path";
+import { neon } from "@neondatabase/serverless";
+import { GenesisStateRepository } from "../genesis-state";
+import { verifyPpsCanon } from "../boot/pps-canon-snapshot-verifier";
+import { ProductionMissionRunner } from "../production-runtime/production-mission-runner";
+import { ProductionRuntimeService } from "../production-runtime/production-runtime-service";
+import { composeHostedNeonExecutor } from "../production-runtime/hosted-neon-executor-composition";
+import { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playbook-pr-api";
+import { executeHostedPlaybookMission, type HostedPlaybookMissionInput } from "../production-runtime/hosted-playbook-mission-executable";
+import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
+import { verifyHostedNeonReadiness } from "../production-runtime/hosted-neon-readiness";
+import { verifyHostedCanonArchive } from "../production-runtime/hosted-canon-archive";
+import { generateHostedPlaybookProposal } from "../master-builder/hosted-playbook-proposal";
+
+const REQUIRED = [
+  "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY", "PBOS_PPS_MANIFEST_SHA256",
+  "PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_APPROVAL_PUBLIC_KEY_SHA256", "PBOS_GITHUB_APP_INSTALLATION_TOKEN",
+  "PBOS_CHECKPOINT_KEY_BASE64", "PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT", "PBOS_MISSION_INPUT_FILE"
+] as const;
+
+export type HostedExecutorEnvironment = Record<(typeof REQUIRED)[number], string>;
+
+export function requireHostedExecutorEnvironment(env: NodeJS.ProcessEnv): HostedExecutorEnvironment {
+  const missing = REQUIRED.filter(name => !env[name]?.trim());
+  if (missing.length) throw new Error(`Hosted executor configuration missing: ${missing.join(", ")}`);
+  const config = Object.fromEntries(REQUIRED.map(name => [name, env[name]!.trim()])) as HostedExecutorEnvironment;
+  if (!/^[a-f0-9]{64}$/.test(config.PBOS_PPS_MANIFEST_SHA256)) {
+    throw new Error("Invalid PBOS_PPS_MANIFEST_SHA256.");
+  }
+  if (!/^[a-f0-9]{64}$/.test(config.PBOS_APPROVAL_PUBLIC_KEY_SHA256)) {
+    throw new Error("Invalid PBOS_APPROVAL_PUBLIC_KEY_SHA256.");
+  }
+  return config;
+}
+
+export function verifyHostedOperatorKey(pem: string, expectedSha256: string): string {
+  const publicPem = pem.trim();
+  if (!/^-----BEGIN PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+\r?\n-----END PUBLIC KEY-----$/.test(publicPem)) {
+    throw new Error("Hosted operator verification requires an SPKI public key only.");
+  }
+  const key = createPublicKey(publicPem);
+  if (key.asymmetricKeyType !== "ed25519") throw new Error("Hosted operator key must be Ed25519.");
+  const spki = key.export({ type: "spki", format: "der" });
+  if (createHash("sha256").update(spki).digest("hex") !== expectedSha256) {
+    throw new Error("Hosted operator key does not match the approved fingerprint.");
+  }
+  return publicPem;
+}
+
+async function readBoundedFile(path: string, maximumBytes: number): Promise<Buffer> {
+  const canonical = resolve(path);
+  const [actual, stat] = await Promise.all([realpath(canonical), lstat(canonical)]);
+  if (actual !== canonical || !stat.isFile() || stat.isSymbolicLink() || stat.size < 1 || stat.size > maximumBytes) {
+    throw new Error("Hosted executor input file is missing, unsafe, or exceeds its bound.");
+  }
+  return readFile(canonical);
+}
+
+export async function verifyGoogleWorkloadIdentity(
+  expectedServiceAccount: string,
+  request: typeof fetch = fetch,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<boolean> {
+  if (env.CLOUD_RUN_JOB !== "pbos-genesis-admission" || !expectedServiceAccount.endsWith(".iam.gserviceaccount.com")) return false;
+  try {
+    const response = await request(
+      "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
+      { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(3000) }
+    );
+    if (!response.ok || response.headers.get("metadata-flavor") !== "Google") return false;
+    return (await response.text()).trim() === expectedServiceAccount;
+  } catch { return false; }
+}
+
+export function checkpointSealer(keyBase64: string): (plaintext: Uint8Array) => Promise<Uint8Array> {
+  const key = Buffer.from(keyBase64, "base64");
+  if (key.length !== 32 || key.toString("base64") !== keyBase64) throw new Error("Checkpoint encryption key must be canonical 256-bit base64.");
+  return async plaintext => {
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), ciphertext]);
+  };
+}
+
+export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): Promise<Readonly<Record<string, unknown>>> {
+  const config = requireHostedExecutorEnvironment(env);
+  await verifyHostedExecutorBindings(env);
+  const [publicKey, inputBytes] = await Promise.all([
+    readBoundedFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384),
+    readBoundedFile(config.PBOS_MISSION_INPUT_FILE, 128 * 1024)
+  ]);
+  const trustedPublicKeyPem = verifyHostedOperatorKey(publicKey.toString("utf8"), config.PBOS_APPROVAL_PUBLIC_KEY_SHA256);
+  const input = JSON.parse(inputBytes.toString("utf8")) as Pick<HostedPlaybookMissionInput, "request" | "approval">;
+  if (Object.hasOwn(input, "proposal")) throw new Error("Hosted mission envelopes cannot supply proposal content.");
+  const github = new GitHubAppPlaybookPrApi(config.PBOS_GITHUB_APP_INSTALLATION_TOKEN);
+  const generated = await generateHostedPlaybookProposal(input.approval.payload.missionId, input.request.commit,
+    config.PBOS_PPS_MANIFEST_SHA256, (path, sha) => github.readPinnedProposalSource(path, sha));
+  const state = new GenesisStateRepository(config.PBOS_STATE_FILE, config.PBOS_STATE_NAMESPACE);
+  const runtime = new ProductionRuntimeService(state);
+  const sql = neon(config.PBOS_DATABASE_URL, { fullResults: true });
+  const db: NeonLeaseSql = {
+    async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
+      const result = await sql.query(query, [...params]);
+      return { rows: result.rows as T[] };
+    }
+  };
+  const composed = composeHostedNeonExecutor(db, {
+    trustedPublicKeyPem,
+    verifyConstitution: async () => {
+      const [integrity, pps] = await Promise.all([
+        Promise.resolve(runtime.verifyIntegrity()), verifyPpsCanon(config.PBOS_PPS_DIRECTORY, config.PBOS_PPS_MANIFEST_SHA256)
+      ]);
+      return integrity.valid && pps.valid;
+    },
+    verifyWorkloadIdentity: () => verifyGoogleWorkloadIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, fetch, env)
+  });
+  const result = await executeHostedPlaybookMission({ request: input.request, approval: input.approval,
+    proposal: generated.proposal, proposalProvenance: generated.provenance }, {
+    runner: new ProductionMissionRunner(state, runtime), admission: composed.dependencies,
+    checkpoints: composed.checkpoints,
+    github,
+    sealCheckpoint: checkpointSealer(config.PBOS_CHECKPOINT_KEY_BASE64)
+  });
+  return {
+    schema: "pbos.hosted-mission-result.v1",
+    executionKind: "BOUNDED_DRAFT_PR",
+    proposalContentSha256: generated.contentSha256,
+    proposalProvenance: generated.provenance,
+    stopReason: result.stopReason,
+    runs: result.runs.map(run => ({runId:run.runId,status:run.status,currentCommit:run.currentCommit,evidenceIds:run.evidenceIds}))
+  };
+}
+
+export async function verifyHostedExecutorBindings(env: NodeJS.ProcessEnv = process.env) {
+  const { PBOS_DATABASE_URL: connection, PBOS_EXPECTED_NEON_HOST: expectedHost,
+    PBOS_EXPECTED_NEON_ROLE: expectedRole, PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT: account,
+    PBOS_APPROVAL_PUBLIC_KEY_FILE: keyPath, PBOS_APPROVAL_PUBLIC_KEY_SHA256: fingerprint } = env;
+  if (!connection || !expectedHost || !expectedRole || !account || !keyPath || !fingerprint) {
+    throw new Error("Hosted binding configuration is incomplete.");
+  }
+  const url = new URL(connection);
+  if (url.protocol !== "postgresql:" || !expectedHost.endsWith(".neon.tech") ||
+      url.hostname !== expectedHost || url.pathname !== "/pbos_runner" ||
+      decodeURIComponent(url.username) !== expectedRole) throw new Error("Hosted Neon endpoint pin mismatch.");
+  if (!(await verifyGoogleWorkloadIdentity(account, fetch, env))) throw new Error("Hosted workload identity verification failed.");
+  verifyHostedOperatorKey((await readBoundedFile(keyPath, 16_384)).toString("utf8"), fingerprint);
+
+  const db = createReadOnlyNeonClient(connection);
+  if (!(await verifyHostedNeonReadiness(db, "pbos_runner", expectedRole))) {
+    throw new Error("Hosted Neon role or durable runner catalog verification failed.");
+  }
+  return { schema: "pbos.hosted-binding-readiness.v1", workloadIdentityVerified: true,
+    operatorPublicKeyVerified: true, neonCatalogVerified: true };
+}
+
+function createReadOnlyNeonClient(connection: string): NeonLeaseSql {
+  const sql = neon(connection, { fullResults: true, fetchOptions: { signal: AbortSignal.timeout(15_000) } });
+  return {
+    async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
+      const [result] = await sql.transaction(tx => [tx.query(query, [...params])], { readOnly: true });
+      return { rows: result.rows as T[] };
+    }
+  };
+}
+
+export async function verifyHostedArchiveBindings(env: NodeJS.ProcessEnv = process.env) {
+  const { PBOS_ARCHIVE_DATABASE_URL: connection, PBOS_EXPECTED_ARCHIVE_NEON_HOST: host,
+    PBOS_EXPECTED_ARCHIVE_NEON_ROLE: role, PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT: account,
+    PBOS_ARCHIVE_PPS_SOURCE_SHA: source, PBOS_ARCHIVE_PPS_MANIFEST_SHA256: pin } = env;
+  if (!connection || !host || !role || !account || !source || !pin || !/^[a-f0-9]{40}$/.test(source) ||
+      !/^[a-f0-9]{64}$/.test(pin) || role === "pbos_runner_owner") throw new Error("Invalid hosted archive binding configuration.");
+  const url = new URL(connection);
+  if (url.protocol !== "postgresql:" || !host.endsWith(".neon.tech") || url.hostname !== host ||
+      url.pathname !== "/pbos_runner" || decodeURIComponent(url.username) !== role) throw new Error("Hosted archive endpoint pin mismatch.");
+  if (!(await verifyGoogleWorkloadIdentity(account, fetch, env))) throw new Error("Hosted workload identity verification failed.");
+  const response = await fetch(`https://raw.githubusercontent.com/sgwalton87/playbook-platform/${source}/docs/PPS/manifest.json`,
+    { redirect: "error", signal: AbortSignal.timeout(10_000) });
+  if (!response.ok) throw new Error("Pinned Playbook Canon manifest retrieval failed.");
+  const manifest = await response.text();
+  if (Buffer.byteLength(manifest) > 64 * 1024) throw new Error("Pinned Playbook Canon manifest exceeds its read bound.");
+  const verified = await verifyHostedCanonArchive(createReadOnlyNeonClient(connection), role, manifest, pin);
+  return { schema: "pbos.hosted-canon-archive-readiness.v1", sourceSha: source, workloadIdentityVerified: true, ...verified };
+}
+
+if (require.main === module) {
+  const verifying = process.argv[2] === "--verify-bindings";
+  const verifyingArchive = process.argv[2] === "--verify-canon-archive";
+  const generating = process.argv[2] === "--generate-proposal";
+  const result = verifying && process.argv.length === 3 ? verifyHostedExecutorBindings()
+    : verifyingArchive && process.argv.length === 3 ? verifyHostedArchiveBindings()
+    : generating && process.argv.length === 5 ? generateHostedPlaybookProposal(process.argv[3], process.argv[4],
+      process.env.PBOS_PPS_MANIFEST_SHA256 ?? "", (path, sha) =>
+        new GitHubAppPlaybookPrApi(process.env.PBOS_GITHUB_READ_TOKEN ?? "").readPinnedProposalSource(path, sha))
+    : process.argv.length === 2 ? runHostedExecutor()
+    : Promise.reject(new Error("Unsupported hosted executor arguments."));
+  result.then(output => process.stdout.write(JSON.stringify(output) + "\n")).catch(() => {
+    process.stderr.write(JSON.stringify({
+      schema: "pbos.hosted-mission-error.v1",
+      error: verifyingArchive ? "Hosted Canon archive verification failed."
+        : verifying ? "Hosted binding verification failed." : "Hosted execution failed."
+    }) + "\n");
+    process.exitCode = 1;
+  });
+}

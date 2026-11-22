@@ -33,7 +33,33 @@ export interface ProductionStage {
     readonly nextTransition?: ProductionStatus;
 }
 
+export interface DisposableProductionAttempt {
+    readonly missionId: string;
+    readonly namespace: string;
+    readonly attemptId: string;
+    readonly approvalDigest: string;
+    readonly scopeDigest: string;
+    readonly workerStartedAt?: string;
+    readonly workerFinishedAt?: string;
+    readonly quarantine?: Readonly<{ recordedAt: string; operatorId: string; approvalDigest: string }>;
+}
+
+export const DISPOSABLE_EVIDENCE_STAGES = ["SELECT", "PLAN", "BUILD", "TEST", "VERIFY", "DOCUMENT", "PROPOSE"] as const;
+export type DisposableEvidenceStage = typeof DISPOSABLE_EVIDENCE_STAGES[number];
+export interface DisposableEvidenceRecord {
+    readonly runId: string;
+    readonly attemptId: string;
+    readonly approvalDigest: string;
+    readonly sourceSha: string;
+    readonly stage: DisposableEvidenceStage;
+    readonly recordedAt: string;
+    readonly previousDigest: string | null;
+    readonly payload: Readonly<Record<string, string | readonly string[]>>;
+    readonly digest: string;
+}
+
 export interface ProductionRun {
+    readonly disposableAttempt?: DisposableProductionAttempt;
     readonly runId: string;
     readonly runType: "AUTONOMOUS_BUILD" | "READINESS" | "RECOVERY";
     readonly triggerSource: "CLI" | "MISSION_CONTROL" | "RECOVERY" | "CONTINUATION";

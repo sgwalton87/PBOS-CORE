@@ -3,9 +3,20 @@ import { mkdtemp,writeFile,rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { verifyPpsCanon } from "../pbos/boot/pps-canon-snapshot-verifier";
+import { resolvePinnedPpsDependencies, verifyPpsCanon } from "../pbos/boot/pps-canon-snapshot-verifier";
 
 describe("GitHub PPS canonical snapshot verification", () => {
+  it("blocks missing or cyclic mission dependencies", async () => {
+    const hash = (content: string) => createHash("sha256").update(content).digest("hex");
+    const first = { id: "PPS-010", file: "PPS-010_TEST.md", sha256: hash("content"), dependencies: ["PPS-011"] };
+    const missing = JSON.stringify({ documents: [first] });
+    const cycle = JSON.stringify({ documents: [first,
+      { id: "PPS-011", file: "PPS-011_TEST.md", sha256: hash("content"), dependencies: ["PPS-010"] }] });
+    await expect(resolvePinnedPpsDependencies(missing, hash(missing), [first.id], async () => "content"))
+      .rejects.toThrow("missing");
+    await expect(resolvePinnedPpsDependencies(cycle, hash(cycle), [first.id], async () => "content"))
+      .rejects.toThrow("dependency cycle");
+  });
   it("fails closed on missing manifest", async () => {
     const root=await mkdtemp(join(tmpdir(),"pps-canon-"));
     try { expect((await verifyPpsCanon(root)).valid).toBe(false); }
@@ -23,6 +34,11 @@ describe("GitHub PPS canonical snapshot verification", () => {
       expect(first.verifiedDocuments).toBe(1);
       expect(first.valid).toBe(false);
       expect(first.errors).toContain("PPS_CORE_MISSING:1");
+      expect(await verifyPpsCanon(root, "a".repeat(64))).toMatchObject({
+        valid: false, verifiedDocuments: 0, errors: ["PPS_MANIFEST_PIN_MISMATCH"]
+      });
+      const pin = createHash("sha256").update(JSON.stringify({documents})).digest("hex");
+      expect(await verifyPpsCanon(root, pin)).toEqual(first);
       await writeFile(join(root,"PPS-000_PLATFORM_OVERVIEW.md"),"tampered");
       expect((await verifyPpsCanon(root)).errors).toContain("PPS_HASH_MISMATCH:PPS-000");
     } finally { await rm(root,{recursive:true,force:true}); }

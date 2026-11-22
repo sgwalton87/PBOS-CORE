@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { ProductionMissionRunner, ProductionMissionRequest, ProductionMissionExecutor, ProductionMissionSequence } from "./production-mission-runner";
 import { MissionQueueItem } from "./contracts";
-import { SignedHostedMissionApproval, verifyHostedMissionApproval } from "./hosted-signed-mission-approval";
+import { HostedMissionScope, SignedHostedMissionApproval, verifyHostedMissionApproval } from "./hosted-signed-mission-approval";
 
 export interface HostedExecutionLease {
   readonly resource: string;
@@ -28,7 +28,8 @@ export async function runHostedApprovedMission(
   request: ProductionMissionRequest,
   approval: SignedHostedMissionApproval,
   dependencies: HostedExecutionDependencies,
-  executorFor: (mission: MissionQueueItem) => ProductionMissionExecutor | undefined
+  missionScope: HostedMissionScope,
+  executorFor: (mission: MissionQueueItem, lease: HostedExecutionLease) => ProductionMissionExecutor | undefined
 ): Promise<ProductionMissionSequence> {
   if (request.autonomousContinuation !== false || request.maximumMissions !== 1 ||
       request.approvedMissionIds?.length !== 1 ||
@@ -37,7 +38,7 @@ export async function runHostedApprovedMission(
   }
   if (!verifyHostedMissionApproval(approval, {
     missionId: request.approvedMissionIds[0], repository: request.repository,
-    commit: request.commit, operatorId: request.actorId
+    commit: request.commit, operatorId: request.actorId, scope: missionScope
   }, dependencies.trustedPublicKeyPem)) throw new Error("Hosted mission signature or lineage invalid.");
   if (!(await dependencies.canonicalStateVerified())) throw new Error("Canonical Genesis state is not verified.");
   if (!(await dependencies.hostAttested())) throw new Error("Hosted execution identity is not attested.");
@@ -63,7 +64,7 @@ export async function runHostedApprovedMission(
       throw new Error("Mission approval nonce already consumed or cannot be persisted.");
     }
     return await runner.run(request, mission => {
-      const executor = executorFor(mission);
+      const executor = executorFor(mission, lease);
       if (!executor || mission.missionId !== approval.payload.missionId) return undefined;
       return async context => {
         if (leaseLost || !(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost before mission execution.");

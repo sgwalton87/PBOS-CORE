@@ -9,6 +9,7 @@ import type { HostedExecutionLease } from "./hosted-approved-mission";
 
 export interface GitHubPrApi {
   getBranchSha(repository: string, branch: string): Promise<string>;
+  getFileContent(repository: string, branch: string, path: string): Promise<string>;
   createBranch(repository: string, branch: string, fromSha: string): Promise<void>;
   createFile(repository: string, branch: string, path: string, content: string, message: string): Promise<void>;
   createPullRequest(repository: string, branch: string, base: string, title: string, body: string): Promise<{url:string;number:number}>;
@@ -51,7 +52,12 @@ export async function createFencedPlaybookPr(
   if (base !== input.baseSha) throw new Error("Playbook main advanced: mission requires new signed approval.");
   await fence();
   const existing = await api.findPullRequest(input.repository,input.branch,"main");
-  if (existing) return {...existing,branch:input.branch};
+  if (existing) {
+    await fence();
+    const content = await api.getFileContent(input.repository,input.branch,input.path);
+    if (content !== input.content) throw new Error("Existing mission PR content differs from the signed payload.");
+    return {...existing,branch:input.branch};
+  }
   await fence();
   // An existing branch without a PR is NOT reused: unknown content could be overwritten.
   let branchExists = false;
