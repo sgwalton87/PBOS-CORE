@@ -3,7 +3,7 @@
  * exact signed mission envelope, private canonical state, verified PPS Canon,
  * Google workload identity, durable Neon fencing, and a scoped GitHub App token.
  */
-import { createCipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createHash, createPublicKey, randomBytes } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { resolve } from "node:path";
 import { neon } from "@neondatabase/serverless";
@@ -18,7 +18,7 @@ import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provi
 
 const REQUIRED = [
   "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY", "PBOS_PPS_MANIFEST_SHA256",
-  "PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_GITHUB_APP_INSTALLATION_TOKEN",
+  "PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_APPROVAL_PUBLIC_KEY_SHA256", "PBOS_GITHUB_APP_INSTALLATION_TOKEN",
   "PBOS_CHECKPOINT_KEY_BASE64", "PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT", "PBOS_MISSION_INPUT_FILE"
 ] as const;
 
@@ -31,7 +31,24 @@ export function requireHostedExecutorEnvironment(env: NodeJS.ProcessEnv): Hosted
   if (!/^[a-f0-9]{64}$/.test(config.PBOS_PPS_MANIFEST_SHA256)) {
     throw new Error("Invalid PBOS_PPS_MANIFEST_SHA256.");
   }
+  if (!/^[a-f0-9]{64}$/.test(config.PBOS_APPROVAL_PUBLIC_KEY_SHA256)) {
+    throw new Error("Invalid PBOS_APPROVAL_PUBLIC_KEY_SHA256.");
+  }
   return config;
+}
+
+export function verifyHostedOperatorKey(pem: string, expectedSha256: string): string {
+  const publicPem = pem.trim();
+  if (!/^-----BEGIN PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+\r?\n-----END PUBLIC KEY-----$/.test(publicPem)) {
+    throw new Error("Hosted operator verification requires an SPKI public key only.");
+  }
+  const key = createPublicKey(publicPem);
+  if (key.asymmetricKeyType !== "ed25519") throw new Error("Hosted operator key must be Ed25519.");
+  const spki = key.export({ type: "spki", format: "der" });
+  if (createHash("sha256").update(spki).digest("hex") !== expectedSha256) {
+    throw new Error("Hosted operator key does not match the approved fingerprint.");
+  }
+  return publicPem;
 }
 
 async function readBoundedFile(path: string, maximumBytes: number): Promise<Buffer> {
@@ -76,6 +93,7 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     readBoundedFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384),
     readBoundedFile(config.PBOS_MISSION_INPUT_FILE, 128 * 1024)
   ]);
+  const trustedPublicKeyPem = verifyHostedOperatorKey(publicKey.toString("utf8"), config.PBOS_APPROVAL_PUBLIC_KEY_SHA256);
   const input = JSON.parse(inputBytes.toString("utf8")) as HostedPlaybookMissionInput;
   const state = new GenesisStateRepository(config.PBOS_STATE_FILE, config.PBOS_STATE_NAMESPACE);
   const runtime = new ProductionRuntimeService(state);
@@ -87,7 +105,7 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
     }
   };
   const composed = composeHostedNeonExecutor(db, {
-    trustedPublicKeyPem: publicKey.toString("utf8"),
+    trustedPublicKeyPem,
     verifyConstitution: async () => {
       const [integrity, pps] = await Promise.all([
         Promise.resolve(runtime.verifyIntegrity()), verifyPpsCanon(config.PBOS_PPS_DIRECTORY, config.PBOS_PPS_MANIFEST_SHA256)
