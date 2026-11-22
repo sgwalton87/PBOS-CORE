@@ -1,4 +1,5 @@
 name: MB-03 Deploy Isolated Cloud Admission Job
+# Rebuild when admission preflight security changes; environment approval remains required.
 on:
   push:
     branches: [main]
