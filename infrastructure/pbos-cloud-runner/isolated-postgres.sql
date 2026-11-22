@@ -50,7 +50,7 @@ BEGIN
   IF current_lease.owner_id <> p_owner AND current_lease.expires_at > clock_timestamp() THEN
     RETURN;
   END IF;
-  IF current_lease.owner_id <> p_owner THEN
+  IF current_lease.owner_id <> p_owner OR current_lease.expires_at <= clock_timestamp() THEN
     current_lease.fencing_token := current_lease.fencing_token + 1;
   END IF;
   UPDATE pbos_runner.execution_lease l
