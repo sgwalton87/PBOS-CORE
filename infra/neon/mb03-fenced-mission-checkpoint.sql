@@ -13,7 +13,8 @@ BEGIN
  IF p_mission_id IS NULL OR length(trim(p_mission_id))=0
     OR p_repository IS NULL OR length(trim(p_repository))=0
     OR p_ciphertext IS NULL OR octet_length(p_ciphertext)=0
-    OR p_expected_version < 0 THEN
+    OR p_expected_version < 0
+    OR p_resource IS DISTINCT FROM ('pbos:mission:' || p_repository || ':' || p_mission_id) THEN
    RAISE EXCEPTION 'invalid checkpoint input';
  END IF;
  SELECT * INTO current_lease FROM pbos_runner.execution_lease
