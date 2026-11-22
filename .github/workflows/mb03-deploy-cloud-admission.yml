@@ -1,5 +1,9 @@
 name: MB-03 Deploy Isolated Cloud Admission Job
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/mb03-deploy-cloud-admission.yml'
   workflow_dispatch:
     inputs:
       confirm_staging_only:
@@ -11,7 +15,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    if: ${{ inputs.confirm_staging_only == 'DEPLOY-STAGING-ADMISSION' }}
+    if: ${{ github.event_name == 'push' || inputs.confirm_staging_only == 'DEPLOY-STAGING-ADMISSION' }}
     runs-on: ubuntu-latest
     environment: pbos-genesis-staging
     steps:
