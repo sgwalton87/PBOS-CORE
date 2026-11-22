@@ -27,6 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           gcloud config set project pbos-genesis-staging
+          gcloud artifacts repositories describe pbos-executor --location=us-west1 --project=pbos-genesis-staging --format='value(name)'
           gcloud builds submit . --region=us-west1 --config=cloudbuild.mb03-admission.yaml --substitutions="_IMAGE=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}"
       - name: Deploy a disabled-by-default admission job (never executes a mission)
         shell: bash
@@ -36,6 +37,7 @@ jobs:
             --project=pbos-genesis-staging --region=us-west1 \
             --image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-admission:${GITHUB_SHA}" \
             --tasks=1 --max-retries=0 --task-timeout=600s \
+            --service-account="${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
             --cpu=1 --memory=1Gi \
             --set-env-vars=PBOS_STATE_HOME=/var/lib/pbos
           echo "Job deployed; NOT executed. No private state mounted and no mission authority granted."
