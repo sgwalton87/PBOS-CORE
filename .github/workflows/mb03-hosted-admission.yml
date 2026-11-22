@@ -1,0 +1,31 @@
+name: MB-03 Hosted Recovery Admission (read-only)
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mb03-hosted-admission
+  cancel-in-progress: false
+
+jobs:
+  admission:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout candidate (no production credentials)
+        uses: actions/checkout@v4
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Inspect existing operator state without initialization
+        run: |
+          npm run pbos:preflight:readonly
+      - name: Admission gate (never grants mission authority)
+        run: |
+          npx tsx pbos/tools/mb03-hosted-admission-observation.ts
