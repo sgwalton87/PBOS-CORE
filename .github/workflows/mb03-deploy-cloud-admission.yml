@@ -14,6 +14,8 @@ on:
       - 'tests/pps-canon-snapshot-verifier.test.ts'
       - 'tests/neon-mission-approval-nonce-ledger.test.ts'
       - 'infra/neon/mb03-durable-mission-approval-nonce.sql'
+      - 'infra/neon/mb03-fenced-mission-checkpoint.sql'
+      - 'tests/neon-fenced-mission-checkpoint.test.ts'
       - 'pbos/production-runtime/operator-readonly-preflight.ts'
       - 'pbos/production-runtime/**'
       - 'pbos/genesis-state/**'
@@ -45,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           npm ci
-          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts
+          npx vitest run tests/mb03-hosted-admission-observation.test.ts tests/hosted-signed-mission-approval.test.ts tests/hosted-approved-mission.test.ts tests/pps-canon-snapshot-verifier.test.ts tests/neon-mission-approval-nonce-ledger.test.ts tests/neon-fenced-mission-checkpoint.test.ts
           npx tsc --noEmit
       - name: Authenticate to Google Cloud using short-lived identity
         uses: google-github-actions/auth@v2
