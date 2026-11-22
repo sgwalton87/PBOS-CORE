@@ -8,7 +8,7 @@ import { BackgroundMonitor } from "../../operator-continuity";
 import { FunctionalAcceptancePlan, ProductionRuntimeService } from "../../production-runtime";
 import { GitHubCheckCollector, RemediationRun, ResumableRemediationEngine } from "../../validation-automation";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
-    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval } from "../closed-pull-request-recovery";
+    registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery } from "../closed-pull-request-recovery";
 import { GenesisControlPlane } from "../genesis-control-plane";
 import { GenesisSystemCatalog } from "../system-catalog";
 import { REFERENCE_SYSTEMS } from "../system-definition";
@@ -104,6 +104,23 @@ describe("governed closed pull request recovery", () => {
         const reconcile = monitor as unknown as { reconcileProductionMission(remediation: RemediationRun): Promise<void> };
         await reconcile.reconcileProductionMission(f.historical);
         expect(f.state.productionRun(f.before.runId)).toEqual(validating);
+    });
+
+    it("renews only the registered exact scope without changing the run or budget", async () => {
+        const f = fixture();
+        const prepared = await f.prepare();
+        const initial = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, prepared.resource);
+        const replacement = registerClosedPullRequestRecovery(f.state, f.control, f.identities, f.operator, f.session,
+            initial, prepared, f.directory);
+        const before = f.state.productionRun(f.before.runId);
+        const refreshed = await prepareRegisteredRecoveryRenewal(f.state, { run: f.run }, f.before.runId);
+        const signed = f.identities.approve(f.operator, CLOSED_PR_RECOVERY_ACTION, refreshed.binding.resource);
+        renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, signed, refreshed);
+        expect(f.state.productionRun(f.before.runId)).toEqual(before);
+        expect(f.state.remediationRun(replacement.runId)?.closedPullRequestReplacement?.approvalId).toBe(signed.approvalId);
+        expect(f.state.remediationRun("historical")).toEqual(f.historical);
+        expect(() => renewRegisteredRecovery(f.state, f.control, f.identities, f.operator, f.session, signed, refreshed))
+            .toThrow(/changed before approval renewal/);
     });
 
     it("rejects a moved head, modified signature, and expired approval", async () => {

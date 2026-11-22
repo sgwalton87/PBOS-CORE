@@ -148,3 +148,49 @@ export function registerClosedPullRequestRecovery(state: GenesisStateRepository,
                 approvalId: approval.approvalId, baseCommit, commit } });
     return replacement;
 }
+
+export async function prepareRegisteredRecoveryRenewal(state: GenesisStateRepository, commands: CommandRunner, runId: string) {
+    const run = state.productionRun(runId);
+    const id = run?.evidenceIds.filter(value => value.startsWith("remediation-run:")).at(-1)?.slice("remediation-run:".length);
+    const remediation = id ? state.remediationRun(id) : undefined;
+    const binding = remediation?.closedPullRequestReplacement;
+    const production = new ProductionRuntimeService(state);
+    if (!run || run.status !== "BLOCKED" || !binding || !run.functionalAcceptancePlan?.localSyntheticHostingerRecovery ||
+        run.currentCommit !== binding.headSha || run.currentBranch !== remediation.pullRequest.branch ||
+        remediation.systemId !== run.systemId || remediation.pullRequest.repository !== run.repository ||
+        production.repairBudget(runId).remaining < 1 || production.activeRun(run.repository) ||
+        !production.verifyIntegrity().valid) throw new Error("Registered recovery is not eligible for renewal.");
+    const scope = JSON.parse(binding.resource) as Record<string, unknown>;
+    if (scope.runId !== runId || scope.missionId !== HOSTINGER_MISSION || scope.commit !== binding.headSha ||
+        scope.baseCommit !== binding.baseCommit || scope.repository !== run.repository ||
+        scope.replacementPullRequest !== remediation.pullRequest.number || scope.branch !== run.currentBranch) {
+        throw new Error("Registered recovery signature scope is inconsistent.");
+    }
+    const checks = await new GitHubCheckCollector(commands).collectPinnedReplacement(remediation.pullRequest, binding.baseCommit);
+    if (checks.pullRequestState !== "OPEN" || checks.headSha !== binding.headSha || checks.baseRefName !== run.startingBranch ||
+        !checks.evidence.some(item => item.state === "PASSED") ||
+        !checks.evidence.every(item => ["PASSED", "SKIPPED"].includes(item.state))) {
+        throw new Error("Registered recovery requires passing exact-revision checks on its open pull request.");
+    }
+    await verifyClosedPullRequestRecoveryCheckout(commands, run.functionalAcceptancePlan.workingDirectory,
+        run.currentBranch, binding.headSha, binding.baseCommit);
+    return { run, remediation, binding };
+}
+
+export function renewRegisteredRecovery(state: GenesisStateRepository, control: GenesisControlPlane,
+    identities: OperatorIdentityService, operator: AuthenticatedOperator, session: GenesisBuildSession,
+    approval: VerifiableApproval, prepared: Awaited<ReturnType<typeof prepareRegisteredRecoveryRenewal>>): void {
+    const { run, remediation, binding } = prepared;
+    verifyClosedPullRequestRecoveryApproval(identities, operator, session, approval, binding.resource);
+    if (run.actorId !== operator.operatorId || session.system.systemId !== run.systemId ||
+        session.system.repository !== run.repository ||
+        !control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", run.currentBranch, approval.approvalId).allowed) {
+        throw new Error("Recovery renewal requires the original operator and a scoped build grant.");
+    }
+    const now = new Date().toISOString();
+    const updated = { ...remediation, closedPullRequestReplacement: { ...binding,
+        approvalId: approval.approvalId, sessionId: session.sessionId }, updatedAt: now };
+    state.renewClosedPullRequestApproval(remediation, updated, session.grant.grantId,
+        { eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL", actorId: operator.operatorId,
+            resource: binding.resource, occurredAt: now, evidence: { approval, purpose: CLOSED_PR_RECOVERY_ACTION } }, run.runId);
+}

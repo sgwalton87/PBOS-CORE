@@ -153,6 +153,28 @@ export class GenesisStateRepository {
         });
     }
 
+    renewClosedPullRequestApproval(expected: RemediationRun, updated: RemediationRun, grantId: string,
+        approval: GenesisAuditEvent, runId: string): void {
+        this.store.update(state => {
+            const runs = state.productionRuns ?? [];
+            const remediations = state.remediationRuns ?? [];
+            const run = runs.find(item => item.runId === runId);
+            const grant = (state.grants as readonly AutonomousBuildGrant[]).find(item => item.grantId === grantId);
+            const occurredAt = Date.parse(approval.occurredAt);
+            if (!run || run.status !== "BLOCKED" || run.currentCommit !== expected.headSha ||
+                run.evidenceIds.filter(id => id.startsWith("remediation-run:")).at(-1) !== `remediation-run:${expected.runId}` ||
+                JSON.stringify(remediations.find(item => item.runId === expected.runId)) !== JSON.stringify(expected) ||
+                !grant || grant.revokedAt || !(Date.parse(String(grant.expiresAt)) > occurredAt) ||
+                runs.some(item => item.repository === run.repository && !TERMINAL_PRODUCTION_STATUSES.includes(item.status)) ||
+                (state.executionLeases ?? []).some(item => item.repository === run.repository && item.status === "ACTIVE") ||
+                state.audit.some(item => item.eventId === approval.eventId)) {
+                throw new Error("Recovery lineage, lease, or authority changed before approval renewal.");
+            }
+            return { ...state, remediationRuns: remediations.map(item => item.runId === expected.runId ? updated : item),
+                audit: [...state.audit, approval] };
+        });
+    }
+
     productionRecoveryEpochs(runId?: string): readonly ProductionRecoveryEpoch[] {
         return [...(this.store.read().productionRecoveryEpochs ?? [])]
             .filter(epoch => !runId || epoch.runId === runId)
