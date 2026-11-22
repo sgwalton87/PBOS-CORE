@@ -15,6 +15,7 @@ import { composeHostedNeonExecutor } from "../production-runtime/hosted-neon-exe
 import { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playbook-pr-api";
 import { executeHostedPlaybookMission, type HostedPlaybookMissionInput } from "../production-runtime/hosted-playbook-mission-executable";
 import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
+import { verifyHostedNeonReadiness } from "../production-runtime/hosted-neon-readiness";
 
 const REQUIRED = [
   "PBOS_DATABASE_URL", "PBOS_STATE_FILE", "PBOS_STATE_NAMESPACE", "PBOS_PPS_DIRECTORY", "PBOS_PPS_MANIFEST_SHA256",
@@ -128,11 +129,43 @@ export async function runHostedExecutor(env: NodeJS.ProcessEnv = process.env): P
   };
 }
 
+export async function verifyHostedExecutorBindings(env: NodeJS.ProcessEnv = process.env) {
+  const { PBOS_DATABASE_URL: connection, PBOS_EXPECTED_NEON_HOST: expectedHost,
+    PBOS_EXPECTED_NEON_ROLE: expectedRole, PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT: account,
+    PBOS_APPROVAL_PUBLIC_KEY_FILE: keyPath, PBOS_APPROVAL_PUBLIC_KEY_SHA256: fingerprint } = env;
+  if (!connection || !expectedHost || !expectedRole || !account || !keyPath || !fingerprint) {
+    throw new Error("Hosted binding configuration is incomplete.");
+  }
+  const url = new URL(connection);
+  if (url.protocol !== "postgresql:" || !expectedHost.endsWith(".neon.tech") ||
+      url.hostname !== expectedHost || url.pathname !== "/pbos_runner" ||
+      decodeURIComponent(url.username) !== expectedRole) throw new Error("Hosted Neon endpoint pin mismatch.");
+  if (!(await verifyGoogleWorkloadIdentity(account, fetch, env))) throw new Error("Hosted workload identity verification failed.");
+  verifyHostedOperatorKey((await readBoundedFile(keyPath, 16_384)).toString("utf8"), fingerprint);
+
+  const sql = neon(connection, { fullResults: true, fetchOptions: { signal: AbortSignal.timeout(10_000) } });
+  const db: NeonLeaseSql = {
+    async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
+      const [result] = await sql.transaction(tx => [tx.query(query, [...params])], { readOnly: true });
+      return { rows: result.rows as T[] };
+    }
+  };
+  if (!(await verifyHostedNeonReadiness(db, "pbos_runner", expectedRole))) {
+    throw new Error("Hosted Neon role or durable runner catalog verification failed.");
+  }
+  return { schema: "pbos.hosted-binding-readiness.v1", workloadIdentityVerified: true,
+    operatorPublicKeyVerified: true, neonCatalogVerified: true };
+}
+
 if (require.main === module) {
-  runHostedExecutor().then(result => process.stdout.write(JSON.stringify(result) + "\n")).catch(error => {
+  const verifying = process.argv[2] === "--verify-bindings";
+  const result = verifying && process.argv.length === 3 ? verifyHostedExecutorBindings()
+    : process.argv.length === 2 ? runHostedExecutor()
+    : Promise.reject(new Error("Unsupported hosted executor arguments."));
+  result.then(output => process.stdout.write(JSON.stringify(output) + "\n")).catch(() => {
     process.stderr.write(JSON.stringify({
       schema: "pbos.hosted-mission-error.v1",
-      error: error instanceof Error ? error.message : "Hosted executor failed."
+      error: verifying ? "Hosted binding verification failed." : "Hosted execution failed."
     }) + "\n");
     process.exitCode = 1;
   });

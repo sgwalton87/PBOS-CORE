@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { checkpointSealer, requireHostedExecutorEnvironment, verifyGoogleWorkloadIdentity, verifyHostedOperatorKey } from "../pbos/tools/mb03-hosted-executor";
+import { checkpointSealer, requireHostedExecutorEnvironment, verifyGoogleWorkloadIdentity, verifyHostedExecutorBindings, verifyHostedOperatorKey } from "../pbos/tools/mb03-hosted-executor";
+import { verifyHostedNeonReadiness } from "../pbos/production-runtime/hosted-neon-readiness";
+import type { NeonLeaseSql } from "../pbos/production-runtime/neon-fenced-lease-provider";
 
 describe("MB03 hosted executable configuration", () => {
   const complete = {
@@ -17,6 +19,24 @@ describe("MB03 hosted executable configuration", () => {
     for (const key of Object.keys(complete)) {
       expect(() => requireHostedExecutorEnvironment({...complete,[key]:""})).toThrow(key);
     }
+  });
+  it("rejects missing or mismatched health-check bindings before authenticating", async () => {
+    await expect(verifyHostedExecutorBindings({})).rejects.toThrow("incomplete");
+    await expect(verifyHostedExecutorBindings({ ...complete,
+      PBOS_EXPECTED_NEON_HOST: "ep-approved.neon.tech", PBOS_EXPECTED_NEON_ROLE: "runner"
+    })).rejects.toThrow("endpoint pin mismatch");
+  });
+  it("checks only the read-only database and role catalog and rejects ambiguous results", async () => {
+    const query = vi.fn(async (_sql: string, _params: readonly unknown[]) => ({ rows: [{ ready: true }] }));
+    const db = { query: query as unknown as NeonLeaseSql["query"] };
+    await expect(verifyHostedNeonReadiness(db, "pbos_runner", "runner")).resolves.toBe(true);
+    const [sql, args] = query.mock.calls[0];
+    expect(sql).toMatch(/^SELECT/);
+    expect(sql).toContain("transaction_read_only");
+    expect(args.slice(0, 2)).toEqual(["pbos_runner", "runner"]);
+    query.mockResolvedValueOnce({ rows: [{ ready: false }] }).mockResolvedValueOnce({ rows: [] });
+    await expect(verifyHostedNeonReadiness(db, "pbos_runner", "runner")).resolves.toBe(false);
+    await expect(verifyHostedNeonReadiness(db, "pbos_runner", "runner")).resolves.toBe(false);
   });
   it("requires the independently pinned Ed25519 public key and rejects private material", () => {
     const { publicKey, privateKey } = generateKeyPairSync("ed25519");
