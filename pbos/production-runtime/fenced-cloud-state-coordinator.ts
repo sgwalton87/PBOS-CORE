@@ -40,6 +40,25 @@ export class FencedCloudStateCoordinator {
     return BigInt(rows[0].version);
   }
 
+  /** Read the authenticated encrypted Genesis snapshot from a private backend. */
+  async readEncryptedGenesis(expectedSha256: string): Promise<{ version: bigint; ciphertext: Uint8Array }> {
+    await this.verifyCanonicalState(expectedSha256);
+    const rows = await this.db.query<{
+      version: string | number | bigint;
+      ciphertext_hex: string;
+      plaintext_sha256: string;
+    }>(
+      "SELECT version, encode(ciphertext, 'hex') AS ciphertext_hex, plaintext_sha256 FROM pbos_runner.canonical_state WHERE state_key = 'genesis'",
+      []);
+    if (rows.length !== 1 || rows[0].plaintext_sha256.trim() !== expectedSha256) {
+      throw new Error("Canonical Genesis changed during snapshot read");
+    }
+    if (!/^(?:[a-f0-9]{2})+$/i.test(rows[0].ciphertext_hex)) {
+      throw new Error("Invalid encrypted Genesis payload");
+    }
+    return { version: BigInt(rows[0].version), ciphertext: Buffer.from(rows[0].ciphertext_hex, "hex") };
+  }
+
   async commit(lease: Lease, expectedVersion: bigint, encryptedState: Uint8Array, sha256: string): Promise<bigint> {
     if (!/^[a-f0-9]{64}$/.test(sha256) || !encryptedState.length) {
       throw new Error("Invalid encrypted canonical state payload");
