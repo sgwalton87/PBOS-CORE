@@ -21,7 +21,7 @@ export interface HostedExecutionDependencies {
   readonly assertFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly releaseFencedLease: (lease: HostedExecutionLease) => Promise<void>;
   readonly renewFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
-  readonly recordApprovalNonce: (nonce: string, expiresAt: string) => Promise<boolean>;
+  readonly recordApprovalNonce: (nonce: string, missionId: string, repository: string, expiresAt: string) => Promise<boolean>;
 }
 export async function runHostedApprovedMission(
   runner: ProductionMissionRunner,
@@ -59,7 +59,7 @@ export async function runHostedApprovedMission(
     if (!(await dependencies.assertFencedLease(lease))) throw new Error("Fenced lease ownership lost.");
     // Nonce persistence MUST be atomic/unique on the durable host. A false result
     // means replay or storage failure. No mission starts before this succeeds.
-    if (!(await dependencies.recordApprovalNonce(approval.payload.nonce, approval.payload.expiresAt))) {
+    if (!(await dependencies.recordApprovalNonce(approval.payload.nonce, approval.payload.missionId, approval.payload.repository, approval.payload.expiresAt))) {
       throw new Error("Mission approval nonce already consumed or cannot be persisted.");
     }
     return await runner.run(request, mission => {
