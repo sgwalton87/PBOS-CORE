@@ -36,7 +36,7 @@ export function verifyHostedMissionApproval(
     if (p.schema !== "pbos.hosted-mission-approval.v1" ||
         !p.missionId || !p.repository || !p.operatorId ||
         !/^[a-f0-9]{40}$/i.test(p.commit) ||
-        !/^[a-f0-9-]{16,}$/i.test(p.nonce) ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(p.nonce) ||
         p.missionId !== expected.missionId ||
         p.repository !== expected.repository ||
         p.commit !== expected.commit ||
