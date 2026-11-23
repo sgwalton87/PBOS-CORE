@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { OperatorIdentityService } from "../pbos/genesis-state";
+import { sealAdmissionSnapshot, sealedAdmissionSnapshotName } from "../pbos/production-runtime/sealed-admission-snapshot";
 
 const roots: string[] = [];
 const script = resolve("pbos/tools/mb03-hosted-admission-observation.ts");
@@ -14,13 +15,17 @@ function root(mode = 0o700): string {
   chmodSync(dir, mode);
   return dir;
 }
-function run(stateHome?: string, statePin?: string) {
+function run(stateHome?: string, statePin?: string, hosted?: { keyPath?: string; scratch: string }) {
   const env = { ...process.env };
   delete env.CLOUD_RUN_JOB;
   delete env.PBOS_EXPECTED_STATE_SET_SHA256;
-  if (statePin !== undefined) {
+  delete env.PBOS_OBSERVATION_KEY_FILE;
+  if (statePin !== undefined) env.PBOS_EXPECTED_STATE_SET_SHA256 = statePin;
+  if (hosted) {
     env.CLOUD_RUN_JOB = "pbos-genesis-admission";
-    env.PBOS_EXPECTED_STATE_SET_SHA256 = statePin;
+    env.TMPDIR = hosted.scratch;
+    env.TSX_DISABLE_CACHE = "1";
+    if (hosted.keyPath) env.PBOS_OBSERVATION_KEY_FILE = hosted.keyPath;
   }
   if (stateHome === undefined) delete env.PBOS_STATE_HOME;
   else env.PBOS_STATE_HOME = stateHome;
@@ -141,5 +146,45 @@ describe("MB-03 hosted admission fails closed", () => {
     const result = run(dir);
     expect(result.status).toBe(2);
     expect(result.stdout).not.toContain("do-not-print-this");
+  });
+  it("observes only the authenticated sealed snapshot in Cloud Run and removes temporary plaintext", () => {
+    const { read, pin } = fixture();
+    const mount = root();
+    const scratch = root();
+    const keyPath = join(root(), "seal.key");
+    const key = randomBytes(32);
+    writeFileSync(keyPath, key.toString("base64"), { mode: 0o400 });
+    const sealed = sealAdmissionSnapshot(read(), key, pin);
+    expect(sealed.includes(Buffer.from("credential"))).toBe(false);
+    writeFileSync(join(mount, sealedAdmissionSnapshotName), sealed, { mode: 0o400 });
+
+    const result = run(mount, pin, { keyPath, scratch });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      status: "READY_FOR_SEPARATE_SIGNED_APPROVAL", missionExecutionAuthorized: false,
+      canonicalInspection: { operatorAuthenticated: true, stateFilesUnchanged: true }
+    });
+    expect(readFileSync(join(mount, sealedAdmissionSnapshotName))).toEqual(sealed);
+    expect(readdirSync(scratch)).toEqual([]);
+  });
+  it.each(["missing key", "wrong key", "tampered ciphertext", "wrong pin"])("rejects hosted %s without materializing plaintext", problem => {
+    const { read, pin } = fixture();
+    const mount = root();
+    const scratch = root();
+    const keyPath = join(root(), "seal.key");
+    const key = randomBytes(32);
+    writeFileSync(keyPath, (problem === "wrong key" ? randomBytes(32) : key).toString("base64"), { mode: 0o400 });
+    const sealed = sealAdmissionSnapshot(read(), key, pin);
+    if (problem === "tampered ciphertext") sealed[sealed.length - 1] ^= 1;
+    writeFileSync(join(mount, sealedAdmissionSnapshotName), sealed, { mode: 0o400 });
+    const result = run(mount, problem === "wrong pin" ? "f".repeat(64) : pin, {
+      keyPath: problem === "missing key" ? undefined : keyPath, scratch
+    });
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      blocker: problem === "missing key" ? "SEALED_STATE_KEY_REQUIRED" : "SEALED_STATE_VERIFICATION_FAILED",
+      canonicalInspection: null, missionExecutionAuthorized: false
+    });
+    expect(readdirSync(scratch)).toEqual([]);
   });
 });
