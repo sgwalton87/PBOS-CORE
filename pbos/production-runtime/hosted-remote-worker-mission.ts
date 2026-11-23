@@ -13,6 +13,7 @@ import type { SignedHostedMissionApproval, HostedMissionScope } from "./hosted-s
 import type { NeonFencedMissionCheckpoint } from "./neon-fenced-mission-checkpoint";
 import { evidenceDigest, evidenceJson, evidenceSha256 } from "../master-builder/remote-attestation";
 import type { Mb03Mission } from "../master-builder/mb03-disposable-mission";
+import { isExactDisposableFile } from "../master-builder/disposable-change-boundary";
 import {
     MAX_REMOTE_FILE_BYTES, MAX_REMOTE_TTL_MS, verifyProvision, verifyRemoteReturn, verifyRemoteDisposal
 } from "../master-builder/trusted-remote-worker";
@@ -65,8 +66,7 @@ function assertBoundedInput(input: HostedRemoteWorkerInput, adapters: HostedRemo
         !/^disposable\/[A-Za-z0-9._/-]+$/.test(request.branch) ||
         scope.branch !== request.branch || !scope.path || !evidenceSha256(scope.contentSha256) ||
         mission.allowedPaths.length !== 1 || mission.allowedPaths[0] !== scope.path ||
-        scope.path.startsWith("/") || scope.path.includes("\\") ||
-        scope.path.split("/").some(part => !part || part === "." || part === "..")) {
+        !isExactDisposableFile(scope.path)) {
         throw new Error("Hosted remote mission and signed exact-file scope differ.");
     }
 }
@@ -145,6 +145,8 @@ export async function executeHostedRemoteWorkerMission(
                 const version = await adapters.checkpoints.commit(
                     lease, input.mission.missionId, input.mission.repository, 0n, sealed
                 );
+                controller.signal.throwIfAborted();
+                if (!(await adapters.admission.assertFencedLease(lease))) throw new Error("Remote worker lease lost.");
                 return {
                     outputs: { revision: input.mission.sourceSha, providerEvidenceDigest: evidenceId },
                     evidenceIds: [evidenceId, "hosted-remote-checkpoint:v" + version.toString()],
