@@ -26,7 +26,7 @@ function fixture(): NodeJS.ProcessEnv {
         PBOS_PROVIDER_AUTHORITY_ID: "approved-authority",
         PBOS_PROVIDER_ID: "vercel-playbook",
         PBOS_PLAYBOOK_SOURCE_SHA: "c".repeat(40),
-        PBOS_PLAYBOOK_IMAGE: "vcr.vercel.com/pbos-genesis/pbos-mb03-playbook/worker@sha256:" + SHA,
+        PBOS_PLAYBOOK_IMAGE: "vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker@sha256:" + SHA,
         PBOS_CODEX_BINARY_SHA256: SHA,
         PBOS_WORKER_ID: "worker-001",
         PBOS_WORKER_MODEL: "reviewed-model",
