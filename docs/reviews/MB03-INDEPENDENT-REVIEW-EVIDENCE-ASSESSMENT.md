@@ -12,18 +12,29 @@
 | Executive authorization | Read PBOS-RCC-001 Decision Log row 27, record `PBOS-MB03-OPERATOR-REG-001-APPROVAL`; approves **creation only** for two named staging missions. | Recorded, activation not authorized |
 | Custodian acceptance | Row 27 quotes Viveca Walton accepting custody; this is an acceptance attributed by the Executive Director, not independently authenticated custodian testimony. | Recorded; independent confirmation pending |
 | Public DER presence | Google Drive metadata confirms `mb03-staging-public.der`, 44 bytes, public-reader permission, file ID `1857Mt0LyOvjGn24AEVcK5Xa4pNPvVFS-`. | File presence verified; contents not downloaded in this assessment |
-| Public fingerprint | Claimed SHA-256 SPKI: `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`. Earlier registration document reports matching PEM/DER, but this assessment did not independently rehash the bytes. | Independent fingerprint verification pending |
+| Public fingerprint | Downloaded public PEM and 44-byte DER directly from linked Drive files; OpenSSL parsed PEM as Ed25519, re-encoded PEM to DER and compared exact bytes (MATCH). Both SHA-256 digests equal `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`. | **PASS — public-key consistency verified on 2026-11-22** |
 | GitHub review | PR #140 has an `APPROVED` review by `PlaybookNoReply`; its body reproduces a **request to review**, without verification findings. | Formal UI approval exists; evidentiary review not demonstrated |
 | Custody | Encrypted-drive custody described in handoff; no independent inspection of access, recovery, backup, or unmount controls in this assessment. | Pending |
 | Rotation/revocation | No approved, tested key rotation/revocation runbook evidenced in the material examined. | Pending |
 
 ## Required closure evidence
 
-1. An identified reviewer who is **neither the Executive Director approver nor Viveca Walton** must independently download the public PEM and DER and record the actual Ed25519/SPKI verification commands, outputs and fingerprint.
+1. The technical public-key check was executed by ChatGPT against downloaded Drive bytes, with matching OpenSSL output recorded below. An authorized reviewer independent of the approver and custodian must still assess and adopt the evidence under PPS-012.
 2. Reviewer must verify scope against the source Decision Log and authority in PPS-012; establish reviewer independence and authority.
 3. Obtain a documented rotation/revocation procedure (trigger, authorized actor, disabling hosted trust, replacement registration, audit trail, handling prior signatures), and evidence of custodian security controls without exposing private material.
 4. Independent reviewer must record **their own** findings and disposition on PR #140 and in the Decision Log. An approval whose body merely repeats instructions is not sufficient evidence.
 5. Staging trust binding, mission execution, and certification remain separate gates; **MB-03 stays 0/2 certified**.
+
+## Reproducible public-key check (executed 2026-11-22)
+
+```sh
+openssl pkey -pubin -in mb03-staging-public.pem -text -noout
+openssl pkey -pubin -in mb03-staging-public.pem -outform DER | sha256sum
+sha256sum mb03-staging-public.der.bin
+cmp <(openssl pkey -pubin -in mb03-staging-public.pem -outform DER) mb03-staging-public.der.bin
+```
+
+Output: `ED25519 Public-Key`; both digests `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`; byte comparison `MATCH`. No private key was accessed. This verifies **public-key integrity only**, not reviewer independence, key custody, or activation.
 
 ## Source links
 
