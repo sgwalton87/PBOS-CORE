@@ -175,6 +175,40 @@ describe("MB-03 hosted signed remote worker boundary", () => {
         expect(f.admission.acquireFencedLease).not.toHaveBeenCalled();
     });
 
+    it("rejects Git administrative file scopes before consuming authority", async () => {
+        const f = fixture();
+        await expect(executeHostedRemoteWorkerMission({
+            ...f.input, scope: { ...f.input.scope, path: ".git/config" },
+            mission: { ...f.input.mission, allowedPaths: [".git/config"] }
+        }, f.adapters)).rejects.toThrow("scope differ");
+        expect(f.admission.acquireFencedLease).not.toHaveBeenCalled();
+        expect(f.provider.provision).not.toHaveBeenCalled();
+    });
+
+    it("requires independently signed provider disposal before persisting any checkpoint", async () => {
+        const f = fixture();
+        const invalid: TrustedRemoteWorkerProvider = {
+            ...f.provider, dispose: vi.fn(async () => undefined)
+        };
+        await expect(executeHostedRemoteWorkerMission(f.input, {
+            ...f.adapters, provider: invalid
+        })).rejects.toThrow("disposal");
+        expect(f.commit).not.toHaveBeenCalled();
+        expect(f.provider.execute).toHaveBeenCalledOnce();
+    });
+
+    it("stops before remote execution when durable lease ownership is lost", async () => {
+        const f = fixture();
+        const losing = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        await expect(executeHostedRemoteWorkerMission(f.input, {
+            ...f.adapters, admission: { ...f.admission, assertFencedLease: losing }
+        })).rejects.toThrow("lease lost");
+        expect(f.provider.provision).toHaveBeenCalledOnce();
+        expect(f.provider.execute).not.toHaveBeenCalled();
+        expect(f.provider.dispose).toHaveBeenCalledOnce();
+        expect(f.commit).not.toHaveBeenCalled();
+    });
+
     it("rejects an invalid hosted approval before remote execution", async () => {
         const f = fixture();
         await expect(executeHostedRemoteWorkerMission({
