@@ -210,7 +210,8 @@ jobs:
           args=("--update-env-vars=$env_vars")
           if [[ -n "$secret_refs" ]]; then args+=("--update-secrets=$secret_refs"); fi
           if [[ "$add_state_volume" == true ]]; then
-            args+=(--execution-environment=gen2
+            # Cloud Run jobs always use the second-generation environment.
+            args+=(
               "--add-volume=name=$state_volume,type=cloud-storage,bucket=$bucket,readonly=true,mount-options=only-dir=mb03-admission/$STATE_PIN;uid=1000;gid=1000;file-mode=400;dir-mode=500;implicit-dirs=true"
               "--add-volume-mount=volume=$state_volume,mount-path=$state_path")
           fi

@@ -44,6 +44,13 @@ afterEach(() => {
   for (const dir of roots.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 describe("MB-03 hosted admission fails closed", () => {
+  it("uses Cloud Run Job mount flags without a service-only execution environment option", () => {
+    const workflow = readFileSync(resolve(".github/workflows/mb03-deploy-cloud-admission.yml"), "utf8");
+    expect(workflow).toContain("--add-volume=name=");
+    expect(workflow).toContain("--add-volume-mount=volume=");
+    expect(workflow).not.toContain("--execution-environment");
+  });
+
   it("rejects an unconfigured state home", () => {
     const result = run();
     expect(result.status).toBe(2);
