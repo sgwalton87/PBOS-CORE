@@ -74,7 +74,7 @@ function fixture(missionId: PlaybookMb03MissionId) {
     const mission = createRemotePlaybookMission(sourceSha, "reviewed-remote-worker", namespace, nonce, target);
     const identity = { teamId: "team_Fixture", projectId: "prj_Fixture", token: "sandbox-controller-secret" };
     const issued = vi.fn(async () => ({
-        id: nonce, token: "scoped-model-secret", expiresAt: new Date(Date.now() + 30_000).toISOString()
+        id: nonce, token: "scoped-model-secret", expiresAt: new Date(Date.now() + 20_000).toISOString()
     }));
     const revoked = vi.fn(async () => undefined);
     const reserve = vi.fn(async () => undefined);
@@ -89,7 +89,7 @@ function fixture(missionId: PlaybookMb03MissionId) {
     };
     const vm = {
         image: policy.image, persistent: false, status: "running",
-        expiresAt: new Date(Date.now() + 45_000),
+        expiresAt: new Date(Date.now() + 25_000),
         currentSession: () => ({ sessionId: "sandbox-isolated-fixture" }),
         runCommand: vi.fn(async (command: { cmd: string }) => ({
             exitCode: command.cmd === "curl" ? 6 : 0,
