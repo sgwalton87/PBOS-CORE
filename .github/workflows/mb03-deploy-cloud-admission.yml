@@ -106,6 +106,7 @@ jobs:
           BIND_ARCHIVE: ${{ github.event_name == 'workflow_dispatch' && inputs.bind_canon_archive }}
           BIND_STATE: ${{ github.event_name == 'workflow_dispatch' && inputs.bind_genesis_state }}
           STATE_PIN: ${{ vars.MB03_GENESIS_STATE_SET_SHA256 }}
+          OBSERVATION_KEY_SECRET: ${{ vars.MB03_OBSERVATION_KEY_SECRET_VERSION }}
           RUNTIME_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
           NEON_SECRET: ${{ vars.MB03_NEON_SECRET_VERSION }}
           OPERATOR_KEY_SECRET: ${{ vars.MB03_OPERATOR_PUBLIC_KEY_VERSION }}
@@ -147,7 +148,9 @@ jobs:
           [[ "$RUNTIME_ACCOUNT" == pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com ]]
           state_path=/var/lib/pbos
           state_volume=mb03-genesis-observation
-          bucket=pbos-genesis-staging-pbos-state
+          key_directory=/var/run/pbos-observation
+          key_path=$key_directory/seal.key
+          bucket=pbos-genesis-staging-mb03-observation-state
           env_vars=PBOS_STATE_HOME=$state_path
           add_state_volume=false
           current_pin="$(jq -r '[.containers[0].env[]? | select(.name == "PBOS_EXPECTED_STATE_SET_SHA256") | .value] | .[0] // ""' <<<"$before")"
@@ -157,22 +160,31 @@ jobs:
               any(.volumes[]?; .name == $name)' >/dev/null
           }
           verify_state_mount() {
-            jq -e --arg path "$state_path" --arg name "$state_volume" --arg bucket "$bucket" --arg pin "$STATE_PIN" '
+            jq -e --arg path "$state_path" --arg name "$state_volume" --arg bucket "$bucket" --arg pin "$STATE_PIN" \
+              --arg keydir "$key_directory" --arg keypath "$key_path" --arg keyref "$OBSERVATION_KEY_SECRET" '
               ([.containers[0].volumeMounts[]? | select(.mountPath == $path or .name == $name)] == [{mountPath:$path,name:$name}]) and
               any(.containers[0].env[]?; .name == "PBOS_STATE_HOME" and .value == $path) and
               any(.containers[0].env[]?; .name == "PBOS_EXPECTED_STATE_SET_SHA256" and .value == $pin) and
+              any(.containers[0].env[]?; .name == "PBOS_OBSERVATION_KEY_FILE" and .value == $keypath) and
+              ([.containers[0].volumeMounts[]? | select(.mountPath == $keydir) | .name] as $mounts
+                | [.volumes[]? | select(.name as $volume | $mounts | index($volume)) | .secret
+                   | .secretName + ":" + (.items[] | select(.path == "seal.key") | .key)] == [$keyref]) and
               any(.volumes[]?; .name == $name and .csi.driver == "gcsfuse.run.googleapis.com" and
                 .csi.readOnly == true and .csi.volumeAttributes.bucketName == $bucket and
                 ((.csi.volumeAttributes.mountOptions // "") | split(",") | sort) ==
                   (["only-dir=mb03-admission/" + $pin,"uid=1000","gid=1000","file-mode=400","dir-mode=500","implicit-dirs=true"] | sort))' >/dev/null
           }
           if [[ -n "$current_pin" ]] || state_mount_exists <<<"$before"; then
-            [[ "$STATE_PIN" =~ ^[a-f0-9]{64}$ && "$STATE_PIN" == "$current_pin" ]] &&
+            [[ "$STATE_PIN" =~ ^[a-f0-9]{64}$ && "$STATE_PIN" == "$current_pin" &&
+              "$OBSERVATION_KEY_SECRET" =~ ^mb03-observation-seal-key:[1-9][0-9]*$ ]] &&
               verify_state_mount <<<"$before" ||
               { echo "::error::Existing Genesis observation storage differs from the approved pin or mount."; exit 1; }
           elif [[ "$BIND_STATE" == true ]]; then
-            [[ "$STATE_PIN" =~ ^[a-f0-9]{64}$ ]]
-            env_vars+=",PBOS_EXPECTED_STATE_SET_SHA256=$STATE_PIN"
+            if ! [[ "$STATE_PIN" =~ ^[a-f0-9]{64}$ && "$OBSERVATION_KEY_SECRET" =~ ^mb03-observation-seal-key:[1-9][0-9]*$ ]]; then
+              echo "::error::Snapshot binding requires the approved pin and numbered seal-key secret."
+              exit 1
+            fi
+            env_vars+=",PBOS_EXPECTED_STATE_SET_SHA256=$STATE_PIN,PBOS_OBSERVATION_KEY_FILE=$key_path"
             add_state_volume=true
           elif [[ -n "$STATE_PIN" ]]; then
             echo "::error::Pinned Genesis storage is absent. Explicit protected state binding is required."
@@ -206,6 +218,9 @@ jobs:
             preserve_ref PBOS_ARCHIVE_PPS_MANIFEST_SHA256 "$ARCHIVE_PPS_PIN"
             secret_refs+="${secret_refs:+,}PBOS_ARCHIVE_DATABASE_URL=$ARCHIVE_SECRET"
             env_vars+=",PBOS_EXPECTED_ARCHIVE_NEON_HOST=$ARCHIVE_HOST,PBOS_EXPECTED_ARCHIVE_NEON_ROLE=$ARCHIVE_ROLE,PBOS_ARCHIVE_PPS_SOURCE_SHA=$ARCHIVE_PPS_SOURCE,PBOS_ARCHIVE_PPS_MANIFEST_SHA256=$ARCHIVE_PPS_PIN"
+          fi
+          if [[ "$add_state_volume" == true ]]; then
+            secret_refs+="${secret_refs:+,}$key_path=$OBSERVATION_KEY_SECRET"
           fi
           args=("--update-env-vars=$env_vars")
           if [[ -n "$secret_refs" ]]; then args+=("--update-secrets=$secret_refs"); fi

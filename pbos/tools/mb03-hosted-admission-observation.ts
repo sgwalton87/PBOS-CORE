@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { lstatSync } from "node:fs";
 import { inspectExistingOperatorRuntime } from "../production-runtime/operator-readonly-preflight";
+import { inspectSealedAdmissionSnapshot } from "../production-runtime/sealed-admission-snapshot";
 
 const home = resolve(process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos"));
 const mountConfigured = process.env.PBOS_STATE_HOME !== undefined;
@@ -22,10 +23,24 @@ const directoryBlocker = (() => {
 })();
 const stateDirectorySecure = directoryBlocker === null;
 const statePin = process.env.PBOS_EXPECTED_STATE_SET_SHA256;
-const pinRequired = process.env.CLOUD_RUN_JOB !== undefined || statePin !== undefined;
-const configurationBlocker = directoryBlocker ??
-  (pinRequired && !/^[a-f0-9]{64}$/.test(statePin ?? "") ? "STATE_SET_PIN_REQUIRED" : null);
-const result = configurationBlocker === null ? inspectExistingOperatorRuntime(home, statePin) : null;
+const hosted = process.env.CLOUD_RUN_JOB !== undefined;
+const keyPath = process.env.PBOS_OBSERVATION_KEY_FILE;
+let configurationBlocker: string | null = directoryBlocker ??
+  ((hosted || statePin !== undefined) && !/^[a-f0-9]{64}$/.test(statePin ?? "") ? "STATE_SET_PIN_REQUIRED" : null);
+let result: ReturnType<typeof inspectExistingOperatorRuntime> | null = null;
+if (configurationBlocker === null) {
+  if (!hosted) {
+    result = inspectExistingOperatorRuntime(home, statePin);
+  } else if (!keyPath || !statePin) {
+    configurationBlocker = "SEALED_STATE_KEY_REQUIRED";
+  } else {
+    try {
+      result = inspectSealedAdmissionSnapshot(home, keyPath, statePin);
+    } catch {
+      configurationBlocker = "SEALED_STATE_VERIFICATION_FAILED";
+    }
+  }
+}
 const eligibleForApprovalReview = result?.status === "INSPECTED" &&
   result.operatorAuthenticated && result.integrityValid === true &&
   result.stateFilesUnchanged === true && result.activeRuns === 0 &&

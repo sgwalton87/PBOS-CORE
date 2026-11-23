@@ -40,13 +40,19 @@ export function compareReadOnlyStateDigests(before: readonly string[], after: re
     return { unchanged, stateFingerprint: unchanged ? after[2] : null };
 }
 
+export const operatorStateFiles = ["profile.json", "operators.json", "genesis-state.json"] as const;
+
+export function operatorStateSetDigest(digests: readonly string[]): string {
+    return createHash("sha256").update(digests.join("\n") + "\n").digest("hex");
+}
+
 /**
  * Inspect an EXISTING operator state without initialization, recovery,
  * persistence, repository operations, or disclosure of credentials.
  * An INSPECTED result is evidence of observation only, never execution approval.
  */
 export function inspectExistingOperatorRuntime(stateHome: string, expectedStateSetSha256?: string): OperatorPreflightReport {
-    const required = ["profile.json", "operators.json", "genesis-state.json"] as const;
+    const required = operatorStateFiles;
     const missing = required.filter(file => !existsSync(join(stateHome, file)));
     if (missing.length) return blocked("MISSING_STATE_FILES", missing);
 
@@ -68,7 +74,7 @@ export function inspectExistingOperatorRuntime(stateHome: string, expectedStateS
     const sha256 = (path: string): string => createHash("sha256").update(readFileSync(path)).digest("hex");
     try {
         const before = statePaths.map(sha256);
-        const stateSetSha256 = createHash("sha256").update(before.join("\n") + "\n").digest("hex");
+        const stateSetSha256 = operatorStateSetDigest(before);
         if (expectedStateSetSha256 !== undefined && stateSetSha256 !== expectedStateSetSha256) {
             return blocked("STATE_SET_PIN_MISMATCH");
         }

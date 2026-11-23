@@ -40,21 +40,36 @@ is used separately for Canon verification.
 3. Compute the state-set pin as SHA-256 of the ASCII lowercase SHA-256 hashes of
    `profile.json`, `operators.json`, and `genesis-state.json`, one hash per
    line in that order, with a final newline. Use the separately approved
-   `mb03-admission/<pin>/` managed folder in the existing
-   `pbos-genesis-staging-pbos-state` bucket. The observed bucket enforces public
-   access prevention, uniform bucket-level access, and object versioning. Verify
-   encryption at rest and effective IAM including inherited grants before any
-   transfer. Give the staging executor read access only to this approved prefix.
-   Record provider object generations and verify the uploaded bytes from the
-   operator boundary. Upload create-only and preserve the previous generation.
-4. Set protected staging variable `MB03_GENESIS_STATE_SET_SHA256` to the
-   independently reviewed pin. Dispatch the existing workflow on reviewed
+   `mb03-admission/<pin>/` managed folder in the dedicated
+   `pbos-genesis-staging-mb03-observation-state` bucket. The dedicated bucket
+   enforces public access prevention, uniform bucket-level access, and object
+   versioning. The shared state bucket has legacy read grants for project
+   Viewers, so keep the observation snapshot in the dedicated bucket. Verify
+   encryption at rest and effective IAM including project grants before any
+   transfer. Give the staging executor read access only to the approved prefix.
+   Staging project roles can read objects through inherited access. Store only
+   ciphertext in Cloud Storage. After approval, create a dedicated 32-byte
+   random key in canonical base64 in Secret Manager as `mb03-observation-seal-key`.
+   Scope payload access to the staging executor and approved sealing boundary.
+   Read back the secret IAM and verify inherited access before publishing.
+   Under operator custody run
+   `node --import tsx pbos/tools/mb03-seal-admission-snapshot.ts <pin> <key-file> <output> <profile> <operators> <audited-state>`.
+   The tool requires the exact plaintext pin, uses AES-256-GCM, and writes
+   create-only. Upload only `snapshot.aes256gcm` with a create-only generation
+   precondition. Record its generation and verify the ciphertext digest after upload.
+4. Set protected staging variables `MB03_GENESIS_STATE_SET_SHA256` to the
+   independently reviewed pin and `MB03_OBSERVATION_KEY_SECRET_VERSION` to the
+   exact numbered Secret Manager version. Dispatch the existing workflow on reviewed
    `main` with `confirm_staging_only=DEPLOY-STAGING-ADMISSION` and
    `bind_genesis_state=true`. This is a separately approved operation. The
    observer remains the default entrypoint. The workflow uses a read-only GCS
    FUSE mount with UID/GID 1000, directory mode 500, and file mode 400, then
-   verifies the exact mount and protected binding references. Verify folder-only
-   IAM works with the live mount before considering broadening access.
+   verifies the exact mount and protected binding references. The observer
+   authenticates the sealed snapshot and recomputes the pin before using a
+   private temporary directory. It runs the existing read-only preflight and
+   removes temporary files before exiting. Cloud Run refuses a missing key,
+   plaintext snapshot, incorrect pin, or altered ciphertext. Verify
+   folder-only IAM works before considering any wider role.
 5. After independent staging approval, run just the read-only observer. Verify
    the exact deployed image digest and runtime identity, unchanged objects and
    source bytes, and an output stating `READY_FOR_SEPARATE_SIGNED_APPROVAL` with
