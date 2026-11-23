@@ -25,7 +25,7 @@ function setup(missionId: PlaybookMb03MissionId = "MB03-MISSION-001") {
     const policy = {
         ...identity, providerId: "playbook-provider-fixture", authorityId: binding.authorityId,
         sourceSha, workerId: mission.workerId, playbook: target,
-        image: "vcr.vercel.com/pbos-genesis/pbos-mb03-playbook/worker@sha256:" + "a".repeat(64),
+        image: "vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker@sha256:" + "a".repeat(64),
         codexBinaryDigest: "a".repeat(64), model: "reviewed-model",
         credentials: async () => identity, signer: keys.privateKey,
         dispatch: { reserve: vi.fn(async () => undefined) },
