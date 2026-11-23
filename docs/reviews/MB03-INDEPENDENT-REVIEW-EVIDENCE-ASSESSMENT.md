@@ -11,7 +11,7 @@
 | PPS-012 authority | Read canonical PPS-012 v1.1.0 at commit `6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea`; Hosted Signing Authority requires an independent reviewer, signer/custodian, fingerprint, scope, rotation/revocation. | Requirement confirmed |
 | Executive authorization | Read PBOS-RCC-001 Decision Log row 27, record `PBOS-MB03-OPERATOR-REG-001-APPROVAL`; approves **creation only** for two named staging missions. | Recorded, activation not authorized |
 | Custodian acceptance | Row 27 quotes Viveca Walton accepting custody; this is an acceptance attributed by the Executive Director, not independently authenticated custodian testimony. | Recorded; independent confirmation pending |
-| Public DER presence | Google Drive metadata confirms `mb03-staging-public.der`, 44 bytes, public-reader permission, file ID `1857Mt0LyOvjGn24AEVcK5Xa4pNPvVFS-`. | File presence verified; contents not downloaded in this assessment |
+| Public DER presence | Google Drive metadata confirms `mb03-staging-public.der`, 44 bytes, public-reader permission, file ID `1857Mt0LyOvjGn24AEVcK5Xa4pNPvVFS-`. | File downloaded subsequently; 44-byte DER matched public PEM in local OpenSSL check |
 | Public fingerprint | Downloaded public PEM and 44-byte DER directly from linked Drive files; OpenSSL parsed PEM as Ed25519, re-encoded PEM to DER and compared exact bytes (MATCH). Both SHA-256 digests equal `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`. | **PASS — public-key consistency verified on 2026-11-22** |
 | GitHub review | PR #140 has an `APPROVED` review by `PlaybookNoReply`; its body reproduces a **request to review**, without verification findings. | Formal UI approval exists; evidentiary review not demonstrated |
 | Custody | Encrypted-drive custody described in handoff; no independent inspection of access, recovery, backup, or unmount controls in this assessment. | Pending |
@@ -29,12 +29,12 @@
 
 ```sh
 openssl pkey -pubin -in mb03-staging-public.pem -text -noout
-openssl pkey -pubin -in mb03-staging-public.pem -outform DER | sha256sum
-sha256sum mb03-staging-public.der.bin
+openssl pkey -pubin -in mb03-staging-public.pem -outform DER | shasum -a 256
+shasum -a 256 mb03-staging-public.der.bin
 cmp <(openssl pkey -pubin -in mb03-staging-public.pem -outform DER) mb03-staging-public.der.bin
 ```
 
-Output: `ED25519 Public-Key`; both digests `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`; byte comparison `MATCH`. No private key was accessed. This verifies **public-key integrity only**, not reviewer independence, key custody, or activation.
+Executed in local container against actual downloaded files on 2026-11-22: `ED25519 Public-Key`; both digests `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`; byte comparison `MATCH`. No private key was accessed. This verifies **public-key integrity only**, not reviewer independence, key custody, or activation.
 
 ## Source links
 
@@ -42,3 +42,7 @@ Output: `ED25519 Public-Key`; both digests `db04246cbc743ba2c75652de473ea3aba8e5
 - [Canonical PPS-012 v1.1.0](https://github.com/sgwalton87/playbook-platform/blob/6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea/docs/PPS/PPS-012_SECURITY_AND_PERMISSIONS.md)
 - [Decision Log row 27](https://docs.google.com/spreadsheets/d/12ALDMBbQOPIT9lGSzT-RfqY5S_TMdtPO4Wwi00Xo0kI/edit#gid=610008&range=A27:H27)
 - [Public PEM](https://drive.google.com/file/d/1phOAaaO_W6PV38Ek9d57omRiISJVAeeR/view) / [Public DER](https://drive.google.com/file/d/1857Mt0LyOvjGn24AEVcK5Xa4pNPvVFS-/view)
+
+## One-command verification for macOS
+
+Run `bash scripts/verify-mb03-public-key.sh /path/to/mb03-staging-public.pem /path/to/mb03-staging-public.der.bin` after downloading the two **public** files. Script exits nonzero on mismatch and never reads private-key material.
