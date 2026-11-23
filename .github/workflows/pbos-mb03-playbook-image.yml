@@ -1,0 +1,38 @@
+name: MB-03 Playbook Source Image (offline verification only)
+
+on:
+  pull_request:
+    paths:
+      - "containers/mb03-playbook/**"
+      - "pbos/master-builder/playbook-remote-mission.ts"
+      - "pbos/master-builder/vercel-remote-provider.ts"
+      - ".github/workflows/pbos-mb03-playbook-image.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Check exact unmerged proposal SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Build separate Playbook image locally (never publish)
+        run: |
+          docker build --platform linux/amd64 --tag pbos-mb03-playbook:ci containers/mb03-playbook
+      - name: Verify pinned Playbook source and Codex without any network
+        run: |
+          docker run --rm --network none --read-only --entrypoint /bin/sh \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/smoke.sh,dst=/checks/smoke.sh,readonly" \
+            pbos-mb03-playbook:ci /checks/smoke.sh
+      - name: Assert no publication or execution
+        run: |
+          echo "Image was built only on the ephemeral GitHub runner."
+          echo "No registry push, protected dispatch, sandbox, model call, or mission approval."
