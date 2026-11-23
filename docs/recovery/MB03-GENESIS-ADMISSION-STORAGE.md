@@ -40,11 +40,19 @@ is used separately for Canon verification.
 3. Compute the state-set pin as SHA-256 of the ASCII lowercase SHA-256 hashes of
    `profile.json`, `operators.json`, and `genesis-state.json`, one hash per
    line in that order, with a final newline. Use the separately approved
-   `mb03-admission/<pin>/` managed folder in the existing
-   `pbos-genesis-staging-pbos-state` bucket. The observed bucket enforces public
-   access prevention, uniform bucket-level access, and object versioning. Verify
-   encryption at rest and effective IAM including inherited grants before any
-   transfer. Give the staging executor read access only to this approved prefix.
+   `mb03-admission/<pin>/` managed folder in the dedicated
+   `pbos-genesis-staging-mb03-observation-state` bucket. The dedicated bucket
+   enforces public access prevention, uniform bucket-level access, and object
+   versioning. The shared state bucket has legacy read grants for project
+   Viewers, so keep the observation snapshot in the dedicated bucket. Verify
+   encryption at rest and effective IAM including project grants before any
+   transfer. Give the staging executor read access only to the approved prefix.
+   The staging project also grants object access through Cloud Build, Container
+   Registry, and Cloud Run service roles. Removing bucket-level convenience
+   grants does not remove these inherited permissions. Keep the bucket empty
+   until a separately reviewed control restricts effective access and a bucket
+   administrator reads back the policy. Provisioning alone does not qualify
+   this destination for cleartext credential files.
    Record provider object generations and verify the uploaded bytes from the
    operator boundary. Upload create-only and preserve the previous generation.
 4. Set protected staging variable `MB03_GENESIS_STATE_SET_SHA256` to the

@@ -49,6 +49,8 @@ describe("MB-03 hosted admission fails closed", () => {
     expect(workflow).toContain("--add-volume=name=");
     expect(workflow).toContain("--add-volume-mount=volume=");
     expect(workflow).not.toContain("--execution-environment");
+    expect(workflow).toContain("bucket=pbos-genesis-staging-mb03-observation-state");
+    expect(workflow).not.toContain("bucket=pbos-genesis-staging-pbos-state");
   });
 
   it("rejects an unconfigured state home", () => {

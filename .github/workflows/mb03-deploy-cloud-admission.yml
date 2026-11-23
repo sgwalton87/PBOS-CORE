@@ -147,7 +147,7 @@ jobs:
           [[ "$RUNTIME_ACCOUNT" == pbos-genesis-executor@pbos-genesis-staging.iam.gserviceaccount.com ]]
           state_path=/var/lib/pbos
           state_volume=mb03-genesis-observation
-          bucket=pbos-genesis-staging-pbos-state
+          bucket=pbos-genesis-staging-mb03-observation-state
           env_vars=PBOS_STATE_HOME=$state_path
           add_state_volume=false
           current_pin="$(jq -r '[.containers[0].env[]? | select(.name == "PBOS_EXPECTED_STATE_SET_SHA256") | .value] | .[0] // ""' <<<"$before")"
