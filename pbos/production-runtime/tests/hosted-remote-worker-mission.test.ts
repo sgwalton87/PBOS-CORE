@@ -199,7 +199,7 @@ describe("MB-03 hosted signed remote worker boundary", () => {
 
     it("stops before remote execution when durable lease ownership is lost", async () => {
         const f = fixture();
-        const losing = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+        const losing = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
         await expect(executeHostedRemoteWorkerMission(f.input, {
             ...f.adapters, admission: { ...f.admission, assertFencedLease: losing }
         })).rejects.toThrow("lease lost");
