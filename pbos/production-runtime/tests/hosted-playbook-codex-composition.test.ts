@@ -81,7 +81,7 @@ function fixture(missionId: PlaybookMb03MissionId) {
     const policy = {
         ...identity, providerId: "vercel-playbook-staging", authorityId: "registered-provider-authority",
         sourceSha, workerId: mission.workerId, playbook: target,
-        image: "vcr.vercel.com/pbos-genesis/pbos-mb03-playbook/worker@sha256:" + "b".repeat(64),
+        image: "vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker@sha256:" + "b".repeat(64),
         codexBinaryDigest: "c".repeat(64), model: "reviewed-model",
         credentials: async () => identity,
         signer: providerKeys.privateKey, dispatch: { reserve },
