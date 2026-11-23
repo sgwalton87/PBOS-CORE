@@ -237,7 +237,7 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
         }
         if (policy.playbook) {
             assertPlaybookRemoteTarget(policy.playbook);
-            if (!policy.image.startsWith("vcr.vercel.com/pbos-genesis/pbos-mb03-playbook/")) {
+            if (!/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(policy.image)) {
                 throw new Error("Playbook remote work requires its own immutable sandbox image namespace.");
             }
         }
