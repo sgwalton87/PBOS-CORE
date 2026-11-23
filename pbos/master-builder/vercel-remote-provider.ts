@@ -9,6 +9,7 @@ import { CodexCanonPhaseImplementationAgent } from "../application-readiness/pla
 import { evidenceDigest, evidenceGitSha, evidenceJson, evidenceSha256, evidenceSignatureInput, remoteKeyFingerprint } from "./remote-attestation";
 import type { SignedRemoteEvidence } from "./remote-attestation";
 import { CANARY_AFTER, CANARY_BEFORE, CANARY_PATH, CANARY_REPOSITORY, createRemoteCanaryMission } from "./remote-canary";
+import { assertPlaybookRemoteTarget, createRemotePlaybookMission, PLAYBOOK_REMOTE_REPOSITORY, type PlaybookRemoteTarget } from "./playbook-remote-mission";
 import type { GcsRemoteDispatchJournal } from "./remote-dispatch-journal";
 import type { HttpsModelLeaseIssuer, ScopedModelLease } from "./remote-model-credential";
 import { MAX_REMOTE_TTL_MS, REMOTE_DISPOSAL_DOMAIN, REMOTE_PROVISION_DOMAIN, REMOTE_RETURN_DOMAIN, runTrustedRemoteMission } from "./trusted-remote-worker";
@@ -21,6 +22,8 @@ const CODEX_HOME = HOME + "/codex";
 const SCRATCH = ROOT + "/scratch";
 const USER = "pboscanary";
 const CODEX = "/usr/local/bin/codex";
+interface RemoteSandboxTarget { readonly repository: string; readonly path: string; readonly before: string; readonly after: string; }
+const CANARY_TARGET: RemoteSandboxTarget = { repository: CANARY_REPOSITORY, path: CANARY_PATH, before: CANARY_BEFORE, after: CANARY_AFTER };
 
 const BOOTSTRAP = String.raw`
 import hashlib, os, pathlib, stat, subprocess, sys
@@ -95,6 +98,11 @@ if content != expected.encode():
 print(base64.b64encode(content).decode())
 `;
 
+// Preserve the legacy canary collector unchanged and use a strict 256 KiB
+// bound for approved Playbook documentation output.
+const PLAYBOOK_COLLECT = COLLECT.replace("info.st_size > 1024", "info.st_size > 262144")
+    .replace("result.read(1025)", "result.read(262145)");
+
 interface VercelControlIdentity {
     readonly token: string;
     readonly teamId: string;
@@ -115,15 +123,20 @@ export interface VercelCanaryPolicy {
     readonly signer: KeyObject;
     readonly dispatch: Pick<GcsRemoteDispatchJournal, "reserve">;
     readonly modelLeases: Pick<HttpsModelLeaseIssuer, "modelOrigin" | "issue" | "revoke">;
+    readonly playbook?: PlaybookRemoteTarget;
+}
+export interface VercelPlaybookPolicy extends VercelCanaryPolicy {
+    readonly playbook: PlaybookRemoteTarget;
 }
 
 type Vm = Awaited<ReturnType<typeof Sandbox.create>>;
 type SandboxApi = Pick<typeof Sandbox, "create" | "get">;
 
-async function bootstrap(vm: Vm, sha: string, codexBinaryDigest: string, signal: AbortSignal) {
+async function bootstrap(vm: Vm, sha: string, codexBinaryDigest: string, signal: AbortSignal,
+    target: RemoteSandboxTarget = CANARY_TARGET) {
     const result = await vm.runCommand({ cmd: "python3", sudo: true, signal, args: ["-I", "-c", BOOTSTRAP,
-        "/opt/pbos-source", ROOT, WORKTREE, HOME, CODEX_HOME, SCRATCH, USER, CANARY_PATH,
-        `https://github.com/${CANARY_REPOSITORY}`, sha, CODEX, codexBinaryDigest, CANARY_BEFORE] });
+        "/opt/pbos-source", ROOT, WORKTREE, HOME, CODEX_HOME, SCRATCH, USER, target.path,
+        `https://github.com/${target.repository}`, sha, CODEX, codexBinaryDigest, target.before] });
     if (result.exitCode !== 0) throw new Error("Vercel Sandbox source, binary, or write boundary could not be verified.");
 }
 
@@ -131,6 +144,7 @@ export interface VercelCanaryReadinessInput extends VercelControlIdentity {
     readonly sourceSha: string;
     readonly image: string;
     readonly codexBinaryDigest: string;
+    readonly target?: RemoteSandboxTarget;
 }
 
 function isCanaryImage(image: string) { return /^[a-z0-9][a-z0-9./_-]*@sha256:[a-f0-9]{64}$/.test(image); }
@@ -182,7 +196,7 @@ export async function probeVercelCanary(input: VercelCanaryReadinessInput, signa
         if (vm.persistent || vm.image !== input.image || vm.status !== "running") {
             throw new Error("Readiness sandbox returned an unexpected image or persistence state.");
         }
-        await bootstrap(vm, input.sourceSha, input.codexBinaryDigest, signal);
+        await bootstrap(vm, input.sourceSha, input.codexBinaryDigest, signal, input.target);
         const check = await vm.runCommand({ cmd: "curl", args: ["-sS", "--max-time", "4", "--fail", "https://example.com/"],
             timeoutMs: 6000, signal });
         // DNS, connection or timeout failure is expected. A missing binary or HTTP response is not evidence.
@@ -221,11 +235,25 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
             !/^[A-Za-z0-9._-]+$/.test(policy.providerId) || policy.signer.type !== "private" || policy.signer.asymmetricKeyType !== "ed25519") {
             throw new Error("Reviewed Vercel Sandbox controller policy is required.");
         }
+        if (policy.playbook) {
+            assertPlaybookRemoteTarget(policy.playbook);
+            if (!policy.image.startsWith("vcr.vercel.com/pbos-genesis/pbos-mb03-playbook/")) {
+                throw new Error("Playbook remote work requires its own immutable sandbox image namespace.");
+            }
+        }
         this.isolationProfile = evidenceDigest(evidenceJson({
-            implementation: "pbos-vercel-canary-v1", image: policy.image, codex: policy.codexBinaryDigest, model: policy.model,
+            implementation: policy.playbook ? "pbos-vercel-playbook-v1" : "pbos-vercel-canary-v1", image: policy.image, codex: policy.codexBinaryDigest, model: policy.model,
             teamId: policy.teamId, projectId: policy.projectId, broker: policy.modelLeases.modelOrigin, bootstrap: evidenceDigest(BOOTSTRAP),
-            collector: evidenceDigest(COLLECT), egress: "broker-responses-post-only", persistent: false,
+            collector: evidenceDigest(policy.playbook ? PLAYBOOK_COLLECT : COLLECT), egress: "broker-responses-post-only", persistent: false,
+            ...(policy.playbook ? { repository: PLAYBOOK_REMOTE_REPOSITORY, mission: policy.playbook.missionId,
+                sourceSha: policy.sourceSha, target: assertPlaybookRemoteTarget(policy.playbook) } : {}),
         }));
+    }
+
+    private target(): RemoteSandboxTarget {
+        const target = this.policy.playbook;
+        return target ? { repository: PLAYBOOK_REMOTE_REPOSITORY,
+            path: assertPlaybookRemoteTarget(target).path, before: target.before, after: target.after } : CANARY_TARGET;
     }
 
     private async credentials() {
@@ -237,7 +265,9 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
 
     private bind(binding: RemoteWorkerBinding): string {
         const { mission } = binding;
-        const expected = createRemoteCanaryMission(this.policy.sourceSha, this.policy.workerId, mission.stateNamespace, mission.attemptId);
+        const expected = this.policy.playbook
+            ? createRemotePlaybookMission(this.policy.sourceSha, this.policy.workerId, mission.stateNamespace, mission.attemptId, this.policy.playbook)
+            : createRemoteCanaryMission(this.policy.sourceSha, this.policy.workerId, mission.stateNamespace, mission.attemptId);
         if (binding.authorityId !== this.policy.authorityId || !evidenceSha256(binding.approvalDigest) ||
             !/^[a-f0-9-]{36}$/.test(binding.fence) || evidenceJson(mission) !== evidenceJson(expected)) {
             throw new Error("Vercel provider accepts only the approved disposable canary binding.");
@@ -250,12 +280,12 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
     }
 
     private bootstrap(vm: Vm, sha: string, signal: AbortSignal) {
-        return bootstrap(vm, sha, this.policy.codexBinaryDigest, signal);
+        return bootstrap(vm, sha, this.policy.codexBinaryDigest, signal, this.target());
     }
 
     async probe(signal: AbortSignal) {
         return probeVercelCanary({ ...await this.credentials(), sourceSha: this.policy.sourceSha,
-            image: this.policy.image, codexBinaryDigest: this.policy.codexBinaryDigest }, signal, this.sandbox);
+            image: this.policy.image, codexBinaryDigest: this.policy.codexBinaryDigest, target: this.target() }, signal, this.sandbox);
     }
 
     async provision(binding: RemoteWorkerBinding, signal: AbortSignal) {
@@ -273,7 +303,7 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
         const timeout = deadline - Date.now() - 500;
         if (attempt.disposed || timeout < 1000) throw new Error("Vercel sandbox deadline elapsed before creation.");
         attempt.create = createSandbox(this.sandbox, { ...identity, sourceSha: this.policy.sourceSha,
-            image: this.policy.image, codexBinaryDigest: this.policy.codexBinaryDigest }, `pbos-canary-${binding.fence}`, timeout, signal);
+            image: this.policy.image, codexBinaryDigest: this.policy.codexBinaryDigest }, `pbos-${this.policy.playbook ? "playbook" : "canary"}-${binding.fence}`, timeout, signal);
         const vm = attempt.sandbox = await attempt.create;
         const expiresAt = vm.expiresAt?.getTime() ?? NaN;
         if (vm.persistent || vm.image !== this.policy.image || vm.status !== "running" || !(expiresAt > Date.now() && expiresAt <= deadline)) {
@@ -324,6 +354,7 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
             "--config", 'model_providers.pbos_broker.wire_api="responses"',
             "--config", "model_providers.pbos_broker.requires_openai_auth=false",
             "--config", "model_providers.pbos_broker.supports_websockets=false", "--config", 'web_search="disabled"'];
+        const target = this.target();
         const agent = new CodexCanonPhaseImplementationAgent({
             run: async (args) => {
                 const result = await vm.runCommand({ cmd: "runuser", args: ["-u", USER, "--", "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin",
@@ -333,24 +364,24 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
                 return { stdout: "", stderr: "" };
             },
         });
-        await agent.execute({ missionId: binding.mission.missionId, title: "Update the synthetic canary marker",
-            rationale: `Replace the file contents with exactly ${JSON.stringify(CANARY_AFTER)}. Do not change other files.`,
-            repository: CANARY_REPOSITORY, revision: binding.mission.sourceSha, workingDirectory: WORKTREE, manifestPath: "",
-            disposableCore: { allowedPaths: [CANARY_PATH], home: HOME, codexHome: CODEX_HOME, temporaryDirectory: SCRATCH }, signal });
+        await agent.execute({ missionId: binding.mission.missionId, title: `Update ${target.path} under an exact signed worker scope`,
+            rationale: `Replace the file contents with exactly ${JSON.stringify(target.after)}. Do not change other files.`,
+            repository: target.repository, revision: binding.mission.sourceSha, workingDirectory: WORKTREE, manifestPath: "",
+            disposableCore: { allowedPaths: [target.path], home: HOME, codexHome: CODEX_HOME, temporaryDirectory: SCRATCH }, signal });
         signal.throwIfAborted();
-        const collected = await vm.runCommand({ cmd: "python3", sudo: true, signal, args: ["-I", "-c", COLLECT,
-            WORKTREE, CANARY_PATH, binding.mission.sourceSha, CANARY_AFTER] });
+        const collected = await vm.runCommand({ cmd: "python3", sudo: true, signal, args: ["-I", "-c", this.policy.playbook ? PLAYBOOK_COLLECT : COLLECT,
+            WORKTREE, target.path, binding.mission.sourceSha, target.after] });
         if (collected.exitCode !== 0) throw new Error("The independent sandbox collector rejected the canary result.");
         const contentBase64 = (await collected.stdout()).trim();
-        if (contentBase64 !== Buffer.from(CANARY_AFTER).toString("base64") || time() <= 0) {
+        if (contentBase64 !== Buffer.from(target.after).toString("base64") || time() <= 0) {
             throw new Error("The canary result was unexpected or arrived after the deadline.");
         }
         const receipt = this.signed<RemoteReturn>(REMOTE_RETURN_DOMAIN, {
             providerId: this.policy.providerId, bindingDigest, sandboxId: vm.currentSession().sessionId,
             completedAt: new Date().toISOString(), status: "SUCCEEDED",
-            outputsDigest: evidenceDigest(evidenceJson([{ path: CANARY_PATH, digest: evidenceDigest(CANARY_AFTER) }])),
+            outputsDigest: evidenceDigest(evidenceJson([{ path: target.path, digest: evidenceDigest(target.after) }])),
         });
-        return { receipt, files: [{ path: CANARY_PATH, contentBase64 }] };
+        return { receipt, files: [{ path: target.path, contentBase64 }] };
     }
 
     async dispose(binding: RemoteWorkerBinding) {
@@ -363,7 +394,7 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
             const stop = async () => {
                 if (!attempt.create) return undefined;
                 const vm = await attempt.create.catch(async () => this.sandbox.get({
-                    ...await this.credentials(), name: `pbos-canary-${binding.fence}`, resume: false, signal,
+                    ...await this.credentials(), name: `pbos-${this.policy.playbook ? "playbook" : "canary"}-${binding.fence}`, resume: false, signal,
                 }));
                 const sandboxId = vm.currentSession().sessionId;
                 const stopped = await vm.stop({ signal });
@@ -385,10 +416,16 @@ export class VercelCanaryProvider implements TrustedRemoteWorkerProvider {
     }
 }
 
+/** Explicit Playbook provider; never silently broaden the existing Core canary policy. */
+export class VercelPlaybookProvider extends VercelCanaryProvider {
+    constructor(policy: VercelPlaybookPolicy, sandbox?: SandboxApi) { super(policy, sandbox); }
+}
+
 /** Controller entry. The existing runner consumes the legitimate operator approval before acquiring a remote lease. */
 export function runVercelCanary(state: GenesisStateRepository, identities: OperatorIdentityService, mission: Mb03Mission,
     approval: VerifiableApproval, request: ProductionMissionRequest, context: DisposableCodexContext,
     policy: VercelCanaryPolicy, trust: RemoteWorkerTrust) {
+    if (policy.playbook) throw new Error("The Core canary entry cannot dispatch a Playbook mission.");
     const provider = new VercelCanaryProvider(policy);
     if (trust.authorityId !== policy.authorityId || trust.providerId !== policy.providerId ||
         trust.isolationProfile !== provider.isolationProfile || trust.allowFixture ||
