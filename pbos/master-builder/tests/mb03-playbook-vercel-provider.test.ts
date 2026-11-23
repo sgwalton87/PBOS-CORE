@@ -48,7 +48,7 @@ function setup(missionId: PlaybookMb03MissionId = "MB03-MISSION-001") {
             stdout: async () => Buffer.from(after).toString("base64")
         }))
     };
-    const api = { create: vi.fn(async () => vm), get: vi.fn(async () => vm) };
+    const api = { create: vi.fn(async (_params: object) => vm), get: vi.fn(async (_params?: object) => vm) };
     const provider = new VercelPlaybookProvider(policy, api as unknown as Pick<typeof Sandbox, "create" | "get">);
     const trust = { providerId: policy.providerId, publicKey: keys.publicKey, isolationProfile: provider.isolationProfile };
     const signal = new AbortController().signal;
