@@ -13,7 +13,7 @@
 | Custodian acceptance | Row 27 quotes Viveca Walton accepting custody; this is an acceptance attributed by the Executive Director, not independently authenticated custodian testimony. | Recorded; independent confirmation pending |
 | Public DER presence | Google Drive metadata confirms `mb03-staging-public.der`, 44 bytes, public-reader permission, file ID `1857Mt0LyOvjGn24AEVcK5Xa4pNPvVFS-`. | File downloaded subsequently; 44-byte DER matched public PEM in local OpenSSL check |
 | Public fingerprint | Downloaded public PEM and 44-byte DER directly from linked Drive files; OpenSSL parsed PEM as Ed25519, re-encoded PEM to DER and compared exact bytes (MATCH). Both SHA-256 digests equal `db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0`. | **PASS — public-key consistency verified on 2026-11-22** |
-| GitHub review | PR #140 has an `APPROVED` review by `PlaybookNoReply`; its body reproduces a **request to review**, without verification findings. | Formal UI approval exists; evidentiary review not demonstrated |
+| GitHub review | PR #140 has an `APPROVED` review by `PlaybookNoReply`; its body reproduces a **request to review**, without verification findings. | Account operator confirmed by Executive Director to be the Executive Director herself (separate account). **Not independent; neither approval qualifies as PPS-012 independent review.** |
 | Custody | Encrypted-drive custody described in handoff; no independent inspection of access, recovery, backup, or unmount controls in this assessment. | Pending |
 | Rotation/revocation | No approved, tested key rotation/revocation runbook evidenced in the material examined. | Pending |
 
@@ -46,3 +46,7 @@ Executed in local container against actual downloaded files on 2026-11-22: `ED25
 ## One-command verification for macOS
 
 Run `bash scripts/verify-mb03-public-key.sh /path/to/mb03-staging-public.pem /path/to/mb03-staging-public.der.bin` after downloading the two **public** files. Script exits nonzero on mismatch and never reads private-key material.
+
+## Reviewer identity clarification (2026-11-22)
+
+The Executive Director explicitly confirmed that `PlaybookNoReply` is a second GitHub account operated by the Executive Director. Therefore its two `APPROVED` reviews and later `COMMENTED` review cannot establish independent review under PPS-012. The GitHub UI may continue to display APPROVED, but registration remains **PENDING independent review**. An authorized individual who is neither the Executive Director nor Viveca Walton must independently assess the registration and custody evidence. No new PR is required.
