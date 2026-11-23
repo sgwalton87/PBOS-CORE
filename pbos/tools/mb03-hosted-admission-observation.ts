@@ -5,21 +5,27 @@
  */
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { existsSync, lstatSync } from "node:fs";
+import { lstatSync } from "node:fs";
 import { inspectExistingOperatorRuntime } from "../production-runtime/operator-readonly-preflight";
 
 const home = resolve(process.env.PBOS_STATE_HOME ?? join(homedir(), ".pbos"));
 const mountConfigured = process.env.PBOS_STATE_HOME !== undefined;
-const stateDirectorySecure = (() => {
+const directoryBlocker = (() => {
   try {
-    if (!mountConfigured || !existsSync(home)) return false;
+    if (!mountConfigured) return "STATE_DIRECTORY_UNCONFIGURED";
     const stat = lstatSync(home);
-    return stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0;
-  } catch {
-    return false;
+    return stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0 &&
+      (process.getuid === undefined || stat.uid === process.getuid()) ? null : "STATE_DIRECTORY_UNSAFE";
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ENOENT" ? "STATE_DIRECTORY_MISSING" : "STATE_DIRECTORY_UNREADABLE";
   }
 })();
-const result = stateDirectorySecure ? inspectExistingOperatorRuntime(home) : null;
+const stateDirectorySecure = directoryBlocker === null;
+const statePin = process.env.PBOS_EXPECTED_STATE_SET_SHA256;
+const pinRequired = process.env.CLOUD_RUN_JOB !== undefined || statePin !== undefined;
+const configurationBlocker = directoryBlocker ??
+  (pinRequired && !/^[a-f0-9]{64}$/.test(statePin ?? "") ? "STATE_SET_PIN_REQUIRED" : null);
+const result = configurationBlocker === null ? inspectExistingOperatorRuntime(home, statePin) : null;
 const eligibleForApprovalReview = result?.status === "INSPECTED" &&
   result.operatorAuthenticated && result.integrityValid === true &&
   result.stateFilesUnchanged === true && result.activeRuns === 0 &&
@@ -27,6 +33,8 @@ const eligibleForApprovalReview = result?.status === "INSPECTED" &&
 process.stdout.write(JSON.stringify({
   gate: "MB03_HOSTED_ADMISSION_OBSERVATION",
   status: eligibleForApprovalReview ? "READY_FOR_SEPARATE_SIGNED_APPROVAL" : "BLOCKED",
+  blocker: configurationBlocker ?? result?.blocker ??
+    (result?.activeRuns ? "ACTIVE_RUN" : result?.activeLeases ? "ACTIVE_LEASE" : null),
   stateDirectorySecure,
   canonicalInspection: result,
   missionExecutionAuthorized: false,

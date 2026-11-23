@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { OperatorIdentityService } from "../../genesis-state";
 import { compareReadOnlyStateDigests, inspectExistingOperatorRuntime } from "../operator-readonly-preflight";
+import { ProductionRuntimeService } from "../production-runtime-service";
 
 describe("read-only existing PBOS operator preflight", () => {
     it("does not create or bootstrap missing runtime files", () => {
@@ -68,5 +69,30 @@ describe("read-only existing PBOS operator preflight", () => {
             status: "BLOCKED", operatorAuthenticated: false, approvalGranted: false
         });
         expect(readFileSync(path)).toEqual(before);
+    });
+
+    it("blocks when the state changes during inspection", () => {
+        const directory = mkdtempSync(join(tmpdir(), "pbos-probe-mutation-"));
+        const { operator, credential } = new OperatorIdentityService(join(directory, "operators.json"))
+            .enroll("stage", "Fixture");
+        writeFileSync(join(directory, "profile.json"), JSON.stringify({ ...operator, credential }), { mode: 0o600 });
+        const statePath = join(directory, "genesis-state.json");
+        const state = JSON.stringify({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] });
+        writeFileSync(statePath, state, { mode: 0o600 });
+        const verifyIntegrity = ProductionRuntimeService.prototype.verifyIntegrity;
+        const change = vi.spyOn(ProductionRuntimeService.prototype, "verifyIntegrity").mockImplementationOnce(function (this: ProductionRuntimeService) {
+            const result = verifyIntegrity.call(this);
+            writeFileSync(statePath, state + "\n");
+            return result;
+        });
+        try {
+            expect(inspectExistingOperatorRuntime(directory)).toMatchObject({
+                status: "BLOCKED", blocker: "STATE_CHANGED", stateFilesUnchanged: false,
+                stateFingerprint: null, approvalGranted: false
+            });
+        } finally {
+            change.mockRestore();
+            rmSync(directory, { recursive: true, force: true });
+        }
     });
 });
