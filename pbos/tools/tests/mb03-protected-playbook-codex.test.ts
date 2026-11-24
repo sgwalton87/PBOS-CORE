@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
+import { allowsManagedSecretAlias, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
 
 const SHA = "a".repeat(64);
 function fixture(): NodeJS.ProcessEnv {
@@ -126,6 +126,14 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
 });
 
 describe("MB-03 managed protected-file boundary", () => {
+    it("allows only the platform-managed /var/run secret alias", () => {
+        expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/operator")).toBe(true);
+        expect(allowsManagedSecretAlias("/var/lib/pbos-missions/mission.json", "/tmp/mission")).toBe(false);
+        expect(allowsManagedSecretAlias("/var/run/secrets/other/public.pem", "/run/secrets/other")).toBe(false);
+        expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/other")).toBe(false);
+        expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/operator/redirect")).toBe(false);
+    });
+
     function fixturePath(name: string): string {
         const root = realpathSync(mkdtempSync(join(tmpdir(), "mb03-file-boundary-")));
         const path = join(root, name);
