@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { allowsManagedSecretAlias, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
+import { describe, expect, it, vi } from "vitest";
+import { allowsManagedSecretAlias, googleRuntimeIdentity, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
 
 const SHA = "a".repeat(64);
 function fixture(): NodeJS.ProcessEnv {
@@ -80,6 +80,27 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness",
             PBOS_MISSION_EXECUTION_APPROVED: "true"
         }, true)).toThrow("distinct");
+    });
+    it("attests only the correct job identity for each execution mode", async () => {
+        const expected = "pbos-mb03-worker@pbos-genesis-staging.iam.gserviceaccount.com";
+        const request = vi.fn().mockResolvedValue({
+            ok: true,
+            headers: { get: (name: string) => name === "metadata-flavor" ? "Google" : null },
+            text: async () => expected
+        });
+        vi.stubGlobal("fetch", request);
+        try {
+            const readiness = { CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness" };
+            const mission = { CLOUD_RUN_JOB: "pbos-mb03-playbook-codex" };
+            expect(await googleRuntimeIdentity(expected, readiness, true)).toBe(true);
+            expect(await googleRuntimeIdentity(expected, mission, false)).toBe(true);
+            const callsBeforeRejection = request.mock.calls.length;
+            expect(await googleRuntimeIdentity(expected, readiness, false)).toBe(false);
+            expect(await googleRuntimeIdentity(expected, mission, true)).toBe(false);
+            expect(request.mock.calls.length).toBe(callsBeforeRejection);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
     it("does not execute in the existing read-only admission observer", () => {
         expect(() => requireProtectedMb03Environment({
