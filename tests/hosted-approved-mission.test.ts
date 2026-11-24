@@ -65,6 +65,13 @@ describe("MB03 hosted execution boundary", () => {
     expect(s.run).not.toHaveBeenCalled();
     expect(s.dependencies.acquireFencedLease).not.toHaveBeenCalled();
   });
+  it("blocks when the durable disposable Genesis binding is absent", async () => {
+    const s = setup();
+    const blocked = { ...s.dependencies, durableStateVerified: async () => false };
+    await expect(runHostedApprovedMission(s.runner, request, approval(), blocked, scope, () => undefined))
+      .rejects.toThrow("Durable disposable Genesis state binding");
+    expect(s.dependencies.acquireFencedLease).not.toHaveBeenCalled();
+  });
   it("blocks lease loss and releases the lease", async () => {
     const s = setup();
     const lost = { ...s.dependencies, assertFencedLease: async () => false };

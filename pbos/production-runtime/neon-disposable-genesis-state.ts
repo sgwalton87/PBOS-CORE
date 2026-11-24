@@ -25,6 +25,19 @@ export class NeonDisposableGenesisState {
     );
   }
 
+  /** Read-only binding check used at hosted admission; never creates state. */
+  async matchesBinding(sourceStatePin: string, authorityId: string): Promise<boolean> {
+    if (!/^[a-f0-9]{64}$/.test(sourceStatePin) || !/^[a-f0-9-]{36}$/.test(authorityId)) {
+      throw new Error("Disposable Genesis lineage is invalid.");
+    }
+    const result = await this.db.query<{ source_state_pin: string; authority_id: string }>(
+      "SELECT source_state_pin, authority_id::text AS authority_id FROM pbos_runner.mb03_disposable_namespace WHERE namespace = $1",
+      [this.namespace],
+    );
+    const row = result.rows[0];
+    return row?.source_state_pin === sourceStatePin && row.authority_id === authorityId;
+  }
+
   async append(event: DisposableGenesisEvent, expectedSequence: bigint): Promise<bigint> {
     if (!/^[a-f0-9-]{36}$/.test(event.eventId) || !event.eventType.trim() || !event.actorId.trim() ||
         !event.leaseResource.trim() || expectedSequence < 0n || event.fencingToken < 1n) {

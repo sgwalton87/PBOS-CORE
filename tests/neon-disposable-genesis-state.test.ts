@@ -16,6 +16,13 @@ describe("NeonDisposableGenesisState", () => {
     expect(db.query).not.toHaveBeenCalled();
   });
 
+  it("checks the durable namespace binding without initializing or writing", async () => {
+    const db = { query: vi.fn().mockResolvedValue({ rows: [{ source_state_pin: "a".repeat(64), authority_id: "11111111-1111-4111-8111-111111111111" }] }) };
+    const state = new NeonDisposableGenesisState(db, "mb03-stage3");
+    await expect(state.matchesBinding("a".repeat(64), "11111111-1111-4111-8111-111111111111")).resolves.toBe(true);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("FROM pbos_runner.mb03_disposable_namespace"), ["mb03-stage3"]);
+  });
+
   it("appends an event with the expected sequence and fence", async () => {
     const db = { query: vi.fn().mockResolvedValue({ rows: [{ sequence: "1" }] }) };
     const state = new NeonDisposableGenesisState(db, "mb03-stage3");

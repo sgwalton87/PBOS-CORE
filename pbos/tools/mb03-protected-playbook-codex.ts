@@ -224,6 +224,8 @@ export async function runProtectedMb03PlaybookCodex(
     const composed = composeHostedNeonExecutor(db, {
         disposableNamespace: config.PBOS_STATE_NAMESPACE,
         trustedPublicKeyPem: keys[0],
+        expectedStatePin: config.PBOS_EXPECTED_STATE_SET_SHA256,
+        disposableAuthorityId: config.PBOS_DISPOSABLE_AUTHORITY_ID,
         verifyConstitution: async () => {
             state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
             return runtime.verifyIntegrity().valid &&
