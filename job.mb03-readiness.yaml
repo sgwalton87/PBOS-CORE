@@ -1,3 +1,5 @@
+# MB-03 signature-free readiness ONLY. Not a mission execution manifest.
+# Replace image placeholder with reviewed sha256 digest before separate staging validation.
 apiVersion: run.googleapis.com/v1
 kind: Job
 metadata:
@@ -14,23 +16,20 @@ spec:
           maxRetries: 0
           timeoutSeconds: 600
           containers:
-          - image: us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:835d8d7067de79259b821d282cbbe7b119aeb6f32e750e8cd345354a213b77cc
+          - image: REPLACE_WITH_APPROVED_CONTROLLER_IMAGE_DIGEST
             command:
-            - ./node_modules/.bin/tsx
+            - /usr/local/bin/mb03-stage-secrets
             args:
+            - ./node_modules/.bin/tsx
             - pbos/tools/mb03-protected-playbook-codex.ts
+            - --verify-bindings
             env:
             - name: PBOS_MISSION_EXECUTION_APPROVED
-              value: "true"
+              value: "false"
             - name: PBOS_MISSION_INPUT_FILE
               value: /var/lib/pbos-missions/mission.json
             - name: PBOS_PROVIDER_SIGNING_KEY_FILE
-              value: /var/run/secrets/mb03/provider/private.pem
-            - name: PBOS_PROVIDER_SIGNING_KEY_PEM
-              valueFrom:
-                secretKeyRef:
-                  name: mb03-provider-signing-key
-                  key: "1"
+              value: /var/lib/pbos-private/provider-private.pem
             - name: PBOS_PROVIDER_ID
               value: vercel-pbos-canary
             - name: PBOS_WORKER_ID
@@ -43,16 +42,6 @@ spec:
               value: https://mb03-model-admin.playbookseriesinc.org
             - name: PBOS_EVIDENCE_DIRECTORY
               value: /var/lib/pbos-evidence
-            - name: PBOS_CHECKPOINT_KEY_BASE64
-              valueFrom:
-                secretKeyRef:
-                  name: mb03-checkpoint-key
-                  key: "1"
-            - name: PBOS_MODEL_ADMIN_CREDENTIAL
-              valueFrom:
-                secretKeyRef:
-                  name: mb03-model-broker-admin-credential
-                  key: "1"
             - name: PBOS_DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -71,7 +60,7 @@ spec:
             - name: PBOS_OBSERVATION_HOME
               value: /var/lib/pbos-observation
             - name: PBOS_OBSERVATION_KEY_FILE
-              value: /var/run/secrets/mb03/observation/key
+              value: /var/lib/pbos-private/observation-key
             - name: PBOS_EXPECTED_STATE_SET_SHA256
               value: 2f48068fc89fd278cf4f932ac4ea3cd9ec4e9e2990a330cf78d7551b33ccb47d
             - name: PBOS_PPS_DIRECTORY
@@ -79,7 +68,7 @@ spec:
             - name: PBOS_PPS_MANIFEST_SHA256
               value: 54fc93d82f5b5b39584776b3b92ba3949f927425d3ee05505803d63b9957b68b
             - name: PBOS_APPROVAL_PUBLIC_KEY_FILE
-              value: /var/run/secrets/mb03/operator/public.pem
+              value: /var/lib/pbos-private/operator-public.pem
             - name: PBOS_APPROVAL_PUBLIC_KEY_SHA256
               value: db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0
             - name: PBOS_APPROVAL_PUBLIC_KEY_PEM
@@ -88,7 +77,7 @@ spec:
                   name: mb03-operator-public-key
                   key: "1"
             - name: PBOS_PROVIDER_PUBLIC_KEY_FILE
-              value: /var/run/secrets/mb03/provider-public/public.pem
+              value: /var/lib/pbos-private/provider-public.pem
             - name: PBOS_PROVIDER_PUBLIC_KEY_SHA256
               value: e4a807a070776cc37dae41c597a24d88a19c5a5d77feae187d57fec37e83345d
             - name: PBOS_PROVIDER_PUBLIC_KEY_PEM
@@ -110,11 +99,6 @@ spec:
               value: team_uEIqx3HHy04a9D2ePf3NwRdl
             - name: PBOS_VERCEL_SANDBOX_PROJECT_ID
               value: prj_1zGe3VEqWFxaBgxRfKYPI9hafyg9
-            - name: PBOS_VERCEL_SANDBOX_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: mb03-vercel-sandbox-token
-                  key: "1"
             - name: PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT
               value: pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com
             volumeMounts:
@@ -138,7 +122,7 @@ spec:
           - name: execution-state
             csi:
               driver: gcsfuse.run.googleapis.com
-              readOnly: false
+              readOnly: true
               volumeAttributes:
                 bucketName: pbos-genesis-staging-mb03-execution-state
                 mountOptions: only-dir=synthetic,uid=1000,gid=1000,file-mode=0400,dir-mode=0500
