@@ -118,10 +118,10 @@ function readPrivateFile(path: string, maximum: number): Buffer {
     const managedSecretRoot = resolve("/var/run/secrets/mb03");
     const managedSecret = full.startsWith(managedSecretRoot + sep);
     const meta = lstatSync(full);
-    if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
-        !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
+    const resolved = realpathSync(full), resolvedParent = realpathSync(parent);
+    if (resolved !== full || resolvedParent !== parent || !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
         meta.size > maximum || ((meta.mode & 0o077) !== 0 && !managedSecret)) {
-        throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
+        throw new Error(`Protected MB-03 file boundary rejected: ${full} mode=${(meta.mode & 0o777).toString(8)} managedSecret=${managedSecret}`);
     }
     return readFileSync(full);
 }
