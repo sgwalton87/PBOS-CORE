@@ -115,10 +115,12 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOn
 /** Require immutable review inputs; no file creation, symlink or credential output. */
 function readPrivateFile(path: string, maximum: number): Buffer {
     const full = resolve(path), parent = dirname(full);
+    const managedSecretRoot = resolve("/var/run/secrets/mb03");
+    const managedSecret = full.startsWith(managedSecretRoot + sep);
     const meta = lstatSync(full);
     if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
         !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
-        meta.size > maximum || (meta.mode & 0o077) !== 0) {
+        meta.size > maximum || ((meta.mode & 0o077) !== 0 && !managedSecret)) {
         throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
     }
     return readFileSync(full);
