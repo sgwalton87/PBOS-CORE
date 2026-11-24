@@ -88,7 +88,7 @@ spec:
                   name: mb03-operator-public-key
                   key: "1"
             - name: PBOS_PROVIDER_PUBLIC_KEY_FILE
-              value: /var/run/secrets/mb03/provider/public.pem
+              value: /var/run/secrets/mb03/provider-public/public.pem
             - name: PBOS_PROVIDER_PUBLIC_KEY_SHA256
               value: e4a807a070776cc37dae41c597a24d88a19c5a5d77feae187d57fec37e83345d
             - name: PBOS_PROVIDER_PUBLIC_KEY_PEM
@@ -128,6 +128,12 @@ spec:
               mountPath: /var/run/secrets/mb03/observation
             - name: provider-signing-key
               mountPath: /var/run/secrets/mb03/provider
+            - name: provider-public-key
+              mountPath: /var/run/secrets/mb03/provider-public
+              readOnly: true
+            - name: operator-public-key
+              mountPath: /var/run/secrets/mb03/operator
+              readOnly: true
           volumes:
           - name: execution-state
             csi:
@@ -162,3 +168,15 @@ spec:
               items:
               - key: "1"
                 path: private.pem
+          - name: operator-public-key
+            secret:
+              secretName: mb03-operator-public-key
+              items:
+              - key: "1"
+                path: public.pem
+          - name: provider-public-key
+            secret:
+              secretName: mb03-provider-public-key
+              items:
+              - key: "1"
+                path: public.pem

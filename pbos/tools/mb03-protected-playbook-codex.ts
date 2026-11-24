@@ -112,15 +112,46 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOn
     return config;
 }
 
+export type ProtectedMb03FileCategory =
+    | "operator-public-key" | "provider-public-key" | "provider-signing-key"
+    | "mission-input" | "disposable-state";
+
+export function protectedMb03FileBoundaryCode(
+    category: ProtectedMb03FileCategory, condition: string
+): string {
+    return `MB03_FILE_BOUNDARY:${category}:${condition}`;
+}
+
 /** Require immutable review inputs; no file creation, symlink or credential output. */
-function readPrivateFile(path: string, maximum: number): Buffer {
+export function readProtectedMb03File(
+    path: string, maximum: number, category: ProtectedMb03FileCategory
+): Buffer {
     const full = resolve(path), parent = dirname(full);
-    const meta = lstatSync(full);
-    if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
-        !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
-        meta.size > maximum || (meta.mode & 0o077) !== 0) {
-        throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
+    let meta;
+    try {
+        meta = lstatSync(full);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new Error(protectedMb03FileBoundaryCode(category, "missing"));
+        }
+        throw new Error(protectedMb03FileBoundaryCode(category, "stat-failed"));
     }
+    try {
+        if (realpathSync(parent) !== parent) {
+            throw new Error(protectedMb03FileBoundaryCode(category, "parent-redirected"));
+        }
+        if (realpathSync(full) !== full) {
+            throw new Error(protectedMb03FileBoundaryCode(category, "redirected"));
+        }
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith("MB03_FILE_BOUNDARY:")) throw error;
+        throw new Error(protectedMb03FileBoundaryCode(category, "realpath-failed"));
+    }
+    if (meta.isSymbolicLink()) throw new Error(protectedMb03FileBoundaryCode(category, "symlink"));
+    if (!meta.isFile()) throw new Error(protectedMb03FileBoundaryCode(category, "not-regular"));
+    if (meta.size < 1) throw new Error(protectedMb03FileBoundaryCode(category, "empty"));
+    if (meta.size > maximum) throw new Error(protectedMb03FileBoundaryCode(category, "oversized"));
+    if ((meta.mode & 0o077) !== 0) throw new Error(protectedMb03FileBoundaryCode(category, "exposed-permissions"));
     return readFileSync(full);
 }
 
@@ -132,7 +163,8 @@ function publicFingerprint(pem: string): string {
 
 function readPublicKeyForReadiness(path: string, envName: string, env: NodeJS.ProcessEnv, verifyOnly: boolean): string {
     const fromSecretEnv = verifyOnly ? env[envName]?.trim() : undefined;
-    return fromSecretEnv || readPrivateFile(path, 16_384).toString("utf8");
+    return fromSecretEnv || readProtectedMb03File(path, 16_384,
+        envName === "PBOS_APPROVAL_PUBLIC_KEY_PEM" ? "operator-public-key" : "provider-public-key").toString("utf8");
 }
 
 async function googleRuntimeIdentity(expected: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -195,7 +227,7 @@ export async function runProtectedMb03PlaybookCodex(
     }
     let mission: PrivateMissionFile | undefined;
     if (!verifyOnly) {
-        mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024).toString("utf8")) as PrivateMissionFile;
+        mission = JSON.parse(readProtectedMb03File(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input").toString("utf8")) as PrivateMissionFile;
         if (!mission || typeof mission !== "object" || !mission.target ||
             mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
             mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
@@ -205,7 +237,7 @@ export async function runProtectedMb03PlaybookCodex(
 
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
-    readPrivateFile(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024);
+    readProtectedMb03File(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "disposable-state");
     const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
         { readOnlyRemote: verifyOnly });
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
@@ -254,7 +286,7 @@ export async function runProtectedMb03PlaybookCodex(
         };
     }
     const providerSigningPem = env.PBOS_PROVIDER_SIGNING_KEY_PEM?.trim() ||
-        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8");
+        readProtectedMb03File(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768, "provider-signing-key").toString("utf8");
     const providerSigningKey = createPrivateKey(providerSigningPem);
     if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
         publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==

@@ -1,5 +1,8 @@
+import { chmodSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
+import { protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
 
 const SHA = "a".repeat(64);
 function fixture(): NodeJS.ProcessEnv {
@@ -119,5 +122,42 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
         expect(() => requireProtectedMb03Environment({
             ...fixture(), PBOS_DISPOSABLE_AUTHORITY_ID: "unbound"
         })).toThrow("state");
+    });
+});
+
+describe("MB-03 managed protected-file boundary", () => {
+    function fixturePath(name: string): string {
+        const root = realpathSync(mkdtempSync(join(tmpdir(), "mb03-file-boundary-")));
+        const path = join(root, name);
+        writeFileSync(path, "synthetic-protected-content", { mode: 0o600 });
+        chmodSync(path, 0o600);
+        return path;
+    }
+
+    it("accepts a regular private file and emits stable diagnostic codes", () => {
+        const path = fixturePath("valid");
+        expect(readProtectedMb03File(path, 1024, "mission-input").toString()).toBe("synthetic-protected-content");
+        expect(protectedMb03FileBoundaryCode("provider-public-key", "missing"))
+            .toBe("MB03_FILE_BOUNDARY:provider-public-key:missing");
+    });
+    it("classifies missing, symlink, exposed, oversized and non-regular inputs", () => {
+        const missing = join(realpathSync(mkdtempSync(join(tmpdir(), "mb03-file-boundary-"))), "missing");
+        expect(() => readProtectedMb03File(missing, 1024, "operator-public-key"))
+            .toThrow("MB03_FILE_BOUNDARY:operator-public-key:missing");
+        const symlinkRoot = realpathSync(mkdtempSync(join(tmpdir(), "mb03-file-boundary-")));
+        const target = join(symlinkRoot, "target");
+        writeFileSync(target, "target", { mode: 0o600 }); chmodSync(target, 0o600);
+        const link = join(symlinkRoot, "link"); symlinkSync(target, link);
+        expect(() => readProtectedMb03File(link, 1024, "provider-signing-key"))
+            .toThrow("MB03_FILE_BOUNDARY:provider-signing-key:redirected");
+        const exposed = fixturePath("exposed"); chmodSync(exposed, 0o644);
+        expect(() => readProtectedMb03File(exposed, 1024, "provider-public-key"))
+            .toThrow("MB03_FILE_BOUNDARY:provider-public-key:exposed-permissions");
+        const oversized = fixturePath("oversized");
+        expect(() => readProtectedMb03File(oversized, 1, "mission-input"))
+            .toThrow("MB03_FILE_BOUNDARY:mission-input:oversized");
+        const directory = realpathSync(mkdtempSync(join(tmpdir(), "mb03-file-boundary-dir-")));
+        expect(() => readProtectedMb03File(directory, 1024, "disposable-state"))
+            .toThrow("MB03_FILE_BOUNDARY:disposable-state:not-regular");
     });
 });
