@@ -3,7 +3,7 @@
  * Emits only field identifiers and stable diagnostic codes, never paths,
  * metadata values, contents or credentials. No mission admission or nonce use.
  */
-import { lstatSync, realpathSync } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 export type ProtectedFileIssue =
@@ -20,6 +20,8 @@ export function inspectProtectedFileBoundary(path: string, maximum: number): Pro
         if (meta.size < 1) return "EMPTY";
         if (meta.size > maximum) return "TOO_LARGE";
         if ((meta.mode & 0o077) !== 0) return "EXPOSED";
+        // A private 0600 file can still be owned by another UID; metadata alone is insufficient.
+        accessSync(full, constants.R_OK);
         return null;
     } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
