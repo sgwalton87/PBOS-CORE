@@ -152,7 +152,8 @@ interface PrivateMissionFile {
 }
 
 export async function runProtectedMb03PlaybookCodex(
-    env: NodeJS.ProcessEnv = process.env
+    env: NodeJS.ProcessEnv = process.env,
+    verifyOnly = false
 ): Promise<Readonly<Record<string, unknown>>> {
     const config = requireProtectedMb03Environment(env);
     const keys = [
@@ -171,11 +172,14 @@ export async function runProtectedMb03PlaybookCodex(
             config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
         throw new Error("Provider signer and independently reviewed public key differ.");
     }
-    const mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024).toString("utf8")) as PrivateMissionFile;
-    if (!mission || typeof mission !== "object" || !mission.target ||
-        mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
-        mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
-        throw new Error("Protected mission envelope is missing or differs from the Playbook image source.");
+    let mission: PrivateMissionFile | undefined;
+    if (!verifyOnly) {
+        mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024).toString("utf8")) as PrivateMissionFile;
+        if (!mission || typeof mission !== "object" || !mission.target ||
+            mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
+            mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
+            throw new Error("Protected mission envelope is missing or differs from the Playbook image source.");
+        }
     }
 
     // The private writable state must exist. Neither the observer nor this
@@ -215,6 +219,18 @@ export async function runProtectedMb03PlaybookCodex(
     if (!(await verifyHostedNeonReadiness(readOnlyDb, "pbos_runner", config.PBOS_EXPECTED_NEON_ROLE))) {
         throw new Error("Protected Neon worker catalog or role is unavailable.");
     }
+    if (verifyOnly) {
+        return {
+            schema: "pbos.mb03.protected-bindings.v1",
+            status: "READY_FOR_SEPARATE_SIGNED_APPROVAL",
+            missionExecutionAuthorized: false,
+            sourceSha: config.PBOS_PLAYBOOK_SOURCE_SHA,
+            stateNamespace: config.PBOS_STATE_NAMESPACE,
+            neonRole: config.PBOS_EXPECTED_NEON_ROLE,
+            operatorPublicKeySha256: config.PBOS_APPROVAL_PUBLIC_KEY_SHA256,
+            providerPublicKeySha256: config.PBOS_PROVIDER_PUBLIC_KEY_SHA256
+        };
+    }
     const db: NeonLeaseSql = {
         async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
             const result = await sql.query(query, [...params]);
@@ -252,7 +268,7 @@ export async function runProtectedMb03PlaybookCodex(
             projectId: config.PBOS_VERCEL_SANDBOX_PROJECT_ID
         }),
         signer: providerSigningKey,
-        playbook: mission.target,
+        playbook: mission!.target,
         dispatch: new GcsRemoteDispatchJournal(config.PBOS_DISPATCH_JOURNAL_BUCKET, googleAccessToken),
         modelLeases: new HttpsModelLeaseIssuer(config.PBOS_MODEL_ADMIN_ORIGIN, config.PBOS_MODEL_ORIGIN,
             async () => config.PBOS_MODEL_ADMIN_CREDENTIAL)
@@ -266,8 +282,8 @@ export async function runProtectedMb03PlaybookCodex(
         timeoutMs: 60_000
     };
     const result = await executeHostedPlaybookCodexMission({
-        input: { request: mission.request, approval: mission.approval,
-            mission: mission.mission, scope: mission.scope },
+        input: { request: mission!.request, approval: mission!.approval,
+            mission: mission!.mission, scope: mission!.scope },
         policy,
         adapters: {
             runner: new ProductionMissionRunner(state, runtime),
@@ -281,7 +297,7 @@ export async function runProtectedMb03PlaybookCodex(
         schema: "pbos.mb03.hosted-playbook-codex-result.v1",
         executionKind: "REMOTE_CODEX_INDEPENDENT_REVIEW_REQUIRED",
         stopReason: result.stopReason,
-        missionId: mission.mission.missionId,
+        missionId: mission!.mission.missionId,
         runs: result.runs.map(run => ({
             runId: run.runId, status: run.status, evidenceIds: run.evidenceIds
         })),
@@ -291,7 +307,9 @@ export async function runProtectedMb03PlaybookCodex(
 
 // Explicit executable only. No automatic dispatch during CI or import.
 if (require.main === module) {
-    runProtectedMb03PlaybookCodex().then(result => {
+    const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
+    if (process.argv.length > 2 && !verifyOnly) throw new Error("Unsupported protected controller argument.");
+    runProtectedMb03PlaybookCodex(process.env, verifyOnly).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(() => {
         process.stderr.write(JSON.stringify({
