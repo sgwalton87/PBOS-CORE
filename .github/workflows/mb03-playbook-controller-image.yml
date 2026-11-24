@@ -8,6 +8,8 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
+      - containers/mb03-controller/**
+      - job.mb03-readiness.yaml
       - .github/workflows/mb03-playbook-controller-image.yml
       - pbos/tools/mb03-protected-playbook-codex.ts
       - pbos/production-runtime/**
@@ -18,6 +20,11 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
+      - containers/mb03-controller/**
+      - job.mb03-readiness.yaml
+      - infra/mb03/**
+      - pbos/tools/mb03-protected-playbook-codex.ts
+      - pbos/tools/tests/mb03-*.test.ts
       - .github/workflows/mb03-playbook-controller-image.yml
   workflow_dispatch:
 
@@ -51,6 +58,27 @@ jobs:
           docker run --rm --user node --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/controller-smoke.sh,dst=/checks/smoke.sh,readonly" \
             --entrypoint /bin/sh pbos-mb03-controller:offline /checks/smoke.sh
+      - name: Exercise root-owned synthetic secret staging, privilege drop and fail-closed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --tmpfs /run:rw,nosuid,nodev,size=4m \
+            --tmpfs /var/lib:rw,nosuid,nodev,size=4m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-controller/staging-smoke.sh,dst=/checks/staging-smoke.sh,readonly" \
+            --entrypoint /bin/sh pbos-mb03-controller:offline /checks/staging-smoke.sh
+      - name: Validate digest pinning is fail-closed without cloud access
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:$(printf 'a%.0s' {1..64})"
+          sh containers/mb03-controller/pin-readiness.sh "$image" "$RUNNER_TEMP/mb03-pinned-smoke.yaml"
+          grep -Fq "image: $image" "$RUNNER_TEMP/mb03-pinned-smoke.yaml"
+          if sh containers/mb03-controller/pin-readiness.sh "not-a-digest" "$RUNNER_TEMP/mb03-invalid.yaml"; then
+            echo "invalid image accepted" >&2
+            exit 1
+          fi
 
   publish-staging-image:
     name: Publish controller image to existing pbos-executor — no Cloud Run deploy
@@ -91,8 +119,73 @@ jobs:
           gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
           docker build --pull --file Dockerfile.mb03-playbook-controller --tag "$IMAGE" .
           docker push "$IMAGE"
+          DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')"
+          PINNED="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@$DIGEST"
+          sh containers/mb03-controller/pin-readiness.sh "$PINNED" "$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          echo "PINNED=$PINNED" >> "$GITHUB_ENV"
           echo "## MB-03 dedicated controller staging image" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image reference: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           echo "- Code commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pinned image: $PINNED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Readiness manifest artifact generated; no Cloud Run job replaced" >> "$GITHUB_STEP_SUMMARY"
           echo "- Existing repository: pbos-executor / us-west1" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Not** an activated job; no secrets, Genesis mounts, mission or Cloud Run execution." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve digest-pinned non-mission readiness manifest for separate review
+        uses: actions/upload-artifact@v4
+        with:
+          name: mb03-readiness-pinned-${{ github.sha }}
+          path: ${{ runner.temp }}/mb03-readiness-pinned.yaml
+          retention-days: 7
+      - name: Validate and run one isolated signature-free Cloud Run readiness execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=pbos-genesis-staging
+          region=us-west1
+          readiness=pbos-mb03-playbook-readiness
+          manifest="$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f "$manifest"
+          grep -Fqx "  name: $readiness" "$manifest"
+          grep -Fq "image: $PINNED" "$manifest"
+          grep -Fq -- "- --verify-bindings" "$manifest"
+          grep -Fq -- 'value: "false"' "$manifest"
+          grep -Fq 'readOnly: true' "$manifest"
+          grep -Fq "maxRetries: 0" "$manifest"
+          if grep -Fq "mb03-provider-signing-key" "$manifest" ||
+             grep -Fq 'value: "true"' "$manifest" ||
+             grep -Fq "name: pbos-mb03-playbook-codex" "$manifest"; then
+            echo "BLOCKED: readiness manifest could enable signed execution" >&2
+            exit 2
+          fi
+          if gcloud run jobs describe "$readiness" --project="$project" --region="$region" >/dev/null 2>&1; then
+            echo "BLOCKED: readiness job exists; refusing a second automatic attempt" >&2
+            exit 2
+          fi
+          # This job is distinct from the signed mission controller and has no mission credentials.
+          gcloud run jobs replace "$manifest" --project="$project" --region="$region"
+          gcloud run jobs describe "$readiness" --project="$project" --region="$region" \
+            --format='value(metadata.name)'
+          # One authorized no-mission attempt, no automatic retry.
+          set +e
+          gcloud run jobs execute "$readiness" --project="$project" --region="$region" --wait
+          outcome="$?"
+          set -e
+          echo "### MB-03 signature-free readiness evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Immutable image: $PINNED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job: $readiness (separate from signed mission job)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result exit status: $outcome" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Non-mission Cloud Run attempt consumed: 1 of 10 maximum" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Live logs: https://console.cloud.google.com/run/jobs/details/us-west1/pbos-mb03-playbook-readiness/executions?project=pbos-genesis-staging" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Sanitized execution outcome (only documented gate/status codes)" >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          gcloud logging read \
+            'resource.type="cloud_run_job" AND resource.labels.job_name="pbos-mb03-playbook-readiness"' \
+            --project="$project" --freshness=30m --limit=80 \
+            --format='value(textPayload)' 2>/dev/null \
+            | grep -Eo 'MB03_SECRET_STAGE:[a-z-]+|MB03_FILE_BOUNDARY:[a-z-]+:[a-z-]+|READY_FOR_SEPARATE_SIGNED_APPROVAL|\"status\":\"BLOCKED\"|\"missionExecutionAuthorized\":false' \
+            | sort -u | while IFS= read -r event; do echo "- $event" >> "$GITHUB_STEP_SUMMARY"; done
+          set -e
+          exit "$outcome"
+

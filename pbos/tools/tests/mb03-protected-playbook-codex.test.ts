@@ -1,8 +1,8 @@
 import { chmodSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
-import { allowsManagedSecretAlias, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
+import { describe, expect, it, vi } from "vitest";
+import { allowsManagedSecretAlias, googleRuntimeIdentity, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
 
 const SHA = "a".repeat(64);
 function fixture(): NodeJS.ProcessEnv {
@@ -60,12 +60,47 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
             "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
             "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
-            "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
+            "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64",
+            "PBOS_VERCEL_SANDBOX_TOKEN"
         ]) delete config[key];
+        config.CLOUD_RUN_JOB = "pbos-mb03-playbook-readiness";
         config.PBOS_MISSION_EXECUTION_APPROVED = "false";
         expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
             .toBe("mb03-private-staging");
         expect(() => requireProtectedMb03Environment(config)).toThrow("configuration missing");
+    });
+    it("enforces separate identities for signed missions and non-mission readiness", () => {
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness"
+        })).toThrow("distinct");
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), PBOS_MISSION_EXECUTION_APPROVED: "false"
+        }, true)).toThrow("distinct");
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness",
+            PBOS_MISSION_EXECUTION_APPROVED: "true"
+        }, true)).toThrow("distinct");
+    });
+    it("attests only the correct job identity for each execution mode", async () => {
+        const expected = "pbos-mb03-worker@pbos-genesis-staging.iam.gserviceaccount.com";
+        const request = vi.fn().mockResolvedValue({
+            ok: true,
+            headers: { get: (name: string) => name === "metadata-flavor" ? "Google" : null },
+            text: async () => expected
+        });
+        vi.stubGlobal("fetch", request);
+        try {
+            const readiness = { CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness" };
+            const mission = { CLOUD_RUN_JOB: "pbos-mb03-playbook-codex" };
+            expect(await googleRuntimeIdentity(expected, readiness, true)).toBe(true);
+            expect(await googleRuntimeIdentity(expected, mission, false)).toBe(true);
+            const callsBeforeRejection = request.mock.calls.length;
+            expect(await googleRuntimeIdentity(expected, readiness, false)).toBe(false);
+            expect(await googleRuntimeIdentity(expected, mission, true)).toBe(false);
+            expect(request.mock.calls.length).toBe(callsBeforeRejection);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
     it("does not execute in the existing read-only admission observer", () => {
         expect(() => requireProtectedMb03Environment({

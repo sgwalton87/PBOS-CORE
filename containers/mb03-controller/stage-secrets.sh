@@ -6,6 +6,14 @@ if [ "$(id -u)" -ne 0 ]; then
   echo 'MB03_SECRET_STAGE:wrong-uid' >&2
   exit 2
 fi
+# Exactly the verified read-only command may omit mission-signing material.
+readiness=0
+if [ "$#" -eq 3 ] &&
+   [ "$1" = "./node_modules/.bin/tsx" ] &&
+   [ "$2" = "pbos/tools/mb03-protected-playbook-codex.ts" ] &&
+   [ "$3" = "--verify-bindings" ]; then
+  readiness=1
+fi
 root=/var/lib/pbos-private
 # Refuse pre-existing staging targets; never overwrite or traverse a planted link.
 if [ -e "$root" ] || [ -L "$root" ]; then
@@ -33,7 +41,9 @@ stage() {
 }
 stage /var/run/secrets/mb03/operator/public.pem operator-public.pem
 stage /var/run/secrets/mb03/provider-public/public.pem provider-public.pem
-stage /var/run/secrets/mb03/provider/private.pem provider-private.pem
+if [ "$readiness" -eq 0 ]; then
+  stage /var/run/secrets/mb03/provider/private.pem provider-private.pem
+fi
 stage /var/run/secrets/mb03/observation/key observation-key
 # The supplied command is fixed in the reviewed Cloud Run manifest.
 exec gosu node "$@"
