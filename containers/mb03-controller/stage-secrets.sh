@@ -21,7 +21,15 @@ stage() {
     echo 'MB03_SECRET_STAGE:missing-or-invalid' >&2
     exit 2
   fi
-  # Restrict to exactly the platform-managed /var/run -> /run alias.\n  case "$src" in /var/run/secrets/mb03/*) ;; *) echo 'MB03_SECRET_STAGE:invalid-source' >&2; exit 2 ;; esac\n  canonical="$(readlink -f "$src")"\n  expected="/run/${src#/var/run/}"\n  if [ "$canonical" != "$expected" ]; then\n    echo 'MB03_SECRET_STAGE:redirected' >&2\n    exit 2\n  fi\n  install -o node -g node -m 0400 "$src" "$root/$dest"
+  # Restrict to exactly the platform-managed /var/run -> /run alias.
+  case "$src" in /var/run/secrets/mb03/*) ;; *) echo 'MB03_SECRET_STAGE:invalid-source' >&2; exit 2 ;; esac
+  canonical="$(readlink -f "$src")"
+  expected="/run/${src#/var/run/}"
+  if [ "$canonical" != "$expected" ]; then
+    echo 'MB03_SECRET_STAGE:redirected' >&2
+    exit 2
+  fi
+  install -o node -g node -m 0400 "$src" "$root/$dest"
 }
 stage /var/run/secrets/mb03/operator/public.pem operator-public.pem
 stage /var/run/secrets/mb03/provider-public/public.pem provider-public.pem
