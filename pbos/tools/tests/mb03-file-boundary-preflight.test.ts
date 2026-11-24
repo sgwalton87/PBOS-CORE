@@ -30,6 +30,14 @@ describe("MB-03 read-only protected file preflight", () => {
     chmodSync(file, 0o644);
     expect(inspectProtectedFileBoundary(file, 100)).toBe("EXPOSED");
   });
+  it("rejects a private file that the runtime user cannot read", () => {
+    const { file } = setup();
+    chmodSync(file, 0o000);
+    // Root may bypass permission checks; the deployed Cloud Run controller runs unprivileged.
+    if (process.getuid?.() !== 0) {
+      expect(inspectProtectedFileBoundary(file, 100)).toBe("UNREADABLE");
+    }
+  });
   it("rejects redirected and non-regular files", () => {
     const { root, file } = setup();
     const link = join(root, "alias");
