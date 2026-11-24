@@ -76,8 +76,6 @@ jobs:
           test "$GITHUB_REF" = "refs/heads/fix/mb03-pinned-vcr-staging-activation-20261123"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # reviewed v3
       - name: Diagnose non-secret GitHub OIDC policy claims (never print JWT)
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
           node - <<'NODE'
           const fs=require('node:fs');
