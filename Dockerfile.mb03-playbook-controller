@@ -1,0 +1,20 @@
+# MB-03 protected Cloud Run controller; distinct from the admission observer
+# and from the isolated Vercel Codex worker. Never bakes in any Genesis state,
+# signed approval, source credentials, keys, or model tokens.
+FROM node:22-bookworm-slim@sha256:0d4a7f7c7b130ad4fd55ce1e126d17ea143d742f3c6d6c84a33c322cd76e8072
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+COPY packages ./packages
+RUN npm ci --ignore-scripts --no-audit --no-fund \
+    && npm cache clean --force
+
+COPY pbos ./pbos
+COPY tsconfig.json tsconfig.cloud-run.json ./
+
+# Admission and worker both refuse any missing identity/approval. The image
+# does not create writable Genesis state or perform automatic admission.
+ENV NODE_ENV=production
+USER node
+STOPSIGNAL SIGTERM
+CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-protected-playbook-codex.ts"]
