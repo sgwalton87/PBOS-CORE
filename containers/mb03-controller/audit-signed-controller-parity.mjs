@@ -57,8 +57,10 @@ function validateGcs(c,name,errors,scope) {
   const opts=new Map(attrs.map(t=>{const p=t.indexOf("=");return [t.slice(0,p),t.slice(p+1)];}));
   for(const [key,val] of [["only-dir",expected.prefix],["uid","1000"],["gid","1000"],["file-mode","400"],["dir-mode","500"]]){
     const actual=opts.get(key);
-    same(key==="file-mode"||key==="dir-mode" ? actual?.replace(/^0+(?=\\d)/,"") : actual,
-      val, code + "_OPTION_" + key.toUpperCase().replace(/-/g,"_"), errors);
+    const normalized = key==="file-mode" || key==="dir-mode"
+      ? (/^0*[0-9]+$/.test(actual ?? "") ? String(Number(actual)) : actual)
+      : actual;
+    same(normalized, val, code + "_OPTION_" + key.toUpperCase().replace(/-/g,"_"), errors);
   }
 }
 function item(c, name, secretName, path, errors, scope) {
