@@ -7,8 +7,9 @@ const workflow = readFileSync(resolve(".github/workflows/mb03-playbook-controlle
 const smoke = readFileSync(resolve("containers/mb03-controller/staging-smoke.sh"), "utf8");
 
 function configuredPath(name: string): string | null {
-    const escaped = name.replace(/[.*+?^$${}()|[\]\\]/g, "\\$&");
-    return job.match(new RegExp("            - name: " + escaped + "\\n              value: (\\S+)"))?.[1] ?? null;
+    const marker = "            - name: " + name + "\n              value: ";
+    const at = job.indexOf(marker);
+    return at < 0 ? null : job.slice(at + marker.length).split("\n", 1)[0];
 }
 
 describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () => {
