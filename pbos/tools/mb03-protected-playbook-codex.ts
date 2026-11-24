@@ -182,8 +182,10 @@ function readPublicKeyForReadiness(path: string, envName: string, env: NodeJS.Pr
         envName === "PBOS_APPROVAL_PUBLIC_KEY_PEM" ? "operator-public-key" : "provider-public-key").toString("utf8");
 }
 
-async function googleRuntimeIdentity(expected: string, env: NodeJS.ProcessEnv): Promise<boolean> {
-    if (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB) return false;
+export async function googleRuntimeIdentity(expected: string, env: NodeJS.ProcessEnv,
+    verifyOnly = false): Promise<boolean> {
+    const expectedJob = verifyOnly ? CANONICAL_READINESS_JOB : CANONICAL_WORKER_JOB;
+    if (env.CLOUD_RUN_JOB !== expectedJob) return false;
     try {
         const response = await fetch(
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
@@ -272,7 +274,7 @@ export async function runProtectedMb03PlaybookCodex(
     }
     const canon = await verifyPpsCanon(config.PBOS_PPS_DIRECTORY, config.PBOS_PPS_MANIFEST_SHA256);
     if (!canon.valid) throw new Error("The reviewed Playbook PPS Canon is invalid.");
-    if (!(await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env))) {
+    if (!(await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env, verifyOnly))) {
         throw new Error("Protected Cloud Run worker identity is not attested.");
     }
 
