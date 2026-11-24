@@ -1,7 +1,7 @@
 # MB-03 protected Cloud Run controller; distinct from the admission observer
 # and from the isolated Vercel Codex worker. Never bakes in any Genesis state,
 # signed approval, source credentials, keys, or model tokens.
-FROM node:22-bookworm-slim@sha256:0d4a7f7c7b130ad4fd55ce1e126d17ea143d742f3c6d6c84a33c322cd76e8072
+FROM node:22-bookworm-slim
 WORKDIR /app
 
 COPY package.json package-lock.json ./
