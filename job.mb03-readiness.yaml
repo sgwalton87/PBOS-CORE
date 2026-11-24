@@ -162,21 +162,25 @@ spec:
               items:
               - key: "1"
                 path: key
+                mode: 0400
           - name: provider-signing-key
             secret:
               secretName: mb03-provider-signing-key
               items:
               - key: "1"
                 path: private.pem
+                mode: 0400
           - name: operator-public-key
             secret:
               secretName: mb03-operator-public-key
               items:
               - key: "1"
                 path: public.pem
+                mode: 0400
           - name: provider-public-key
             secret:
               secretName: mb03-provider-public-key
               items:
               - key: "1"
                 path: public.pem
+                mode: 0400
