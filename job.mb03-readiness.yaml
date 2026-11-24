@@ -19,10 +19,40 @@ spec:
             - ./node_modules/.bin/tsx
             args:
             - pbos/tools/mb03-protected-playbook-codex.ts
-            - --verify-bindings
             env:
             - name: PBOS_MISSION_EXECUTION_APPROVED
-              value: "false"
+              value: "true"
+            - name: PBOS_MISSION_INPUT_FILE
+              value: /var/lib/pbos-missions/mission.json
+            - name: PBOS_PROVIDER_SIGNING_KEY_FILE
+              value: /var/run/secrets/mb03/provider/private.pem
+            - name: PBOS_PROVIDER_SIGNING_KEY_PEM
+              valueFrom:
+                secretKeyRef:
+                  name: mb03-provider-signing-key
+                  key: "1"
+            - name: PBOS_PROVIDER_ID
+              value: vercel-pbos-canary
+            - name: PBOS_WORKER_ID
+              value: vercel-pbos-canary-01
+            - name: PBOS_WORKER_MODEL
+              value: gpt-4.1-mini
+            - name: PBOS_MODEL_ORIGIN
+              value: https://mb03-model-ingress.playbookseriesinc.org
+            - name: PBOS_MODEL_ADMIN_ORIGIN
+              value: https://mb03-model-admin.playbookseriesinc.org
+            - name: PBOS_EVIDENCE_DIRECTORY
+              value: /var/lib/pbos-evidence
+            - name: PBOS_CHECKPOINT_KEY_BASE64
+              valueFrom:
+                secretKeyRef:
+                  name: mb03-checkpoint-key
+                  key: "1"
+            - name: PBOS_MODEL_ADMIN_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: mb03-model-broker-admin-credential
+                  key: "1"
             - name: PBOS_DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -96,11 +126,13 @@ spec:
               mountPath: /var/run/pbos-canon
             - name: observation-key
               mountPath: /var/run/secrets/mb03/observation
+            - name: provider-signing-key
+              mountPath: /var/run/secrets/mb03/provider
           volumes:
           - name: execution-state
             csi:
               driver: gcsfuse.run.googleapis.com
-              readOnly: true
+              readOnly: false
               volumeAttributes:
                 bucketName: pbos-genesis-staging-mb03-execution-state
                 mountOptions: only-dir=synthetic,uid=1000,gid=1000,file-mode=0400,dir-mode=0500
@@ -124,3 +156,9 @@ spec:
               items:
               - key: "1"
                 path: key
+          - name: provider-signing-key
+            secret:
+              secretName: mb03-provider-signing-key
+              items:
+              - key: "1"
+                path: private.pem

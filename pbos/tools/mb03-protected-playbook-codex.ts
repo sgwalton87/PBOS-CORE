@@ -52,7 +52,7 @@ export type ProtectedMb03Environment = Record<Key, string> & NodeJS.ProcessEnv;
 // bindings (provider authority, journal, model lease and evidence sinks) are
 // deliberately not required until a separately authorized mission run.
 const READINESS_REQUIRED = REQUIRED.filter(name => ![
-    "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE",
+    "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE", "PBOS_PROVIDER_SIGNING_KEY_PEM",
     "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
     "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
     "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
@@ -253,9 +253,9 @@ export async function runProtectedMb03PlaybookCodex(
             providerPublicKeySha256: config.PBOS_PROVIDER_PUBLIC_KEY_SHA256
         };
     }
-    const providerSigningKey = createPrivateKey(
-        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8")
-    );
+    const providerSigningPem = env.PBOS_PROVIDER_SIGNING_KEY_PEM?.trim() ||
+        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8");
+    const providerSigningKey = createPrivateKey(providerSigningPem);
     if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
         publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==
             config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
