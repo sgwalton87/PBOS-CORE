@@ -63,14 +63,17 @@ const READINESS_REQUIRED = REQUIRED.filter(name => ![
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA40 = /^[a-f0-9]{40}$/;
 const CANONICAL_WORKER_JOB = "pbos-mb03-playbook-codex";
+const CANONICAL_READINESS_JOB = "pbos-mb03-playbook-readiness";
 
 export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOnly = false): ProtectedMb03Environment {
     const required = verifyOnly ? READINESS_REQUIRED : REQUIRED;
     const missing = required.filter(name => !env[name]?.trim());
     if (missing.length) throw new Error("MB-03 protected worker configuration missing: " + missing.join(", "));
-    if (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB ||
-        (verifyOnly ? env.PBOS_MISSION_EXECUTION_APPROVED !== "false" :
-            env.PBOS_MISSION_EXECUTION_APPROVED !== "true")) {
+    if ((verifyOnly
+        ? (env.CLOUD_RUN_JOB !== CANONICAL_READINESS_JOB ||
+            env.PBOS_MISSION_EXECUTION_APPROVED !== "false")
+        : (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB ||
+            env.PBOS_MISSION_EXECUTION_APPROVED !== "true"))) {
         throw new Error("MB-03 requires its distinct, explicitly approved Cloud Run mission job.");
     }
     const config = Object.assign({}, env) as ProtectedMb03Environment;
