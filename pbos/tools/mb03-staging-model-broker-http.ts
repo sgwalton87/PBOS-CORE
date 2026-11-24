@@ -10,6 +10,17 @@ import { resolve } from "node:path";
 import { CodexModelLeaseBroker } from "../master-builder/codex-model-lease-broker";
 
 const MAX_BODY = 1024 * 1024;
+// Cloud Run Secret Manager volumes are provider-managed and are commonly
+// presented read-only (0444); unlike a user-created file, their mode cannot
+// be changed with `gcloud run deploy`. Keep the mount root dedicated so a
+// caller cannot point this adapter at arbitrary runtime files.
+const SECRET_MOUNT_ROOT = "/var/run/secrets/mb03/";
+export function isAllowedSecretMountPath(path: string): boolean {
+  return resolve(path).startsWith(SECRET_MOUNT_ROOT);
+}
+export function isReadOnlySecretMode(mode: number): boolean {
+  return (mode & 0o222) === 0;
+}
 function origin(name: string): string {
   const value = process.env[name];
   if (!value) throw Error(`Missing ${name}`);
@@ -20,12 +31,15 @@ function origin(name: string): string {
 }
 function privateSecret(name: string, minimum: number): string {
   const path = process.env[name];
-  if (!path || !resolve(path).startsWith("/var/run/")) throw Error(`Missing protected ${name}`);
-  const meta = lstatSync(path);
-  if (!meta.isFile() || meta.isSymbolicLink() || (meta.mode & 0o077) !== 0 || meta.size > 16384) {
+  const resolved = path ? resolve(path) : "";
+  if (!resolved || !isAllowedSecretMountPath(resolved)) throw Error(`Missing protected ${name}`);
+  const meta = lstatSync(resolved);
+  // Accept both a conventional 0400 file and Cloud Run's read-only managed
+  // secret volume (0444). Any writable mode remains rejected.
+  if (!meta.isFile() || meta.isSymbolicLink() || !isReadOnlySecretMode(meta.mode) || meta.size > 16384) {
     throw Error(`Invalid protected ${name}`);
   }
-  const value = readFileSync(path, "utf8").trim();
+  const value = readFileSync(resolved, "utf8").trim();
   if (value.length < minimum) throw Error(`Invalid protected ${name}`);
   return value;
 }
