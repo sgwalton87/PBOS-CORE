@@ -9,8 +9,9 @@
  * Never initializes state, signs approvals, creates cloud resources, or deploys.
  */
 import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
+import { inspectProtectedFileBoundary } from "./mb03-file-boundary-preflight";
 import { neon } from "@neondatabase/serverless";
 import { GenesisStateRepository } from "../genesis-state";
 import { ProductionRuntimeService } from "../production-runtime/production-runtime-service";
@@ -99,15 +100,11 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): Protect
 }
 
 /** Require immutable review inputs; no file creation, symlink or credential output. */
-function readPrivateFile(path: string, maximum: number): Buffer {
-    const full = resolve(path), parent = dirname(full);
-    const meta = lstatSync(full);
-    if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
-        !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
-        meta.size > maximum || (meta.mode & 0o077) !== 0) {
-        throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
-    }
-    return readFileSync(full);
+function readPrivateFile(path: string, maximum: number, field: string): Buffer {
+    const problem = inspectProtectedFileBoundary(path, maximum);
+    if (problem) throw new Error(`Protected MB-03 file rejected: ${field}:${problem}`);
+    // The approved runtime still requires private regular files; do not relax GCSFuse checks.
+    return readFileSync(resolve(path));
 }
 
 function publicFingerprint(pem: string): string {
@@ -156,9 +153,9 @@ export async function runProtectedMb03PlaybookCodex(
 ): Promise<Readonly<Record<string, unknown>>> {
     const config = requireProtectedMb03Environment(env);
     const keys = [
-        readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8")
+        readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384, "PBOS_APPROVAL_PUBLIC_KEY_FILE").toString("utf8"),
+        readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384, "PBOS_PROVIDER_PUBLIC_KEY_FILE").toString("utf8"),
+        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768, "PBOS_PROVIDER_SIGNING_KEY_FILE").toString("utf8")
     ];
     if (publicFingerprint(keys[0]) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
         publicFingerprint(keys[1]) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
@@ -171,7 +168,7 @@ export async function runProtectedMb03PlaybookCodex(
             config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
         throw new Error("Provider signer and independently reviewed public key differ.");
     }
-    const mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024).toString("utf8")) as PrivateMissionFile;
+    const mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "PBOS_MISSION_INPUT_FILE").toString("utf8")) as PrivateMissionFile;
     if (!mission || typeof mission !== "object" || !mission.target ||
         mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
         mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
@@ -180,7 +177,7 @@ export async function runProtectedMb03PlaybookCodex(
 
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
-    readPrivateFile(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024);
+    readPrivateFile(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "PBOS_DISPOSABLE_STATE_FILE");
     const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE);
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
     const runtime = new ProductionRuntimeService(state);
