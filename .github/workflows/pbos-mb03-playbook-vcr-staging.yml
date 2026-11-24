@@ -1,0 +1,107 @@
+name: MB-03 Reviewed Playbook VCR Image — STAGING ONLY
+
+# Only this isolated activation branch can publish. The Vercel OIDC trust
+# policy must independently restrict the exact repository, ref and workflow.
+on:
+  push:
+    branches:
+      - fix/mb03-pinned-vcr-staging-activation-20261123
+    paths:
+      - ".github/workflows/pbos-mb03-playbook-vcr-staging.yml"
+      - "containers/mb03-playbook/**"
+      - "pbos/master-builder/vercel-remote-provider.ts"
+      - "pbos/tools/mb03-protected-playbook-codex.ts"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pbos-mb03-reviewed-vcr-staging
+  # Only the newest immutable commit may publish; older queued image jobs cancel.
+  cancel-in-progress: true
+
+env:
+  VCR_IMAGE: vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker
+  PLAYBOOK_SOURCE_SHA: b2c2259d67f30ca068f32cd1889542991f294e42
+  APPROVED_CODEX_SHA256: b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0
+
+jobs:
+  offline-audit:
+    if: github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/fix/mb03-pinned-vcr-staging-activation-20261123'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # reviewed v4
+        with:
+          persist-credentials: false
+      - name: Verify checkout is the exact requested source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$PLAYBOOK_SOURCE_SHA" = "b2c2259d67f30ca068f32cd1889542991f294e42"
+      - name: Build reviewed standalone image — no publish
+        run: |
+          set -euo pipefail
+          docker build --platform linux/amd64 \
+            -t pbos-mb03-playbook:staging-audit \
+            --file containers/mb03-playbook/Dockerfile containers/mb03-playbook
+      - name: Verify source, binary digest, tracked files and no credential mount offline
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only \
+            --entrypoint /bin/sh \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/smoke.sh,dst=/checks/smoke.sh,readonly" \
+            pbos-mb03-playbook:staging-audit /checks/smoke.sh
+
+  publish:
+    name: Publish isolated staging worker image (never a mission)
+    needs: offline-audit
+    if: github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/fix/mb03-pinned-vcr-staging-activation-20261123'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    # No GitHub environment: issuer sub must bind to refs/heads for the
+    # team policy's exact branch restriction, not :environment:.
+    # This job can publish a staging worker image only; it never dispatches.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # reviewed v4
+        with:
+          persist-credentials: false
+      - name: Confirm exact branch and commit before VCR authentication
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$GITHUB_REF" = "refs/heads/fix/mb03-pinned-vcr-staging-activation-20261123"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # reviewed v3
+      - name: Exchange scoped GitHub OIDC for short-lived VCR credentials
+        uses: vercel/vcr-action/login@6888f841cb0d2255ef9dab40f068cba07234ef47 # reviewed v1
+        with:
+          team: team_uEIqx3HHy04a9D2ePf3NwRdl
+      - name: Push exact-source staging image only
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # reviewed v6
+        with:
+          context: containers/mb03-playbook
+          file: containers/mb03-playbook/Dockerfile
+          platforms: linux/amd64
+          provenance: false
+          push: true
+          tags: vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker:core-${{ github.sha }}
+          outputs: type=image,push=true,oci-mediatypes=true,compression=zstd,compression-level=3,force-compression=true
+      - name: Verify returned digest and record non-secret provenance
+        env:
+          PUBLISHED_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLISHED_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "## MB-03 Playbook worker staging publication" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Core commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Playbook source SHA: $PLAYBOOK_SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Expected Codex executable SHA-256: $APPROVED_CODEX_SHA256" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Immutable VCR image: $VCR_IMAGE@$PUBLISHED_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Status: image publication only. No Sandbox run, model lease, operator signature, mission dispatch, Genesis import, or certification." >> "$GITHUB_STEP_SUMMARY"

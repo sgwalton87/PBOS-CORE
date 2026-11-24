@@ -70,7 +70,7 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): Protect
         !/^[a-f0-9-]{36}$/.test(config.PBOS_DISPOSABLE_AUTHORITY_ID) ||
         !/^team_[A-Za-z0-9]+$/.test(config.PBOS_VERCEL_SANDBOX_TEAM_ID) ||
         !/^prj_[A-Za-z0-9]+$/.test(config.PBOS_VERCEL_SANDBOX_PROJECT_ID) ||
-        !/^vcr\.vercel\.com\/pbos-genesis\/pbos-mb03-playbook\/[a-zA-Z0-9._/-]+@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
+        !/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
         throw new Error("Unreviewed Playbook source, disposable state, or sandbox image identity.");
     }
     if (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
