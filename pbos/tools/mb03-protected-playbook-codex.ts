@@ -123,8 +123,10 @@ export function protectedMb03FileBoundaryCode(
 }
 
 export function allowsManagedSecretAlias(path: string, canonicalParent: string): boolean {
+    // Only the exact platform /var/run -> /run spelling is trusted.
+    // Prefix-only checks could accidentally permit other nested redirects.
     return path.startsWith("/var/run/secrets/mb03/") &&
-        canonicalParent.startsWith("/run/secrets/mb03/");
+        canonicalParent === dirname(path).replace(/^\\/var\\/run\\//, "/run/");
 }
 
 /** Require immutable review inputs; no file creation, symlink or credential output. */
@@ -149,7 +151,7 @@ export function readProtectedMb03File(
         }
         const canonicalFull = realpathSync(full);
         if (canonicalFull !== full &&
-            !(managedSecretAlias && canonicalFull.startsWith("/run/secrets/mb03/"))) {
+            !(managedSecretAlias && canonicalFull === full.replace(/^\\/var\\/run\\//, "/run/"))) {
             throw new Error(protectedMb03FileBoundaryCode(category, "redirected"));
         }
     } catch (error) {
