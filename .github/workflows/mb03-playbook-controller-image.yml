@@ -117,6 +117,7 @@ jobs:
           DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')"
           PINNED="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@$DIGEST"
           sh containers/mb03-controller/pin-readiness.sh "$PINNED" "$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          echo "PINNED=$PINNED" >> "$GITHUB_ENV"
           echo "## MB-03 dedicated controller staging image" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image reference: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           echo "- Code commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
