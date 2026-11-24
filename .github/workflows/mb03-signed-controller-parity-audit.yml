@@ -7,13 +7,13 @@ on:
     paths:
       - .github/workflows/mb03-signed-controller-parity-audit.yml
       - containers/mb03-controller/audit-signed-controller-parity.mjs
-      - containers/mb03-controller/audit-signed-controller-parity.test.mjs
+      - containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
       - infra/mb03/job.signed-mission.review-only.yaml
   pull_request:
     paths:
       - .github/workflows/mb03-signed-controller-parity-audit.yml
       - containers/mb03-controller/audit-signed-controller-parity.mjs
-      - containers/mb03-controller/audit-signed-controller-parity.test.mjs
+      - containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
       - infra/mb03/job.signed-mission.review-only.yaml
   workflow_dispatch:
 permissions:
@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          node --test containers/mb03-controller/audit-signed-controller-parity.test.mjs
+          node --test containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
   inspect-staging-job:
     name: Compare existing Cloud Run job bindings — NO EXECUTION
     needs: offline-audit-tests
