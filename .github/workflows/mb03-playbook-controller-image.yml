@@ -129,3 +129,56 @@ jobs:
           name: mb03-readiness-pinned-${{ github.sha }}
           path: ${{ runner.temp }}/mb03-readiness-pinned.yaml
           retention-days: 7
+      - name: Validate and run one isolated signature-free Cloud Run readiness execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=pbos-genesis-staging
+          region=us-west1
+          readiness=pbos-mb03-playbook-readiness
+          manifest="$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f "$manifest"
+          grep -Fqx "  name: $readiness" "$manifest"
+          grep -Fq "image: $PINNED" "$manifest"
+          grep -Fq -- "- --verify-bindings" "$manifest"
+          grep -Fq -- 'value: "false"' "$manifest"
+          grep -Fq 'readOnly: true' "$manifest"
+          grep -Fq "maxRetries: 0" "$manifest"
+          if grep -Fq "mb03-provider-signing-key" "$manifest" ||
+             grep -Fq 'value: "true"' "$manifest" ||
+             grep -Fq "name: pbos-mb03-playbook-codex" "$manifest"; then
+            echo "BLOCKED: readiness manifest could enable signed execution" >&2
+            exit 2
+          fi
+          if gcloud run jobs describe "$readiness" --project="$project" --region="$region" >/dev/null 2>&1; then
+            echo "BLOCKED: readiness job exists; refusing a second automatic attempt" >&2
+            exit 2
+          fi
+          # This job is distinct from the signed mission controller and has no mission credentials.
+          gcloud run jobs replace "$manifest" --project="$project" --region="$region"
+          gcloud run jobs describe "$readiness" --project="$project" --region="$region" \
+            --format='value(metadata.name)'
+          # One authorized no-mission attempt, no automatic retry.
+          set +e
+          gcloud run jobs execute "$readiness" --project="$project" --region="$region" --wait
+          outcome="$?"
+          set -e
+          echo "### MB-03 signature-free readiness evidence" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Source commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Immutable image: $PINNED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Job: $readiness (separate from signed mission job)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Result exit status: $outcome" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Non-mission Cloud Run attempt consumed: 1 of 10 maximum" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Live logs: https://console.cloud.google.com/run/jobs/details/us-west1/pbos-mb03-playbook-readiness/executions?project=pbos-genesis-staging" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Sanitized execution outcome (only documented gate/status codes)" >> "$GITHUB_STEP_SUMMARY"
+          set +e
+          gcloud logging read \
+            'resource.type="cloud_run_job" AND resource.labels.job_name="pbos-mb03-playbook-readiness"' \
+            --project="$project" --freshness=30m --limit=80 \
+            --format='value(textPayload)' 2>/dev/null \
+            | grep -Eo 'MB03_SECRET_STAGE:[a-z-]+|MB03_FILE_BOUNDARY:[a-z-]+:[a-z-]+|READY_FOR_SEPARATE_SIGNED_APPROVAL|\"status\":\"BLOCKED\"|\"missionExecutionAuthorized\":false' \
+            | sort -u | while IFS= read -r event; do echo "- $event" >> "$GITHUB_STEP_SUMMARY"; done
+          set -e
+          exit "$outcome"
+
