@@ -53,4 +53,22 @@ if /usr/local/bin/mb03-stage-secrets /bin/true >/dev/null 2>&1; then
     echo "FAIL: nested directory redirect accepted" >&2
     exit 1
 fi
+# In exact verify-only mode, a mission signing key must not be mounted or staged.
+rm /run/secrets/mb03/operator
+mv /run/secrets/mb03/operator-original /run/secrets/mb03/operator
+rm -rf /var/lib/pbos-private
+rm /run/secrets/mb03/provider/private.pem
+set +e
+/usr/local/bin/mb03-stage-secrets ./node_modules/.bin/tsx pbos/tools/mb03-protected-playbook-codex.ts --verify-bindings >/dev/null 2>&1
+status="$?"
+set -e
+# The actual controller fails closed because this synthetic CI environment has no Cloud Run bindings.
+test "$status" -eq 2
+test ! -e /var/lib/pbos-private/provider-private.pem
+for name in operator-public.pem provider-public.pem observation-key; do
+    path="/var/lib/pbos-private/$name"
+    test -s "$path"
+    test "$(stat -c %a "$path")" = 400
+    test "$(stat -c %u "$path")" = 1000
+done
 echo "PASS: root-owned 0444 synthetic mounts become node-owned 0400 files; unsafe sources fail closed"
