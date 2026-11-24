@@ -1,0 +1,56 @@
+name: MB-03 Stage 3 durable restart validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed PBOS-CORE commit
+        required: true
+        type: string
+      confirm_synthetic_only:
+        description: Required safety confirmation
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  durable-restart:
+    if: github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/feat/mb03-stage3-durable-state'
+    runs-on: ubuntu-latest
+    environment: mb03-stage3-durability
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: { persist-credentials: false, fetch-depth: 1 }
+      - name: Verify exact reviewed source and synthetic-only scope
+        env:
+          EXPECTED_SHA: ${{ inputs.source_sha }}
+          CONFIRM: ${{ inputs.confirm_synthetic_only }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "${{ inputs.source_sha }}" = "$EXPECTED_SHA"
+          test "$CONFIRM" = "STAGE3-SYNTHETIC-ONLY"
+          echo "No mission dispatch, canonical Genesis write, or production access is permitted."
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with: { node-version: 24, cache: npm }
+      - run: npm ci --ignore-scripts
+      - name: Process one — initialize and commit
+        env:
+          PBOS_STAGE3_DATABASE_URL: ${{ secrets.PBOS_STAGE3_DATABASE_URL }}
+          PBOS_STAGE3_NAMESPACE: mb03-stage3-${{ github.run_id }}
+          PBOS_STAGE3_SOURCE_PIN: 2f48068fc89fd278cf4f932ac4ea3cd9ec4e9e2990a330cf78d7551b33ccb47d
+          PBOS_STAGE3_AUTHORITY_ID: 22222222-2222-4222-8222-222222222222
+          PBOS_STAGE3_CHECKPOINT_FILE: ${{ runner.temp }}/mb03-stage3-checkpoint.json
+        run: node --import tsx pbos/tools/mb03-stage3-process-restart.ts init
+      - name: Process two — restart and recover
+        env:
+          PBOS_STAGE3_DATABASE_URL: ${{ secrets.PBOS_STAGE3_DATABASE_URL }}
+          PBOS_STAGE3_NAMESPACE: mb03-stage3-${{ github.run_id }}
+          PBOS_STAGE3_SOURCE_PIN: 2f48068fc89fd278cf4f932ac4ea3cd9ec4e9e2990a330cf78d7551b33ccb47d
+          PBOS_STAGE3_AUTHORITY_ID: 22222222-2222-4222-8222-222222222222
+          PBOS_STAGE3_CHECKPOINT_FILE: ${{ runner.temp }}/mb03-stage3-checkpoint.json
+        run: node --import tsx pbos/tools/mb03-stage3-process-restart.ts resume

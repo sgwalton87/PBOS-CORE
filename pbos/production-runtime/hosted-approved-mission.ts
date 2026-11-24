@@ -18,6 +18,7 @@ export interface HostedExecutionDependencies {
   readonly trustedPublicKeyPem: string;
   readonly canonicalStateVerified: () => Promise<boolean>;
   readonly hostAttested: () => Promise<boolean>;
+  readonly durableStateVerified?: () => Promise<boolean>;
   readonly acquireFencedLease: (resource: string, ownerId: string) => Promise<HostedExecutionLease | null>;
   readonly assertFencedLease: (lease: HostedExecutionLease) => Promise<boolean>;
   readonly releaseFencedLease: (lease: HostedExecutionLease) => Promise<void>;
@@ -44,6 +45,9 @@ export async function runHostedApprovedMission(
   }, dependencies.trustedPublicKeyPem)) throw new Error("Hosted mission signature or lineage invalid.");
   if (!(await dependencies.canonicalStateVerified())) throw new Error("Canonical Genesis state is not verified.");
   if (!(await dependencies.hostAttested())) throw new Error("Hosted execution identity is not attested.");
+  if (dependencies.durableStateVerified && !(await dependencies.durableStateVerified())) {
+    throw new Error("Durable disposable Genesis state binding is not verified.");
+  }
   const attempt = {
     missionId: approval.payload.missionId,
     namespace: dependencies.disposableNamespace,

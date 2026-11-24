@@ -7,6 +7,7 @@
 import { NeonFencedLeaseProvider, type NeonLeaseSql } from "./neon-fenced-lease-provider";
 import { NeonMissionApprovalNonceLedger } from "./neon-mission-approval-nonce-ledger";
 import { NeonFencedMissionCheckpoint } from "./neon-fenced-mission-checkpoint";
+import { NeonDisposableGenesisState } from "./neon-disposable-genesis-state";
 import type { HostedExecutionDependencies } from "./hosted-approved-mission";
 
 export interface HostedWorkerIdentity {
@@ -14,22 +15,28 @@ export interface HostedWorkerIdentity {
   readonly trustedPublicKeyPem: string;
   readonly verifyConstitution: () => Promise<boolean>;
   readonly verifyWorkloadIdentity: () => Promise<boolean>;
+  readonly expectedStatePin?: string;
+  readonly disposableAuthorityId?: string;
 }
 export function composeHostedNeonExecutor(db: NeonLeaseSql, identity: HostedWorkerIdentity) {
   if (!identity.trustedPublicKeyPem.trim()) throw new Error("Hosted worker has no trusted approval verification key.");
   const leases=new NeonFencedLeaseProvider(db,60);
   const nonces=new NeonMissionApprovalNonceLedger(db);
   const checkpoints=new NeonFencedMissionCheckpoint(db);
+  const disposableState = new NeonDisposableGenesisState(db, identity.disposableNamespace);
   const dependencies: HostedExecutionDependencies={
     disposableNamespace: identity.disposableNamespace,
     trustedPublicKeyPem:identity.trustedPublicKeyPem,
     canonicalStateVerified:identity.verifyConstitution,
     hostAttested:identity.verifyWorkloadIdentity,
+    durableStateVerified: identity.expectedStatePin && identity.disposableAuthorityId
+      ? () => disposableState.matchesBinding(identity.expectedStatePin!, identity.disposableAuthorityId!)
+      : undefined,
     acquireFencedLease:(resource,ownerId)=>leases.acquire(resource,ownerId),
     assertFencedLease:lease=>leases.assert(lease),
     renewFencedLease:lease=>leases.renew(lease),
     releaseFencedLease:lease=>leases.release(lease),
     recordApprovalNonce:(nonce,missionId,repository,expiresAt)=>nonces.consume(nonce,missionId,repository,expiresAt)
   };
-  return {dependencies,checkpoints,leases};
+  return {dependencies,checkpoints,leases,disposableState};
 }
