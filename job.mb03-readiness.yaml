@@ -28,8 +28,6 @@ spec:
               value: "false"
             - name: PBOS_MISSION_INPUT_FILE
               value: /var/lib/pbos-missions/mission.json
-            - name: PBOS_PROVIDER_SIGNING_KEY_FILE
-              value: /var/lib/pbos-private/provider-private.pem
             - name: PBOS_PROVIDER_ID
               value: vercel-pbos-canary
             - name: PBOS_WORKER_ID
@@ -110,8 +108,6 @@ spec:
               mountPath: /var/run/pbos-canon
             - name: observation-key
               mountPath: /var/run/secrets/mb03/observation
-            - name: provider-signing-key
-              mountPath: /var/run/secrets/mb03/provider
             - name: provider-public-key
               mountPath: /var/run/secrets/mb03/provider-public
               readOnly: true
@@ -146,12 +142,6 @@ spec:
               items:
               - key: "1"
                 path: key
-          - name: provider-signing-key
-            secret:
-              secretName: mb03-provider-signing-key
-              items:
-              - key: "1"
-                path: private.pem
           - name: operator-public-key
             secret:
               secretName: mb03-operator-public-key
