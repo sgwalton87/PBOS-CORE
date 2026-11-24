@@ -23,7 +23,7 @@ function fixture() {
     input.url = path;
     input.headers = { host, "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) };
     let code = 200;
-    let payload = Buffer.alloc(0);
+    let payload: Buffer = Buffer.alloc(0);
     const headers: Record<string, string> = {};
     const response = {
       get headersSent() { return false; },
