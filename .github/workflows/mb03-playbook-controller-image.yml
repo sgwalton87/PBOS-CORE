@@ -62,6 +62,17 @@ jobs:
             --tmpfs /var/lib:rw,nosuid,nodev,size=4m \
             --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-controller/staging-smoke.sh,dst=/checks/staging-smoke.sh,readonly" \
             --entrypoint /bin/sh pbos-mb03-controller:offline /checks/staging-smoke.sh
+      - name: Validate digest pinning is fail-closed without cloud access
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:$(printf 'a%.0s' {1..64})"
+          sh containers/mb03-controller/pin-readiness.sh "$image" "$RUNNER_TEMP/mb03-pinned-smoke.yaml"
+          grep -Fq "image: $image" "$RUNNER_TEMP/mb03-pinned-smoke.yaml"
+          if sh containers/mb03-controller/pin-readiness.sh "not-a-digest" "$RUNNER_TEMP/mb03-invalid.yaml"; then
+            echo "invalid image accepted" >&2
+            exit 1
+          fi
 
   publish-staging-image:
     name: Publish controller image to existing pbos-executor — no Cloud Run deploy
@@ -102,8 +113,19 @@ jobs:
           gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
           docker build --pull --file Dockerfile.mb03-playbook-controller --tag "$IMAGE" .
           docker push "$IMAGE"
+          DIGEST="$(gcloud artifacts docker images describe "$IMAGE" --format='value(image_summary.digest)')"
+          PINNED="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@$DIGEST"
+          sh containers/mb03-controller/pin-readiness.sh "$PINNED" "$RUNNER_TEMP/mb03-readiness-pinned.yaml"
           echo "## MB-03 dedicated controller staging image" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image reference: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           echo "- Code commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Pinned image: $PINNED" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Readiness manifest artifact generated; no Cloud Run job replaced" >> "$GITHUB_STEP_SUMMARY"
           echo "- Existing repository: pbos-executor / us-west1" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Not** an activated job; no secrets, Genesis mounts, mission or Cloud Run execution." >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve digest-pinned non-mission readiness manifest for separate review
+        uses: actions/upload-artifact@v4
+        with:
+          name: mb03-readiness-pinned-${{ github.sha }}
+          path: ${{ runner.temp }}/mb03-readiness-pinned.yaml
+          retention-days: 7
