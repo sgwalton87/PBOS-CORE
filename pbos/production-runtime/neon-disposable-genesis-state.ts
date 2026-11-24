@@ -31,7 +31,7 @@ export class NeonDisposableGenesisState {
       throw new Error("Disposable Genesis lineage is invalid.");
     }
     const result = await this.db.query<{ source_state_pin: string; authority_id: string }>(
-      "SELECT source_state_pin, authority_id::text AS authority_id FROM pbos_runner.mb03_disposable_namespace WHERE namespace = $1",
+      "SELECT source_state_pin, authority_id::text AS authority_id FROM pbos_runner.inspect_mb03_disposable_namespace($1)",
       [this.namespace],
     );
     const row = result.rows[0];
