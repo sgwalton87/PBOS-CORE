@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   durable-restart:
-    if: github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/feat/mb03-stage3-durable-state'
+    if: github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: mb03-stage3-durability
     timeout-minutes: 15
