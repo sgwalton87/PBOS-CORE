@@ -8,12 +8,16 @@ on:
       - .github/workflows/mb03-signed-controller-parity-audit.yml
       - containers/mb03-controller/audit-signed-controller-parity.mjs
       - containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
+      - containers/mb03-controller/audit-execution-image-provenance.mjs
+      - containers/mb03-controller/audit-execution-image-provenance.nodecheck.mjs
       - infra/mb03/job.signed-mission.review-only.yaml
   pull_request:
     paths:
       - .github/workflows/mb03-signed-controller-parity-audit.yml
       - containers/mb03-controller/audit-signed-controller-parity.mjs
       - containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
+      - containers/mb03-controller/audit-execution-image-provenance.mjs
+      - containers/mb03-controller/audit-execution-image-provenance.nodecheck.mjs
       - infra/mb03/job.signed-mission.review-only.yaml
   workflow_dispatch:
 permissions:
@@ -35,7 +39,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          node --test containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs
+          node --test containers/mb03-controller/audit-signed-controller-parity.nodecheck.mjs \
+            containers/mb03-controller/audit-execution-image-provenance.nodecheck.mjs
   inspect-staging-job:
     name: Compare existing Cloud Run job bindings — NO EXECUTION
     needs: offline-audit-tests
@@ -78,13 +83,25 @@ jobs:
             echo '{"status":"BLOCKED","checks":"CONFIG_PARITY_ONLY","findings":["SIGNED_JOB_MISSING_OR_UNREADABLE"]}'
             exit 1
           fi
+          # Query the actual immutable execution resource; never call jobs execute.
+          # This is the already-failed incident supplied by the operator.
+          incident=pbos-mb03-playbook-codex-s7mkp
+          if ! gcloud run jobs executions describe "$incident" --region="$region" \
+            --project="$project" --format=json > "$dir/failed-execution.json" 2>/dev/null; then
+            echo '{"status":"BLOCKED","checks":"EXECUTION_IMAGE_FORENSICS","findings":["INCIDENT_EXECUTION_MISSING_OR_UNREADABLE"]}'
+            exit 1
+          fi
           set +e
           node containers/mb03-controller/audit-signed-controller-parity.mjs \
             "$dir/readiness.json" "$dir/signed.json" > "$dir/report.json"
           status=$?
+          node containers/mb03-controller/audit-execution-image-provenance.mjs \
+            "$dir/signed.json" "$dir/failed-execution.json" > "$dir/incident-report.json"
+          incident_status=$?
           set -e
           # Output contains only predefined finding codes, never raw secret bindings.
           cat "$dir/report.json"
+          cat "$dir/incident-report.json"
           echo "### MB-03 SIGNED JOB READ-ONLY CONFIGURATION PARITY" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
           echo "- Readiness reference: pbos-mb03-playbook-readiness" >> "$GITHUB_STEP_SUMMARY"
@@ -93,4 +110,11 @@ jobs:
           echo "~~~json" >> "$GITHUB_STEP_SUMMARY"
           cat "$dir/report.json" >> "$GITHUB_STEP_SUMMARY"
           echo "~~~" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Previously failed execution image provenance — FORENSIC ONLY" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Incident: pbos-mb03-playbook-codex-s7mkp (no execution triggered)" >> "$GITHUB_STEP_SUMMARY"
+          echo "~~~json" >> "$GITHUB_STEP_SUMMARY"
+          cat "$dir/incident-report.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "~~~" >> "$GITHUB_STEP_SUMMARY"
+          # Historical image mismatch is a diagnostic result, not an authorization to retry.
+          if [ "$incident_status" -ne 0 ]; then exit "$incident_status"; fi
           exit "$status"
