@@ -32,7 +32,6 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
         const expected = {
             PBOS_APPROVAL_PUBLIC_KEY_FILE: "/var/lib/pbos-private/operator-public.pem",
             PBOS_PROVIDER_PUBLIC_KEY_FILE: "/var/lib/pbos-private/provider-public.pem",
-            PBOS_PROVIDER_SIGNING_KEY_FILE: "/var/lib/pbos-private/provider-private.pem",
             PBOS_OBSERVATION_KEY_FILE: "/var/lib/pbos-private/observation-key"
         };
         for (const [key, value] of Object.entries(expected)) {
@@ -40,7 +39,9 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
         }
         expect(job).toContain("              mountPath: /var/run/secrets/mb03/operator");
         expect(job).toContain("              mountPath: /var/run/secrets/mb03/provider-public");
-        expect(job).toContain("              mountPath: /var/run/secrets/mb03/provider");
+        expect(job).not.toContain("              mountPath: /var/run/secrets/mb03/provider\n");
+        expect(job).not.toContain("name: PBOS_PROVIDER_SIGNING_KEY_FILE");
+        expect(job).not.toContain("secretName: mb03-provider-signing-key");
         expect(job).toContain("              mountPath: /var/run/secrets/mb03/observation");
     });
 
