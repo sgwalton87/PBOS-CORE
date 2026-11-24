@@ -122,6 +122,11 @@ export function protectedMb03FileBoundaryCode(
     return `MB03_FILE_BOUNDARY:${category}:${condition}`;
 }
 
+export function allowsManagedSecretAlias(path: string, canonicalParent: string): boolean {
+    return path.startsWith("/var/run/secrets/mb03/") &&
+        canonicalParent.startsWith("/run/secrets/mb03/");
+}
+
 /** Require immutable review inputs; no file creation, symlink or credential output. */
 export function readProtectedMb03File(
     path: string, maximum: number, category: ProtectedMb03FileCategory
@@ -137,10 +142,14 @@ export function readProtectedMb03File(
         throw new Error(protectedMb03FileBoundaryCode(category, "stat-failed"));
     }
     try {
-        if (realpathSync(parent) !== parent) {
+        const canonicalParent = realpathSync(parent);
+        const managedSecretAlias = allowsManagedSecretAlias(full, canonicalParent);
+        if (canonicalParent !== parent && !managedSecretAlias) {
             throw new Error(protectedMb03FileBoundaryCode(category, "parent-redirected"));
         }
-        if (realpathSync(full) !== full) {
+        const canonicalFull = realpathSync(full);
+        if (canonicalFull !== full &&
+            !(managedSecretAlias && canonicalFull.startsWith("/run/secrets/mb03/"))) {
             throw new Error(protectedMb03FileBoundaryCode(category, "redirected"));
         }
     } catch (error) {
