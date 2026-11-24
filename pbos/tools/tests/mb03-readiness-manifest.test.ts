@@ -64,6 +64,12 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
         expect(template).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA" + String.fromCharCode(10) + "              value: " + source);
     });
 
+    it("persists the validated published image digest for the next GitHub Actions step", () => {
+        expect(workflow).toContain('echo "PINNED=$PINNED" >> "$GITHUB_ENV"');
+        expect(workflow).toContain('grep -Fq "image: $PINNED" "$manifest"');
+        expect(workflow).toContain("readiness=pbos-mb03-playbook-readiness");
+    });
+
     it("runs functional offline root-to-node smoke, not just string checks", () => {
         expect(workflow).toContain("Execute zero-credential fail-closed smoke with no network");
         expect(workflow).toContain("Exercise root-owned synthetic secret staging");
