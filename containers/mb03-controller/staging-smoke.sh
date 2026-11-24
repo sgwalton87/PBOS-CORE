@@ -59,11 +59,15 @@ mv /run/secrets/mb03/operator-original /run/secrets/mb03/operator
 rm -rf /var/lib/pbos-private
 rm /run/secrets/mb03/provider/private.pem
 set +e
-/usr/local/bin/mb03-stage-secrets ./node_modules/.bin/tsx pbos/tools/mb03-protected-playbook-codex.ts --verify-bindings >/dev/null 2>&1
+/usr/local/bin/mb03-stage-secrets ./node_modules/.bin/tsx pbos/tools/mb03-protected-playbook-codex.ts --verify-bindings >/tmp/mb03-verify.out 2>/tmp/mb03-verify.err
 status="$?"
 set -e
 # The actual controller fails closed because this synthetic CI environment has no Cloud Run bindings.
-test "$status" -eq 2
+if [ "$status" -ne 2 ]; then
+    echo "FAIL: synthetic verify-only controller exit status $status" >&2
+    sed -n '1,12p' /tmp/mb03-verify.err >&2
+    exit 1
+fi
 test ! -e /var/lib/pbos-private/provider-private.pem
 for name in operator-public.pem provider-public.pem observation-key; do
     path="/var/lib/pbos-private/$name"
