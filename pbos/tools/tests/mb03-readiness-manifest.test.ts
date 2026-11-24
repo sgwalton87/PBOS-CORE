@@ -57,8 +57,8 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
     it("pins the reviewed Playbook source used by the signed mission builder", () => {
         const source = signer.match(/const SOURCE = "([a-f0-9]{40})"/)?.[1];
         expect(source).toBeTruthy();
-        expect(job).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA\\n              value: " + source);
-        expect(template).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA\\n              value: " + source);
+        expect(job).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA" + String.fromCharCode(10) + "              value: " + source);
+        expect(template).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA" + String.fromCharCode(10) + "              value: " + source);
     });
 
     it("runs functional offline root-to-node smoke, not just string checks", () => {
