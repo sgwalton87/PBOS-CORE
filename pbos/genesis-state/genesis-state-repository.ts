@@ -54,19 +54,23 @@ export class GenesisStateRepository {
     private readonly store: JsonStateStore<DurableGenesisState>;
     private readonly disposableAuthorityId?: string;
     private readonly disposablePlacement?: DurableGenesisState["disposablePlacement"];
-    constructor(path: string, private readonly requireDisposableNamespace?: string) {
+    constructor(path: string, private readonly requireDisposableNamespace?: string,
+        options?: { readonly readOnlyRemote?: boolean }) {
+        const readOnlyRemote = options?.readOnlyRemote === true;
         this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
             !requireDisposableNamespace, requireDisposableNamespace ? value => {
                 const current = value as DurableGenesisState;
                 if (current.disposableNamespace !== requireDisposableNamespace ||
                     (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
-                    (this.disposablePlacement && JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
+                    (!readOnlyRemote && this.disposablePlacement &&
+                        JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
                     throw new Error("Disposable authority changed or is inconsistent.");
                 }
             } : undefined);
         if (requireDisposableNamespace) {
             const metadata = lstatSync(path);
-            if (realpathSync(path) !== resolve(path) || !metadata.isFile() || (metadata.mode & 0o077) !== 0 ||
+            if ((!readOnlyRemote && realpathSync(path) !== resolve(path)) || !metadata.isFile() ||
+                (!readOnlyRemote && (metadata.mode & 0o077) !== 0) ||
                 this.store.read().disposableNamespace !== requireDisposableNamespace) {
                 throw new Error("Expected a private, initialized disposable Genesis state.");
             }

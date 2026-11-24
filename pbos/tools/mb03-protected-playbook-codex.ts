@@ -188,7 +188,8 @@ export async function runProtectedMb03PlaybookCodex(
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
     readPrivateFile(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024);
-    const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE);
+    const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
+        { readOnlyRemote: verifyOnly });
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
     const runtime = new ProductionRuntimeService(state);
     if (!runtime.verifyIntegrity().valid) throw new Error("Disposable state integrity failed.");
