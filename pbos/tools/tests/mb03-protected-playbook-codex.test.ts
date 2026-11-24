@@ -60,7 +60,8 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
             "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
             "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
-            "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
+            "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64",
+            "PBOS_VERCEL_SANDBOX_TOKEN"
         ]) delete config[key];
         config.PBOS_MISSION_EXECUTION_APPROVED = "false";
         expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
