@@ -70,6 +70,22 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
         expect(workflow).toContain("readiness=pbos-mb03-playbook-readiness");
     });
 
+    it("does not auto-publish or rerun readiness on audit-only changes", () => {
+        const pushOnly = workflow.split("  pull_request:")[0];
+        expect(pushOnly).not.toContain("containers/mb03-controller/**");
+        expect(pushOnly).not.toContain("mb03-playbook-controller-image.yml");
+        for (const path of [
+            "containers/mb03-controller/stage-secrets.sh",
+            "containers/mb03-controller/staging-smoke.sh",
+            "containers/mb03-controller/pin-readiness.sh",
+            "Dockerfile.mb03-playbook-controller"
+        ]) {
+            expect(pushOnly).toContain(path);
+        }
+        expect(pushOnly).not.toContain("audit-execution-image-provenance");
+        expect(pushOnly).not.toContain("audit-signed-controller-parity");
+    });
+
     it("runs functional offline root-to-node smoke, not just string checks", () => {
         expect(workflow).toContain("Execute zero-credential fail-closed smoke with no network");
         expect(workflow).toContain("Exercise root-owned synthetic secret staging");
