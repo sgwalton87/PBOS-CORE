@@ -20,6 +20,11 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
+      - containers/mb03-controller/**
+      - job.mb03-readiness.yaml
+      - infra/mb03/**
+      - pbos/tools/mb03-protected-playbook-codex.ts
+      - pbos/tools/tests/mb03-*.test.ts
       - .github/workflows/mb03-playbook-controller-image.yml
   workflow_dispatch:
 
