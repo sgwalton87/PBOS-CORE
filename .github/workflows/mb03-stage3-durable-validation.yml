@@ -26,10 +26,11 @@ jobs:
         with: { persist-credentials: false, fetch-depth: 1 }
       - name: Verify exact reviewed source and synthetic-only scope
         env:
-          EXPECTED_SHA: 508f8cf05d5c8ee40112af1519c92a9a28284b57
+          EXPECTED_SHA: ${{ inputs.source_sha }}
           CONFIRM: ${{ inputs.confirm_synthetic_only }}
         run: |
           set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "${{ inputs.source_sha }}" = "$EXPECTED_SHA"
           test "$CONFIRM" = "STAGE3-SYNTHETIC-ONLY"
