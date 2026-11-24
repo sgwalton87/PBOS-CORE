@@ -115,13 +115,11 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOn
 /** Require immutable review inputs; no file creation, symlink or credential output. */
 function readPrivateFile(path: string, maximum: number): Buffer {
     const full = resolve(path), parent = dirname(full);
-    const managedSecretRoot = resolve("/var/run/secrets/mb03");
-    const managedSecret = full.startsWith(managedSecretRoot + sep);
     const meta = lstatSync(full);
-    const resolved = realpathSync(full), resolvedParent = realpathSync(parent);
-    if (resolved !== full || resolvedParent !== parent || !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
-        meta.size > maximum || ((meta.mode & 0o077) !== 0 && !managedSecret)) {
-        throw new Error(`Protected MB-03 file boundary rejected: ${full} mode=${(meta.mode & 0o777).toString(8)} managedSecret=${managedSecret}`);
+    if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
+        !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
+        meta.size > maximum || (meta.mode & 0o077) !== 0) {
+        throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
     }
     return readFileSync(full);
 }
@@ -130,6 +128,11 @@ function publicFingerprint(pem: string): string {
     const key = createPublicKey(pem);
     if (key.asymmetricKeyType !== "ed25519") throw new Error("Ed25519 public key is required.");
     return createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
+}
+
+function readPublicKeyForReadiness(path: string, envName: string, env: NodeJS.ProcessEnv, verifyOnly: boolean): string {
+    const fromSecretEnv = verifyOnly ? env[envName]?.trim() : undefined;
+    return fromSecretEnv || readPrivateFile(path, 16_384).toString("utf8");
 }
 
 async function googleRuntimeIdentity(expected: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -181,8 +184,10 @@ export async function runProtectedMb03PlaybookCodex(
     verifyOnly = false
 ): Promise<Readonly<Record<string, unknown>>> {
     const config = requireProtectedMb03Environment(env, verifyOnly);
-    const operatorPublicKey = readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384).toString("utf8");
-    const providerPublicKey = readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384).toString("utf8");
+    const operatorPublicKey = readPublicKeyForReadiness(
+        config.PBOS_APPROVAL_PUBLIC_KEY_FILE, "PBOS_APPROVAL_PUBLIC_KEY_PEM", env, verifyOnly);
+    const providerPublicKey = readPublicKeyForReadiness(
+        config.PBOS_PROVIDER_PUBLIC_KEY_FILE, "PBOS_PROVIDER_PUBLIC_KEY_PEM", env, verifyOnly);
     if (publicFingerprint(operatorPublicKey) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
         publicFingerprint(providerPublicKey) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
         config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 === config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
