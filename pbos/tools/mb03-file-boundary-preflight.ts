@@ -41,7 +41,7 @@ export function inspectMb03FileBoundaries(
 ): Readonly<{ schema: "pbos.mb03.file-boundary-preflight.v1"; status: "PASS" | "BLOCKED";
     results: readonly { field: string; status: "PASS" | ProtectedFileIssue }[] }> {
     const results = MB03_BOUNDARY_INPUTS.map(([field, max]) => ({
-        field, status: inspectProtectedFileBoundary(env[field] ?? "", max) ?? "PASS"
+        field, status: (inspectProtectedFileBoundary(env[field] ?? "", max) ?? "PASS") as ProtectedFileIssue | "PASS"
     }));
     return {
         schema: "pbos.mb03.file-boundary-preflight.v1",
