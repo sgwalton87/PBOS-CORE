@@ -10,6 +10,7 @@ describe("MB-03 non-root secret handoff review contract", () => {
   it("drops privileges before any controller code", () => {
     expect(docker).toContain('ENTRYPOINT ["/usr/local/bin/mb03-stage-secrets"]');
     expect(wrapper).toContain('exec gosu node "$@"');
+    expect(wrapper).toContain('if [ "$readiness" -eq 0 ]; then');
     expect(wrapper).toContain('umask 077');
     expect(wrapper).toContain('install -d -o node -g node -m 0700');
     expect(wrapper).toContain('install -o node -g node -m 0400');
@@ -26,12 +27,13 @@ describe("MB-03 non-root secret handoff review contract", () => {
     expect(job).toContain("- --verify-bindings");
     expect(job).toContain('value: "false"');
     expect(job).not.toContain('value: "true"');
-    for (const name of ["PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_PROVIDER_PUBLIC_KEY_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE", "PBOS_OBSERVATION_KEY_FILE"]) {
+    for (const name of ["PBOS_APPROVAL_PUBLIC_KEY_FILE", "PBOS_PROVIDER_PUBLIC_KEY_FILE", "PBOS_OBSERVATION_KEY_FILE"]) {
       expect(job).toContain("name: " + name);
     }
     expect(job).toContain("/var/lib/pbos-private/operator-public.pem");
     expect(job).toContain("/var/lib/pbos-private/provider-public.pem");
-    expect(job).toContain("/var/lib/pbos-private/provider-private.pem");
+    expect(job).not.toContain("/var/lib/pbos-private/provider-private.pem");
+    expect(job).not.toContain("secretName: mb03-provider-signing-key");
     expect(job).toContain("/var/lib/pbos-private/observation-key");
   });
 });
