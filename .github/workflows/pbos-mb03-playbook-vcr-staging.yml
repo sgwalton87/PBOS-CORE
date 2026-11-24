@@ -18,7 +18,8 @@ permissions:
 
 concurrency:
   group: pbos-mb03-reviewed-vcr-staging
-  cancel-in-progress: false
+  # Only the newest immutable commit may publish; older queued image jobs cancel.
+  cancel-in-progress: true
 
 env:
   VCR_IMAGE: vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker
