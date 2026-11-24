@@ -3,6 +3,7 @@ name: MB-03 Protected Cloud Run Controller Image — STAGING BUILD
 on:
   push:
     branches:
+      - main
       - feat/mb03-cloudrun-playbook-controller-image-20261123
     paths:
       - Dockerfile.mb03-playbook-controller
@@ -57,7 +58,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.repository == 'sgwalton87/PBOS-CORE' &&
-      github.ref == 'refs/heads/feat/mb03-cloudrun-playbook-controller-image-20261123'
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: pbos-genesis-staging
     timeout-minutes: 25
@@ -78,7 +79,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/feat/mb03-cloudrun-playbook-controller-image-20261123
+          test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           gcloud artifacts repositories describe pbos-executor \
             --project=pbos-genesis-staging --location=us-west1 --format='value(name)'
