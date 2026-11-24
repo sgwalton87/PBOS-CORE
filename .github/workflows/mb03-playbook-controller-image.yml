@@ -8,6 +8,8 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
+      - containers/mb03-controller/**
+      - job.mb03-readiness.yaml
       - .github/workflows/mb03-playbook-controller-image.yml
       - pbos/tools/mb03-protected-playbook-codex.ts
       - pbos/production-runtime/**
@@ -51,6 +53,15 @@ jobs:
           docker run --rm --user node --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/controller-smoke.sh,dst=/checks/smoke.sh,readonly" \
             --entrypoint /bin/sh pbos-mb03-controller:offline /checks/smoke.sh
+      - name: Exercise root-owned synthetic secret staging, privilege drop and fail-closed paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only \
+            --tmpfs /run:rw,nosuid,nodev,size=4m \
+            --tmpfs /var/lib:rw,nosuid,nodev,size=4m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-controller/staging-smoke.sh,dst=/checks/staging-smoke.sh,readonly" \
+            --entrypoint /bin/sh pbos-mb03-controller:offline /checks/staging-smoke.sh
 
   publish-staging-image:
     name: Publish controller image to existing pbos-executor — no Cloud Run deploy
