@@ -19,15 +19,15 @@ describe("NeonDisposableGenesisState", () => {
   it("appends an event with the expected sequence and fence", async () => {
     const db = { query: vi.fn().mockResolvedValue({ rows: [{ sequence: "1" }] }) };
     const state = new NeonDisposableGenesisState(db, "mb03-stage3");
-    await expect(state.append({ eventId: "11111111-1111-4111-8111-111111111111", eventType: "MISSION_ADMITTED", actorId: "operator", payload: { mission: "m1" }, fencingToken: 4n }, 0n)).resolves.toBe(1n);
-    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("append_mb03_disposable_event"), expect.arrayContaining(["4", "0"]));
+    await expect(state.append({ eventId: "11111111-1111-4111-8111-111111111111", eventType: "MISSION_ADMITTED", actorId: "operator", payload: { mission: "m1" }, leaseResource: "pbos:mission:test:m1", fencingToken: 4n }, 0n)).resolves.toBe(1n);
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("append_mb03_disposable_event"), expect.arrayContaining(["pbos:mission:test:m1", "4", "0"]));
   });
 
   it("rejects invalid event identity and stale sequence locally", async () => {
     const db = { query: vi.fn() };
     const state = new NeonDisposableGenesisState(db, "mb03-stage3");
-    await expect(state.append({ eventId: "bad", eventType: "x", actorId: "a", payload: {}, fencingToken: 1n }, 0n)).rejects.toThrow("event");
-    await expect(state.append({ eventId: "11111111-1111-4111-8111-111111111111", eventType: "x", actorId: "a", payload: {}, fencingToken: 1n }, -1n)).rejects.toThrow("event");
+    await expect(state.append({ eventId: "bad", eventType: "x", actorId: "a", payload: {}, leaseResource: "r", fencingToken: 1n }, 0n)).rejects.toThrow("event");
+    await expect(state.append({ eventId: "11111111-1111-4111-8111-111111111111", eventType: "x", actorId: "a", payload: {}, leaseResource: "", fencingToken: 1n }, -1n)).rejects.toThrow("event");
     expect(db.query).not.toHaveBeenCalled();
   });
 });

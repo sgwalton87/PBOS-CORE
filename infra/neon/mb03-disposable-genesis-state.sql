@@ -49,12 +49,14 @@ END $$;
 
 CREATE OR REPLACE FUNCTION pbos_runner.append_mb03_disposable_event(
   p_namespace text, p_event_id uuid, p_event_type text, p_mission_id text,
-  p_actor_id text, p_payload jsonb, p_fencing_token bigint, p_expected_sequence bigint
+ p_actor_id text, p_payload jsonb, p_lease_resource text,
+ p_fencing_token bigint, p_expected_sequence bigint
 ) RETURNS bigint LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'pg_catalog', 'pbos_runner' AS $$
 DECLARE next_sequence bigint;
 BEGIN
   IF p_namespace IS NULL OR p_event_id IS NULL OR p_event_type IS NULL
      OR p_actor_id IS NULL OR p_payload IS NULL OR p_fencing_token IS NULL
+     OR p_lease_resource IS NULL OR length(trim(p_lease_resource)) = 0
      OR p_expected_sequence IS NULL OR p_expected_sequence < 0 THEN
     RAISE EXCEPTION 'invalid disposable event';
   END IF;
@@ -64,6 +66,11 @@ BEGIN
   IF next_sequence IS NULL OR next_sequence <> p_expected_sequence + 1 THEN
     RAISE EXCEPTION 'disposable event sequence conflict';
   END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pbos_runner.execution_lease
+    WHERE resource = p_lease_resource AND fencing_token = p_fencing_token
+      AND expires_at > clock_timestamp()
+  ) THEN RAISE EXCEPTION 'stale or missing disposable fence'; END IF;
   INSERT INTO pbos_runner.mb03_disposable_event
     (namespace, sequence, event_id, event_type, mission_id, actor_id, payload, fencing_token)
   VALUES (p_namespace, next_sequence, p_event_id, p_event_type, p_mission_id, p_actor_id, p_payload, p_fencing_token);
@@ -73,6 +80,7 @@ BEGIN
 END $$;
 
 REVOKE ALL ON FUNCTION pbos_runner.initialize_mb03_disposable_namespace(text,text,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION pbos_runner.append_mb03_disposable_event(text,uuid,text,text,text,jsonb,text,bigint,bigint) FROM PUBLIC;
 REVOKE ALL ON FUNCTION pbos_runner.append_mb03_disposable_event(text,uuid,text,text,text,jsonb,bigint,bigint) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION pbos_runner.initialize_mb03_disposable_namespace(text,text,uuid) TO pbos_mb03_staging_executor;
-GRANT EXECUTE ON FUNCTION pbos_runner.append_mb03_disposable_event(text,uuid,text,text,text,jsonb,bigint,bigint) TO pbos_mb03_staging_executor;
+GRANT EXECUTE ON FUNCTION pbos_runner.append_mb03_disposable_event(text,uuid,text,text,text,jsonb,text,bigint,bigint) TO pbos_mb03_staging_executor;
