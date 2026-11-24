@@ -63,10 +63,23 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64",
             "PBOS_VERCEL_SANDBOX_TOKEN"
         ]) delete config[key];
+        config.CLOUD_RUN_JOB = "pbos-mb03-playbook-readiness";
         config.PBOS_MISSION_EXECUTION_APPROVED = "false";
         expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
             .toBe("mb03-private-staging");
         expect(() => requireProtectedMb03Environment(config)).toThrow("configuration missing");
+    });
+    it("enforces separate identities for signed missions and non-mission readiness", () => {
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness"
+        })).toThrow("distinct");
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), PBOS_MISSION_EXECUTION_APPROVED: "false"
+        }, true)).toThrow("distinct");
+        expect(() => requireProtectedMb03Environment({
+            ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness",
+            PBOS_MISSION_EXECUTION_APPROVED: "true"
+        }, true)).toThrow("distinct");
     });
     it("does not execute in the existing read-only admission observer", () => {
         expect(() => requireProtectedMb03Environment({
