@@ -1,5 +1,5 @@
 name: MB-03 Deploy Isolated Cloud Admission Job
-# Rebuild when admission preflight or its image inputs change; staging approval remains required.
+# Manually deploy the distinct read-only Genesis admission observer only after review.
 # Protected admission deployment is manual-only. Feature integration into main
 # must never rebuild, rebind or roll the existing Genesis admission job.
 on:
