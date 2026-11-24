@@ -59,6 +59,7 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
             "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
         ]) delete config[key];
+        config.PBOS_MISSION_EXECUTION_APPROVED = "false";
         expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
             .toBe("mb03-private-staging");
         expect(() => requireProtectedMb03Environment(config)).toThrow("configuration missing");
