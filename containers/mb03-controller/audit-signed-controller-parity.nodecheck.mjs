@@ -1,12 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { audit, READINESS, SIGNED, SERVICE_ACCOUNT, APPROVED_IMAGE, APPROVED_SOURCE, ENTRYPOINT, EXECUTABLE, CONTROLLER } from "./audit-signed-controller-parity.mjs";
+import { audit, READINESS, SIGNED, SERVICE_ACCOUNT, APPROVED_IMAGE, APPROVED_SOURCE, APPROVED_STATE_PIN, APPROVED_PPS_PIN, APPROVED_PLAYBOOK_IMAGE, APPROVED_CODEX_DIGEST, GCS_VOLUMES, ENTRYPOINT, EXECUTABLE, CONTROLLER } from "./audit-signed-controller-parity.mjs";
 
 const makeEnv = (name, value) => ({ name, value });
 const secretEnv = (name, secretName) => ({name,valueFrom:{secretKeyRef:{name:secretName,key:"1"}}});
 const privateVolume = (name,secretName,path) => ({ name, secret: {secretName,items:[{key:"1",path}]} });
-const gcs = (name,readOnly) => ({name,csi:{driver:"gcsfuse.run.googleapis.com",readOnly}});
+const gcs = (name,readOnly) => ({name,csi:{driver:"gcsfuse.run.googleapis.com",readOnly,
+  volumeAttributes:{bucketName:GCS_VOLUMES[name].bucket,
+    mountOptions:"only-dir="+GCS_VOLUMES[name].prefix+",uid=1000,gid=1000,file-mode=0400,dir-mode=0500"}}});
 const mounts = [
  {name:"execution-state",mountPath:"/var/lib/pbos-missions"},
  {name:"observation-state",mountPath:"/var/lib/pbos-observation"},
@@ -25,6 +27,10 @@ function job(isSigned) {
  const env=[
   makeEnv("PBOS_MISSION_EXECUTION_APPROVED",String(isSigned)),
   makeEnv("PBOS_PLAYBOOK_SOURCE_SHA",APPROVED_SOURCE),
+  makeEnv("PBOS_EXPECTED_STATE_SET_SHA256",APPROVED_STATE_PIN),
+  makeEnv("PBOS_PPS_MANIFEST_SHA256",APPROVED_PPS_PIN),
+  makeEnv("PBOS_PLAYBOOK_IMAGE",APPROVED_PLAYBOOK_IMAGE),
+  makeEnv("PBOS_CODEX_BINARY_SHA256",APPROVED_CODEX_DIGEST),
   makeEnv("PBOS_OBSERVATION_KEY_FILE","/var/lib/pbos-private/observation-key"),
   makeEnv("PBOS_APPROVAL_PUBLIC_KEY_FILE","/var/lib/pbos-private/operator-public.pem"),
   makeEnv("PBOS_PROVIDER_PUBLIC_KEY_FILE","/var/lib/pbos-private/provider-public.pem"),
@@ -87,6 +93,26 @@ test("signed mode refuses missing signing mount, signing key env duplication and
  const result=audit(job(false),bad);
  assert.equal(result.status,"BLOCKED");
  for(const code of ["SIGNED_PROVIDER_SIGNING_KEY_SECRET_BINDING","SIGNED_HAS_DUPLICATE_ENV_PRIVATE_SIGNER","SIGNED_OBSERVATION_READONLY"])assert.ok(result.findings.includes(code),code);
+});
+test("unapproved GCS buckets, mount prefixes and CSI drivers cannot receive parity approval",()=>{
+ const signed=job(true);
+ const volumes=signed.spec.template.spec.template.spec.volumes;
+ volumes.find(v=>v.name==="execution-state").csi.volumeAttributes.bucketName="unapproved-bucket";
+ volumes.find(v=>v.name==="observation-state").csi.volumeAttributes.mountOptions="only-dir=unreviewed,uid=1000,gid=1000,file-mode=0400,dir-mode=0500";
+ volumes.find(v=>v.name==="pps-canon").csi.driver="another-driver";
+ const result=audit(job(false),signed);
+ assert.equal(result.status,"BLOCKED");
+ for(const code of ["SIGNED_EXECUTION_STATE_BUCKET","SIGNED_OBSERVATION_STATE_OPTION_ONLY_DIR","SIGNED_PPS_CANON_CSI_DRIVER"])assert.ok(result.findings.includes(code),code);
+});
+test("every reviewed state and worker digest must match in both job configurations",()=>{
+ const readiness=job(false), signed=job(true);
+ readiness.spec.template.spec.template.spec.containers[0].env.find(v=>v.name==="PBOS_EXPECTED_STATE_SET_SHA256").value="0".repeat(64);
+ signed.spec.template.spec.template.spec.containers[0].env.find(v=>v.name==="PBOS_PPS_MANIFEST_SHA256").value="0".repeat(64);
+ signed.spec.template.spec.template.spec.containers[0].env.find(v=>v.name==="PBOS_PLAYBOOK_IMAGE").value="unreviewed";
+ signed.spec.template.spec.template.spec.containers[0].env.find(v=>v.name==="PBOS_CODEX_BINARY_SHA256").value="0".repeat(64);
+ const result=audit(readiness,signed);
+ assert.equal(result.status,"BLOCKED");
+ for(const code of ["READINESS_STATE_PIN","SIGNED_PPS_PIN","SIGNED_WORKER_IMAGE_PIN","SIGNED_CODEX_BINARY_PIN"])assert.ok(result.findings.includes(code),code);
 });
 test("unknown JSON job schema or missing mission job fails closed",()=>{
  assert.equal(audit(job(false),{}).status,"BLOCKED");
