@@ -165,6 +165,15 @@ interface PrivateMissionFile {
     readonly target: PlaybookRemoteTarget;
 }
 
+function sanitizedFailure(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error);
+    return raw
+        .replace(/postgres(?:ql)?:\/\/[^\s'\"]+/gi, "postgresql://[REDACTED]")
+        .replace(/Bearer\s+[^\s'\"]+/gi, "Bearer [REDACTED]")
+        .replace(/(password|token|secret|credential)(\s*[=:]\s*)[^\s'\"]+/gi, "$1$2[REDACTED]")
+        .slice(0, 500);
+}
+
 export async function runProtectedMb03PlaybookCodex(
     env: NodeJS.ProcessEnv = process.env,
     verifyOnly = false
@@ -325,11 +334,12 @@ if (require.main === module) {
     if (process.argv.length > 2 && !verifyOnly) throw new Error("Unsupported protected controller argument.");
     runProtectedMb03PlaybookCodex(process.env, verifyOnly).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
-    }).catch(() => {
+    }).catch(error => {
         process.stderr.write(JSON.stringify({
             gate: "MB03_PROTECTED_PLAYBOOK_CODEX_EXECUTION",
             status: "BLOCKED",
-            note: "Protected execution rejected; inspect private evidence through the approved operator channel."
+            note: "Protected execution rejected; inspect private evidence through the approved operator channel.",
+            reason: sanitizedFailure(error)
         }) + "\n");
         process.exitCode = 2;
     });
