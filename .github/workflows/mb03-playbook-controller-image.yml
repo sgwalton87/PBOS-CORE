@@ -62,7 +62,7 @@ jobs:
             --tmpfs /run:rw,nosuid,nodev,size=4m \
             --tmpfs /var/lib:rw,nosuid,nodev,size=4m \
             --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-controller/staging-smoke.sh,dst=/checks/staging-smoke.sh,readonly" \
-            --entrypoint /bin/sh pbos-mb03-controller:offline -x /checks/staging-smoke.sh
+            --entrypoint /bin/sh pbos-mb03-controller:offline /checks/staging-smoke.sh
       - name: Validate digest pinning is fail-closed without cloud access
         shell: bash
         run: |
