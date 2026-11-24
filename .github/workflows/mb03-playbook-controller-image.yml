@@ -69,11 +69,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Authenticate using existing PBOS staging deploy identity
-        uses: google-github-actions/auth@c7b2cf19f9a7643f0847b40fda5d2428330a5d84
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4e2bd91ff8b713487af89f5
+      - uses: google-github-actions/setup-gcloud@v2
       - name: Check exact branch, scoped project and existing Artifact Registry
         shell: bash
         run: |
