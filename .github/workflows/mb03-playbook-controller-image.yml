@@ -48,7 +48,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+          docker run --rm --user node --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
             --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/controller-smoke.sh,dst=/checks/smoke.sh,readonly" \
             --entrypoint /bin/sh pbos-mb03-controller:offline /checks/smoke.sh
 
