@@ -1,37 +1,8 @@
 name: MB-03 Deploy Isolated Cloud Admission Job
-# Rebuild when admission preflight or its image inputs change; staging approval remains required.
+# Manually deploy the distinct read-only Genesis admission observer only after review.
+# Protected admission deployment is manual-only. Feature integration into main
+# must never rebuild, rebind or roll the existing Genesis admission job.
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/workflows/mb03-deploy-cloud-admission.yml'
-      - 'Dockerfile.mb03-admission'
-      - 'pbos/tools/mb03-hosted-admission-observation.ts'
-      - 'pbos/tools/mb03-hosted-executor.ts'
-      - 'pbos/master-builder/hosted-playbook-proposal.ts'
-      - 'pbos/boot/pps-canon-snapshot-verifier.ts'
-      - 'tests/hosted-approved-mission.test.ts'
-      - 'tests/hosted-signed-mission-approval.test.ts'
-      - 'tests/mb03-hosted-admission-observation.test.ts'
-      - 'tests/pps-canon-snapshot-verifier.test.ts'
-      - 'tests/neon-mission-approval-nonce-ledger.test.ts'
-      - 'infra/neon/mb03-durable-mission-approval-nonce.sql'
-      - 'infra/neon/mb03-fenced-mission-checkpoint.sql'
-      - 'tests/neon-fenced-mission-checkpoint.test.ts'
-      - 'tests/fenced-playbook-pr-executor.test.ts'
-      - 'tests/github-app-playbook-pr-api.test.ts'
-      - 'tests/hosted-playbook-mission-executable.test.ts'
-      - 'tests/mb03-hosted-executor.test.ts'
-      - 'tests/hosted-playbook-proposal.test.ts'
-      - 'tests/hosted-canon-archive.test.ts'
-      - 'pbos/production-runtime/hosted-neon-executor-composition.ts'
-      - 'pbos/production-runtime/operator-readonly-preflight.ts'
-      - 'pbos/production-runtime/**'
-      - 'pbos/genesis-state/**'
-      - 'packages/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig*.json'
   workflow_dispatch:
     inputs:
       confirm_staging_only:
@@ -58,7 +29,7 @@ permissions:
   id-token: write
 jobs:
   deploy:
-    if: ${{ github.event_name == 'push' || inputs.confirm_staging_only == 'DEPLOY-STAGING-ADMISSION' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.confirm_staging_only == 'DEPLOY-STAGING-ADMISSION' }}
     runs-on: ubuntu-latest
     environment: pbos-genesis-staging
     steps:
