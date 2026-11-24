@@ -14,7 +14,7 @@ spec:
           maxRetries: 0
           timeoutSeconds: 600
           containers:
-          - image: us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:4b56d8bff78ae8a7181ae974733bb9f88dbf918bc2e4817005b5fbcdf8db4662
+          - image: us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:835d8d7067de79259b821d282cbbe7b119aeb6f32e750e8cd345354a213b77cc
             command:
             - ./node_modules/.bin/tsx
             args:
@@ -66,6 +66,10 @@ spec:
                 secretKeyRef:
                   name: mb03-provider-public-key
                   key: "1"
+            - name: PBOS_PROVIDER_AUTHORITY_ID
+              value: mb03-provider-e4a807a070776cc3
+            - name: PBOS_DISPATCH_JOURNAL_BUCKET
+              value: pbos-genesis-staging-mb03-dispatch-journal
             - name: PBOS_PLAYBOOK_SOURCE_SHA
               value: b2c2259d67f30ca068f32cd1889542991f294e42
             - name: PBOS_PLAYBOOK_IMAGE
