@@ -14,7 +14,11 @@ function workspace() {
   roots.push(root);
   return root;
 }
-afterEach(() => { for (const root of roots.splice(0)) {\n  const snapshot = join(root, "snapshot");\n  if (existsSync(snapshot)) chmodSync(snapshot, 0o700);\n  rmSync(root, { recursive: true, force: true });\n} });
+afterEach(() => { for (const root of roots.splice(0)) {
+  const snapshot = join(root, "snapshot");
+  if (existsSync(snapshot)) chmodSync(snapshot, 0o700);
+  rmSync(root, { recursive: true, force: true });
+} });
 
 describe("Stage 4 pinned Canon preparation", () => {
   it("copies the existing verified manifest and all referenced documents create-only", async () => {
