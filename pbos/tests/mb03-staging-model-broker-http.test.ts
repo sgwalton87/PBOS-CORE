@@ -12,7 +12,7 @@ function fixture() {
   const handler = createStagingModelBrokerHandler({ administer, respond } as unknown as CodexModelLeaseBroker, admin, model);
   async function send(host: string, path: string, body = "{}", method = "POST") {
     let status = 200;
-    let responseBody = Buffer.alloc(0);
+    let responseBody = "";
     const headers: Record<string, string> = {};
     const req = {
       headers: { host, authorization: "Bearer fixture-credential", "content-type": "application/json" },
@@ -25,10 +25,10 @@ function fixture() {
       writeHead(code: number) { status = code; return this; },
       get statusCode() { return status; },
       set statusCode(code: number) { status = code; },
-      end(payload?: Buffer) { if (payload) responseBody = payload; return this; },
+      end(payload?: Buffer) { if (payload) responseBody = payload.toString("utf8"); return this; },
     } as unknown as ServerResponse;
     await handler(req, res);
-    return { status, body: responseBody.toString("utf8"), headers };
+    return { status, body: responseBody, headers };
   }
   return { send, administer, respond };
 }
