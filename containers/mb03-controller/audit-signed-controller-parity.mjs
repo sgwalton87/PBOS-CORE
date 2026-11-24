@@ -9,6 +9,16 @@ export const SERVICE_ACCOUNT = "pbos-mb03-playbook-codex@pbos-genesis-staging.ia
 export const APPROVED_IMAGE =
   "us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:95161c3080111b6beca1debd3ec251700413940ab1164c4325aee5455bd859e2";
 export const APPROVED_SOURCE = "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea";
+export const APPROVED_STATE_PIN = "2f48068fc89fd278cf4f932ac4ea3cd9ec4e9e2990a330cf78d7551b33ccb47d";
+export const APPROVED_PPS_PIN = "54fc93d82f5b5b39584776b3b92ba3949f927425d3ee05505803d63b9957b68b";
+export const APPROVED_PLAYBOOK_IMAGE =
+  "vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker@sha256:16f0f932bf78ae440ba00f5e1541bfa056740fe6b7013886e1bc1131f5572e95";
+export const APPROVED_CODEX_DIGEST = "b76a027d6b210f9a8da7aaf321dd235c700f0ef7a794d4a5314b9af6c134f0f0";
+export const GCS_VOLUMES = Object.freeze({
+  "execution-state": Object.freeze({ bucket: "pbos-genesis-staging-mb03-execution-state", prefix:"synthetic" }),
+  "observation-state": Object.freeze({ bucket: "pbos-genesis-staging-mb03-observation-state", prefix:"mb03-admission/" + APPROVED_STATE_PIN }),
+  "pps-canon": Object.freeze({ bucket:"pbos-genesis-staging-mb03-pps", prefix:"PPS" })
+});
 export const ENTRYPOINT = "/usr/local/bin/mb03-stage-secrets";
 export const EXECUTABLE = "./node_modules/.bin/tsx";
 export const CONTROLLER = "pbos/tools/mb03-protected-playbook-codex.ts";
@@ -33,6 +43,23 @@ function same(actual, expected, reason, errors) {
 }
 function mount(c, name, path, errors, scope) {
   same(c.mounts.get(name)?.mountPath, path, scope + "_" + name.toUpperCase().replace(/-/g,"_") + "_MOUNT", errors);
+}
+function validateGcs(c,name,errors,scope) {
+  const volume=c.volumes.get(name)?.csi;
+  const expected=GCS_VOLUMES[name];
+  if (!expected || !volume || volume.driver !== "gcsfuse.run.googleapis.com") {
+    errors.push(scope + "_" + name.toUpperCase().replace(/-/g,"_") + "_CSI_DRIVER"); return;
+  }
+  const code=scope + "_" + name.toUpperCase().replace(/-/g,"_");
+  same(volume.volumeAttributes?.bucketName, expected.bucket, code + "_BUCKET", errors);
+  const raw=volume.volumeAttributes?.mountOptions;
+  const attrs=typeof raw === "string" ? raw.split(/[;,]/).map(t=>t.trim()).filter(Boolean) : [];
+  const opts=new Map(attrs.map(t=>{const p=t.indexOf("=");return [t.slice(0,p),t.slice(p+1)];}));
+  for(const [key,val] of [["only-dir",expected.prefix],["uid","1000"],["gid","1000"],["file-mode","400"],["dir-mode","500"]]){
+    const actual=opts.get(key);
+    same(key==="file-mode"||key==="dir-mode" ? actual?.replace(/^0+(?=\\d)/,"") : actual,
+      val, code + "_OPTION_" + key.toUpperCase().replace(/-/g,"_"), errors);
+  }
 }
 function item(c, name, secretName, path, errors, scope) {
   const s = c.volumes.get(name)?.secret;
@@ -106,6 +133,11 @@ export function audit(readiness, signed) {
     same(c.volumes.get("execution-state")?.csi?.readOnly, !expectStateWritable, scope + "_STATE_RW_POLICY", errors);
     same(c.volumes.get("observation-state")?.csi?.readOnly, true, scope + "_OBSERVATION_READONLY", errors);
     same(c.volumes.get("pps-canon")?.csi?.readOnly, true, scope + "_PPS_READONLY", errors);
+    for(const name of Object.keys(GCS_VOLUMES)) validateGcs(c,name,errors,scope);
+    same(value(c, "PBOS_EXPECTED_STATE_SET_SHA256"), APPROVED_STATE_PIN, scope + "_STATE_PIN", errors);
+    same(value(c, "PBOS_PPS_MANIFEST_SHA256"), APPROVED_PPS_PIN, scope + "_PPS_PIN", errors);
+    same(value(c, "PBOS_PLAYBOOK_IMAGE"), APPROVED_PLAYBOOK_IMAGE, scope + "_WORKER_IMAGE_PIN", errors);
+    same(value(c, "PBOS_CODEX_BINARY_SHA256"), APPROVED_CODEX_DIGEST, scope + "_CODEX_BINARY_PIN", errors);
     same(value(c, "PBOS_APPROVAL_PUBLIC_KEY_SHA256"), "db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0", scope + "_OPERATOR_KEY_PIN", errors);
     same(value(c, "PBOS_PROVIDER_PUBLIC_KEY_SHA256"), "e4a807a070776cc37dae41c597a24d88a19c5a5d77feae187d57fec37e83345d", scope + "_PROVIDER_KEY_PIN", errors);
     same(value(c, "PBOS_DISPOSABLE_AUTHORITY_ID"), "84464dfd-2ada-4292-a15b-99d3fa5f28e2", scope + "_DISPOSABLE_AUTHORITY", errors);
