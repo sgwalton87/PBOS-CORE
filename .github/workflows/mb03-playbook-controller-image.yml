@@ -1,0 +1,98 @@
+name: MB-03 Protected Cloud Run Controller Image — STAGING BUILD
+
+on:
+  push:
+    branches:
+      - main
+      - feat/mb03-cloudrun-playbook-controller-image-20261123
+    paths:
+      - Dockerfile.mb03-playbook-controller
+      - containers/mb03-playbook/controller-smoke.sh
+      - .github/workflows/mb03-playbook-controller-image.yml
+      - pbos/tools/mb03-protected-playbook-codex.ts
+      - pbos/production-runtime/**
+      - pbos/master-builder/**
+      - package-lock.json
+      - package.json
+  pull_request:
+    paths:
+      - Dockerfile.mb03-playbook-controller
+      - containers/mb03-playbook/controller-smoke.sh
+      - .github/workflows/mb03-playbook-controller-image.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: mb03-cloudrun-controller-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-build:
+    name: Build and test protected controller image — no mission
+    if: github.repository == 'sgwalton87/PBOS-CORE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify source and build non-root controller
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker build --pull --file Dockerfile.mb03-playbook-controller \
+            --tag pbos-mb03-controller:offline "$GITHUB_WORKSPACE"
+      - name: Execute zero-credential fail-closed smoke with no network
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --read-only --tmpfs /tmp:rw,noexec,nosuid,size=64m \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/containers/mb03-playbook/controller-smoke.sh,dst=/checks/smoke.sh,readonly" \
+            --entrypoint /bin/sh pbos-mb03-controller:offline /checks/smoke.sh
+
+  publish-staging-image:
+    name: Publish controller image to existing pbos-executor — no Cloud Run deploy
+    needs: offline-build
+    if: >-
+      github.event_name == 'push' &&
+      github.repository == 'sgwalton87/PBOS-CORE' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: pbos-genesis-staging
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Authenticate using existing PBOS staging deploy identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Check exact branch, scoped project and existing Artifact Registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          gcloud artifacts repositories describe pbos-executor \
+            --project=pbos-genesis-staging --location=us-west1 --format='value(name)'
+      - name: Build and publish controller only
+        shell: bash
+        run: |
+          set -euo pipefail
+          IMAGE="us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller:$GITHUB_SHA"
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+          docker build --pull --file Dockerfile.mb03-playbook-controller --tag "$IMAGE" .
+          docker push "$IMAGE"
+          echo "## MB-03 dedicated controller staging image" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image reference: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Code commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Existing repository: pbos-executor / us-west1" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Not** an activated job; no secrets, Genesis mounts, mission or Cloud Run execution." >> "$GITHUB_STEP_SUMMARY"
