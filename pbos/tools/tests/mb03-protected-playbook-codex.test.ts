@@ -50,6 +50,19 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
         expect(config.PBOS_STATE_NAMESPACE).toBe("mb03-private-staging");
         expect(config.PBOS_DISPOSABLE_STATE_FILE).not.toContain("pbos-observation");
     });
+    it("allows non-mission readiness without inventing execution-only identities", () => {
+        const config = fixture();
+        for (const key of [
+            "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE",
+            "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
+            "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
+            "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
+            "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
+        ]) delete config[key];
+        expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
+            .toBe("mb03-private-staging");
+        expect(() => requireProtectedMb03Environment(config)).toThrow("configuration missing");
+    });
     it("does not execute in the existing read-only admission observer", () => {
         expect(() => requireProtectedMb03Environment({
             ...fixture(), CLOUD_RUN_JOB: "pbos-genesis-admission"

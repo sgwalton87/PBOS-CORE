@@ -48,18 +48,30 @@ const REQUIRED = [
 type Key = typeof REQUIRED[number];
 export type ProtectedMb03Environment = Record<Key, string> & NodeJS.ProcessEnv;
 
+// Readiness proves the immutable, read-only boundary only. Execution-only
+// bindings (provider authority, journal, model lease and evidence sinks) are
+// deliberately not required until a separately authorized mission run.
+const READINESS_REQUIRED = REQUIRED.filter(name => ![
+    "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE",
+    "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
+    "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
+    "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
+    "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
+].includes(name));
+
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA40 = /^[a-f0-9]{40}$/;
 const CANONICAL_WORKER_JOB = "pbos-mb03-playbook-codex";
 
-export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): ProtectedMb03Environment {
-    const missing = REQUIRED.filter(name => !env[name]?.trim());
+export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOnly = false): ProtectedMb03Environment {
+    const required = verifyOnly ? READINESS_REQUIRED : REQUIRED;
+    const missing = required.filter(name => !env[name]?.trim());
     if (missing.length) throw new Error("MB-03 protected worker configuration missing: " + missing.join(", "));
     if (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB || env.PBOS_MISSION_EXECUTION_APPROVED !== "true") {
         throw new Error("MB-03 requires its distinct, explicitly approved Cloud Run mission job.");
     }
     const config = Object.assign({}, env) as ProtectedMb03Environment;
-    for (const name of REQUIRED) config[name] = env[name]!.trim();
+    for (const name of required) config[name] = env[name]!.trim();
     for (const key of ["PBOS_EXPECTED_STATE_SET_SHA256", "PBOS_PPS_MANIFEST_SHA256",
         "PBOS_APPROVAL_PUBLIC_KEY_SHA256", "PBOS_PROVIDER_PUBLIC_KEY_SHA256",
         "PBOS_CODEX_BINARY_SHA256"] as const) {
@@ -73,11 +85,11 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): Protect
         !/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
         throw new Error("Unreviewed Playbook source, disposable state, or sandbox image identity.");
     }
-    if (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
+    if ((!verifyOnly && (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_WORKER_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_AUTHORITY_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_ID) ||
-        !/^[a-zA-Z0-9][a-zA-Z0-9.-]+$/.test(config.PBOS_WORKER_MODEL) ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9.-]+$/.test(config.PBOS_WORKER_MODEL))) ||
         !/^pbos-mb03-[a-z0-9-]+@pbos-genesis-staging\.iam\.gserviceaccount\.com$/.test(
             config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT)) {
         throw new Error("Unreviewed protected execution provider or cloud identity.");
@@ -155,22 +167,13 @@ export async function runProtectedMb03PlaybookCodex(
     env: NodeJS.ProcessEnv = process.env,
     verifyOnly = false
 ): Promise<Readonly<Record<string, unknown>>> {
-    const config = requireProtectedMb03Environment(env);
-    const keys = [
-        readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8")
-    ];
-    if (publicFingerprint(keys[0]) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
-        publicFingerprint(keys[1]) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
+    const config = requireProtectedMb03Environment(env, verifyOnly);
+    const operatorPublicKey = readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384).toString("utf8");
+    const providerPublicKey = readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384).toString("utf8");
+    if (publicFingerprint(operatorPublicKey) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
+        publicFingerprint(providerPublicKey) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
         config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 === config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
         throw new Error("Independently pinned operator and provider public keys are invalid or reused.");
-    }
-    const providerSigningKey = createPrivateKey(keys[2]);
-    if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
-        publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==
-            config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
-        throw new Error("Provider signer and independently reviewed public key differ.");
     }
     let mission: PrivateMissionFile | undefined;
     if (!verifyOnly) {
@@ -231,6 +234,14 @@ export async function runProtectedMb03PlaybookCodex(
             providerPublicKeySha256: config.PBOS_PROVIDER_PUBLIC_KEY_SHA256
         };
     }
+    const providerSigningKey = createPrivateKey(
+        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8")
+    );
+    if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
+        publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==
+            config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
+        throw new Error("Provider signer and independently reviewed public key differ.");
+    }
     const db: NeonLeaseSql = {
         async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
             const result = await sql.query(query, [...params]);
@@ -239,7 +250,7 @@ export async function runProtectedMb03PlaybookCodex(
     };
     const composed = composeHostedNeonExecutor(db, {
         disposableNamespace: config.PBOS_STATE_NAMESPACE,
-        trustedPublicKeyPem: keys[0],
+        trustedPublicKeyPem: operatorPublicKey,
         expectedStatePin: config.PBOS_EXPECTED_STATE_SET_SHA256,
         disposableAuthorityId: config.PBOS_DISPOSABLE_AUTHORITY_ID,
         verifyConstitution: async () => {
@@ -276,7 +287,7 @@ export async function runProtectedMb03PlaybookCodex(
     const trust = {
         authorityId: policy.authorityId,
         providerId: policy.providerId,
-        publicKey: createPublicKey(keys[1]),
+        publicKey: createPublicKey(providerPublicKey),
         isolationProfile: new VercelPlaybookProvider(policy).isolationProfile,
         archive: new RemoteEvidenceArchive(resolve(config.PBOS_EVIDENCE_DIRECTORY), 90),
         timeoutMs: 60_000
