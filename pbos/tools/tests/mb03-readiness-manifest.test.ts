@@ -16,7 +16,9 @@ function configuredPath(name: string): string | null {
 
 describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () => {
     it("cannot inadvertently run a mission or use an old image digest", () => {
-        expect(job).toContain("name: pbos-mb03-playbook-codex");
+        expect(job).toContain("name: pbos-mb03-playbook-readiness");
+        expect(job).not.toContain("name: pbos-mb03-playbook-codex");
+        expect(template).toContain("name: pbos-mb03-playbook-readiness");
         expect(job).toContain("image: REPLACE_WITH_APPROVED_CONTROLLER_IMAGE_DIGEST");
         expect(job).toContain('name: PBOS_MISSION_EXECUTION_APPROVED\n              value: "false"');
         expect(job).not.toContain('name: PBOS_MISSION_EXECUTION_APPROVED\n              value: "true"');
