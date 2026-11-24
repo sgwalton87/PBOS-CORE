@@ -40,6 +40,20 @@ describe("durable Genesis state and operator identity", () => {
         expect(existsSync(lock)).toBe(false);
     });
 
+    it("accepts a mounted disposable snapshot only in explicit read-only remote mode", () => {
+        const path = join(mkdtempSync(join(tmpdir(), "pbos-remote-state-")), "state.json");
+        const authority = "01234567-89ab-4def-8abc-0123456789ab";
+        writeFileSync(path, JSON.stringify({
+            disposableNamespace: "mb03-remote-readiness",
+            disposableAuthorityId: authority,
+            disposablePlacement: ["operator-host", "/operator/state.json", "1", "2"],
+            systems: [], blueprints: [], sessions: [], grants: [], audit: []
+        }) + "\n", { mode: 0o644 });
+        const mounted = new GenesisStateRepository(path, "mb03-remote-readiness", { readOnlyRemote: true });
+        mounted.assertDisposableAuthority(authority);
+        expect(() => new GenesisStateRepository(path, "mb03-remote-readiness")).toThrow();
+    });
+
     it("waits for a live cross-process state writer instead of abandoning the mission", async () => {
         const path = join(mkdtempSync(join(tmpdir(), "pbos-state-contention-")), "state.json");
         const lock = `${path}.lock`;

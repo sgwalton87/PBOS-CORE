@@ -48,18 +48,32 @@ const REQUIRED = [
 type Key = typeof REQUIRED[number];
 export type ProtectedMb03Environment = Record<Key, string> & NodeJS.ProcessEnv;
 
+// Readiness proves the immutable, read-only boundary only. Execution-only
+// bindings (provider authority, journal, model lease and evidence sinks) are
+// deliberately not required until a separately authorized mission run.
+const READINESS_REQUIRED = REQUIRED.filter(name => ![
+    "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE", "PBOS_PROVIDER_SIGNING_KEY_PEM",
+    "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
+    "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
+    "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
+    "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64"
+].includes(name));
+
 const SHA256 = /^[a-f0-9]{64}$/;
 const SHA40 = /^[a-f0-9]{40}$/;
 const CANONICAL_WORKER_JOB = "pbos-mb03-playbook-codex";
 
-export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): ProtectedMb03Environment {
-    const missing = REQUIRED.filter(name => !env[name]?.trim());
+export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOnly = false): ProtectedMb03Environment {
+    const required = verifyOnly ? READINESS_REQUIRED : REQUIRED;
+    const missing = required.filter(name => !env[name]?.trim());
     if (missing.length) throw new Error("MB-03 protected worker configuration missing: " + missing.join(", "));
-    if (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB || env.PBOS_MISSION_EXECUTION_APPROVED !== "true") {
+    if (env.CLOUD_RUN_JOB !== CANONICAL_WORKER_JOB ||
+        (verifyOnly ? env.PBOS_MISSION_EXECUTION_APPROVED !== "false" :
+            env.PBOS_MISSION_EXECUTION_APPROVED !== "true")) {
         throw new Error("MB-03 requires its distinct, explicitly approved Cloud Run mission job.");
     }
     const config = Object.assign({}, env) as ProtectedMb03Environment;
-    for (const name of REQUIRED) config[name] = env[name]!.trim();
+    for (const name of required) config[name] = env[name]!.trim();
     for (const key of ["PBOS_EXPECTED_STATE_SET_SHA256", "PBOS_PPS_MANIFEST_SHA256",
         "PBOS_APPROVAL_PUBLIC_KEY_SHA256", "PBOS_PROVIDER_PUBLIC_KEY_SHA256",
         "PBOS_CODEX_BINARY_SHA256"] as const) {
@@ -73,11 +87,11 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): Protect
         !/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
         throw new Error("Unreviewed Playbook source, disposable state, or sandbox image identity.");
     }
-    if (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
+    if ((!verifyOnly && (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_WORKER_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_AUTHORITY_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_ID) ||
-        !/^[a-zA-Z0-9][a-zA-Z0-9.-]+$/.test(config.PBOS_WORKER_MODEL) ||
+        !/^[a-zA-Z0-9][a-zA-Z0-9.-]+$/.test(config.PBOS_WORKER_MODEL))) ||
         !/^pbos-mb03-[a-z0-9-]+@pbos-genesis-staging\.iam\.gserviceaccount\.com$/.test(
             config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT)) {
         throw new Error("Unreviewed protected execution provider or cloud identity.");
@@ -98,15 +112,46 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv): Protect
     return config;
 }
 
+export type ProtectedMb03FileCategory =
+    | "operator-public-key" | "provider-public-key" | "provider-signing-key"
+    | "mission-input" | "disposable-state";
+
+export function protectedMb03FileBoundaryCode(
+    category: ProtectedMb03FileCategory, condition: string
+): string {
+    return `MB03_FILE_BOUNDARY:${category}:${condition}`;
+}
+
 /** Require immutable review inputs; no file creation, symlink or credential output. */
-function readPrivateFile(path: string, maximum: number): Buffer {
+export function readProtectedMb03File(
+    path: string, maximum: number, category: ProtectedMb03FileCategory
+): Buffer {
     const full = resolve(path), parent = dirname(full);
-    const meta = lstatSync(full);
-    if (realpathSync(full) !== full || realpathSync(parent) !== parent ||
-        !meta.isFile() || meta.isSymbolicLink() || meta.size < 1 ||
-        meta.size > maximum || (meta.mode & 0o077) !== 0) {
-        throw new Error("Protected MB-03 file is absent, redirected, exposed or unbounded.");
+    let meta;
+    try {
+        meta = lstatSync(full);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+            throw new Error(protectedMb03FileBoundaryCode(category, "missing"));
+        }
+        throw new Error(protectedMb03FileBoundaryCode(category, "stat-failed"));
     }
+    try {
+        if (realpathSync(parent) !== parent) {
+            throw new Error(protectedMb03FileBoundaryCode(category, "parent-redirected"));
+        }
+        if (realpathSync(full) !== full) {
+            throw new Error(protectedMb03FileBoundaryCode(category, "redirected"));
+        }
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith("MB03_FILE_BOUNDARY:")) throw error;
+        throw new Error(protectedMb03FileBoundaryCode(category, "realpath-failed"));
+    }
+    if (meta.isSymbolicLink()) throw new Error(protectedMb03FileBoundaryCode(category, "symlink"));
+    if (!meta.isFile()) throw new Error(protectedMb03FileBoundaryCode(category, "not-regular"));
+    if (meta.size < 1) throw new Error(protectedMb03FileBoundaryCode(category, "empty"));
+    if (meta.size > maximum) throw new Error(protectedMb03FileBoundaryCode(category, "oversized"));
+    if ((meta.mode & 0o077) !== 0) throw new Error(protectedMb03FileBoundaryCode(category, "exposed-permissions"));
     return readFileSync(full);
 }
 
@@ -114,6 +159,12 @@ function publicFingerprint(pem: string): string {
     const key = createPublicKey(pem);
     if (key.asymmetricKeyType !== "ed25519") throw new Error("Ed25519 public key is required.");
     return createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex");
+}
+
+function readPublicKeyForReadiness(path: string, envName: string, env: NodeJS.ProcessEnv, verifyOnly: boolean): string {
+    const fromSecretEnv = verifyOnly ? env[envName]?.trim() : undefined;
+    return fromSecretEnv || readProtectedMb03File(path, 16_384,
+        envName === "PBOS_APPROVAL_PUBLIC_KEY_PEM" ? "operator-public-key" : "provider-public-key").toString("utf8");
 }
 
 async function googleRuntimeIdentity(expected: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -151,37 +202,44 @@ interface PrivateMissionFile {
     readonly target: PlaybookRemoteTarget;
 }
 
+function sanitizedFailure(error: unknown): string {
+    const raw = error instanceof Error ? error.message : String(error);
+    return raw
+        .replace(/postgres(?:ql)?:\/\/[^\s'\"]+/gi, "postgresql://[REDACTED]")
+        .replace(/Bearer\s+[^\s'\"]+/gi, "Bearer [REDACTED]")
+        .replace(/(password|token|secret|credential)(\s*[=:]\s*)[^\s'\"]+/gi, "$1$2[REDACTED]")
+        .slice(0, 500);
+}
+
 export async function runProtectedMb03PlaybookCodex(
-    env: NodeJS.ProcessEnv = process.env
+    env: NodeJS.ProcessEnv = process.env,
+    verifyOnly = false
 ): Promise<Readonly<Record<string, unknown>>> {
-    const config = requireProtectedMb03Environment(env);
-    const keys = [
-        readPrivateFile(config.PBOS_APPROVAL_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_PUBLIC_KEY_FILE, 16_384).toString("utf8"),
-        readPrivateFile(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768).toString("utf8")
-    ];
-    if (publicFingerprint(keys[0]) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
-        publicFingerprint(keys[1]) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
+    const config = requireProtectedMb03Environment(env, verifyOnly);
+    const operatorPublicKey = readPublicKeyForReadiness(
+        config.PBOS_APPROVAL_PUBLIC_KEY_FILE, "PBOS_APPROVAL_PUBLIC_KEY_PEM", env, verifyOnly);
+    const providerPublicKey = readPublicKeyForReadiness(
+        config.PBOS_PROVIDER_PUBLIC_KEY_FILE, "PBOS_PROVIDER_PUBLIC_KEY_PEM", env, verifyOnly);
+    if (publicFingerprint(operatorPublicKey) !== config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 ||
+        publicFingerprint(providerPublicKey) !== config.PBOS_PROVIDER_PUBLIC_KEY_SHA256 ||
         config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 === config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
         throw new Error("Independently pinned operator and provider public keys are invalid or reused.");
     }
-    const providerSigningKey = createPrivateKey(keys[2]);
-    if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
-        publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==
-            config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
-        throw new Error("Provider signer and independently reviewed public key differ.");
-    }
-    const mission = JSON.parse(readPrivateFile(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024).toString("utf8")) as PrivateMissionFile;
-    if (!mission || typeof mission !== "object" || !mission.target ||
-        mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
-        mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
-        throw new Error("Protected mission envelope is missing or differs from the Playbook image source.");
+    let mission: PrivateMissionFile | undefined;
+    if (!verifyOnly) {
+        mission = JSON.parse(readProtectedMb03File(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input").toString("utf8")) as PrivateMissionFile;
+        if (!mission || typeof mission !== "object" || !mission.target ||
+            mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
+            mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
+            throw new Error("Protected mission envelope is missing or differs from the Playbook image source.");
+        }
     }
 
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
-    readPrivateFile(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024);
-    const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE);
+    readProtectedMb03File(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "disposable-state");
+    const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
+        { readOnlyRemote: verifyOnly });
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
     const runtime = new ProductionRuntimeService(state);
     if (!runtime.verifyIntegrity().valid) throw new Error("Disposable state integrity failed.");
@@ -215,6 +273,26 @@ export async function runProtectedMb03PlaybookCodex(
     if (!(await verifyHostedNeonReadiness(readOnlyDb, "pbos_runner", config.PBOS_EXPECTED_NEON_ROLE))) {
         throw new Error("Protected Neon worker catalog or role is unavailable.");
     }
+    if (verifyOnly) {
+        return {
+            schema: "pbos.mb03.protected-bindings.v1",
+            status: "READY_FOR_SEPARATE_SIGNED_APPROVAL",
+            missionExecutionAuthorized: false,
+            sourceSha: config.PBOS_PLAYBOOK_SOURCE_SHA,
+            stateNamespace: config.PBOS_STATE_NAMESPACE,
+            neonRole: config.PBOS_EXPECTED_NEON_ROLE,
+            operatorPublicKeySha256: config.PBOS_APPROVAL_PUBLIC_KEY_SHA256,
+            providerPublicKeySha256: config.PBOS_PROVIDER_PUBLIC_KEY_SHA256
+        };
+    }
+    const providerSigningPem = env.PBOS_PROVIDER_SIGNING_KEY_PEM?.trim() ||
+        readProtectedMb03File(config.PBOS_PROVIDER_SIGNING_KEY_FILE, 32_768, "provider-signing-key").toString("utf8");
+    const providerSigningKey = createPrivateKey(providerSigningPem);
+    if (providerSigningKey.asymmetricKeyType !== "ed25519" ||
+        publicFingerprint(createPublicKey(providerSigningKey).export({ type: "spki", format: "pem" }).toString()) !==
+            config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
+        throw new Error("Provider signer and independently reviewed public key differ.");
+    }
     const db: NeonLeaseSql = {
         async query<T extends Record<string, unknown>>(query: string, params: readonly unknown[]) {
             const result = await sql.query(query, [...params]);
@@ -223,7 +301,7 @@ export async function runProtectedMb03PlaybookCodex(
     };
     const composed = composeHostedNeonExecutor(db, {
         disposableNamespace: config.PBOS_STATE_NAMESPACE,
-        trustedPublicKeyPem: keys[0],
+        trustedPublicKeyPem: operatorPublicKey,
         expectedStatePin: config.PBOS_EXPECTED_STATE_SET_SHA256,
         disposableAuthorityId: config.PBOS_DISPOSABLE_AUTHORITY_ID,
         verifyConstitution: async () => {
@@ -252,7 +330,7 @@ export async function runProtectedMb03PlaybookCodex(
             projectId: config.PBOS_VERCEL_SANDBOX_PROJECT_ID
         }),
         signer: providerSigningKey,
-        playbook: mission.target,
+        playbook: mission!.target,
         dispatch: new GcsRemoteDispatchJournal(config.PBOS_DISPATCH_JOURNAL_BUCKET, googleAccessToken),
         modelLeases: new HttpsModelLeaseIssuer(config.PBOS_MODEL_ADMIN_ORIGIN, config.PBOS_MODEL_ORIGIN,
             async () => config.PBOS_MODEL_ADMIN_CREDENTIAL)
@@ -260,14 +338,14 @@ export async function runProtectedMb03PlaybookCodex(
     const trust = {
         authorityId: policy.authorityId,
         providerId: policy.providerId,
-        publicKey: createPublicKey(keys[1]),
+        publicKey: createPublicKey(providerPublicKey),
         isolationProfile: new VercelPlaybookProvider(policy).isolationProfile,
         archive: new RemoteEvidenceArchive(resolve(config.PBOS_EVIDENCE_DIRECTORY), 90),
         timeoutMs: 60_000
     };
     const result = await executeHostedPlaybookCodexMission({
-        input: { request: mission.request, approval: mission.approval,
-            mission: mission.mission, scope: mission.scope },
+        input: { request: mission!.request, approval: mission!.approval,
+            mission: mission!.mission, scope: mission!.scope },
         policy,
         adapters: {
             runner: new ProductionMissionRunner(state, runtime),
@@ -281,7 +359,7 @@ export async function runProtectedMb03PlaybookCodex(
         schema: "pbos.mb03.hosted-playbook-codex-result.v1",
         executionKind: "REMOTE_CODEX_INDEPENDENT_REVIEW_REQUIRED",
         stopReason: result.stopReason,
-        missionId: mission.mission.missionId,
+        missionId: mission!.mission.missionId,
         runs: result.runs.map(run => ({
             runId: run.runId, status: run.status, evidenceIds: run.evidenceIds
         })),
@@ -291,13 +369,16 @@ export async function runProtectedMb03PlaybookCodex(
 
 // Explicit executable only. No automatic dispatch during CI or import.
 if (require.main === module) {
-    runProtectedMb03PlaybookCodex().then(result => {
+    const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
+    if (process.argv.length > 2 && !verifyOnly) throw new Error("Unsupported protected controller argument.");
+    runProtectedMb03PlaybookCodex(process.env, verifyOnly).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
-    }).catch(() => {
+    }).catch(error => {
         process.stderr.write(JSON.stringify({
             gate: "MB03_PROTECTED_PLAYBOOK_CODEX_EXECUTION",
             status: "BLOCKED",
-            note: "Protected execution rejected; inspect private evidence through the approved operator channel."
+            note: "Protected execution rejected; inspect private evidence through the approved operator channel.",
+            reason: sanitizedFailure(error)
         }) + "\n");
         process.exitCode = 2;
     });
