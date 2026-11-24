@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 const job = readFileSync(resolve("job.mb03-readiness.yaml"), "utf8");
 const workflow = readFileSync(resolve(".github/workflows/mb03-playbook-controller-image.yml"), "utf8");
 const smoke = readFileSync(resolve("containers/mb03-controller/staging-smoke.sh"), "utf8");
+const signer = readFileSync(resolve("pbos/tools/mb03-sign-mission.ts"), "utf8");
+const template = readFileSync(resolve("infra/mb03/job.secret-staging-preflight.template.yaml"), "utf8");
 
 function configuredPath(name: string): string | null {
     const marker = "            - name: " + name + "\n              value: ";
@@ -50,6 +52,13 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
             expect(job).not.toContain("name: " + key);
         }
         expect(job).toMatch(/- name: execution-state\n            csi:\n              driver: gcsfuse.run.googleapis.com\n              readOnly: true/);
+    });
+
+    it("pins the reviewed Playbook source used by the signed mission builder", () => {
+        const source = signer.match(/const SOURCE = "([a-f0-9]{40})"/)?.[1];
+        expect(source).toBeTruthy();
+        expect(job).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA\\n              value: " + source);
+        expect(template).toContain("name: PBOS_PLAYBOOK_SOURCE_SHA\\n              value: " + source);
     });
 
     it("runs functional offline root-to-node smoke, not just string checks", () => {
