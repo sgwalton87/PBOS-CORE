@@ -46,8 +46,13 @@ export function inspectFailedExecution(job, execution) {
   }
   const generation = job?.metadata?.generation ?? job?.generation;
   const observed = job?.status?.observedGeneration ?? job?.observedGeneration;
-  if (job?.reconciling === true || (generation !== undefined && observed !== undefined &&
-      String(generation) !== String(observed))) {
+  // Both values must exist and be positive integers. Missing evidence is NOT reconciliation.
+  const validGeneration = (value) => (typeof value === "number"
+    ? Number.isSafeInteger(value) && value > 0
+    : typeof value === "string" && /^[1-9][0-9]*$/.test(value));
+  if (!validGeneration(generation) || !validGeneration(observed)) {
+    findings.push(enumResult("SIGNED_JOB_GENERATION_EVIDENCE_MISSING"));
+  } else if (job?.reconciling === true || String(generation) !== String(observed)) {
     findings.push(enumResult("SIGNED_JOB_GENERATION_NOT_RECONCILED"));
   }
   // The failed historical run can never by itself authorize a new mission.
@@ -73,6 +78,8 @@ function main() {
     console.log(JSON.stringify(report));
     // We are inspecting a historical failed run, so a successful inspection is NOT readiness.
     if (report.findings.some(f=>f.endsWith("_UNREADABLE") || f.includes("IDENTITY_MISMATCH") ||
+        f === "SIGNED_JOB_GENERATION_EVIDENCE_MISSING" ||
+        f === "SIGNED_JOB_GENERATION_NOT_RECONCILED" ||
         f === "EXECUTION_PARENT_JOB_MISMATCH")) process.exitCode = 1;
   } catch {
     console.log(JSON.stringify({status:"BLOCKED",findings:["FORENSIC_SOURCE_INVALID"]}));
