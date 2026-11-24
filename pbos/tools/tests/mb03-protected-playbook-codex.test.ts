@@ -130,6 +130,8 @@ describe("MB-03 managed protected-file boundary", () => {
         expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/operator")).toBe(true);
         expect(allowsManagedSecretAlias("/var/lib/pbos-missions/mission.json", "/tmp/mission")).toBe(false);
         expect(allowsManagedSecretAlias("/var/run/secrets/other/public.pem", "/run/secrets/other")).toBe(false);
+        expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/other")).toBe(false);
+        expect(allowsManagedSecretAlias("/var/run/secrets/mb03/operator/public.pem", "/run/secrets/mb03/operator/redirect")).toBe(false);
     });
 
     function fixturePath(name: string): string {
