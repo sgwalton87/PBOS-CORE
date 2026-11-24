@@ -7,14 +7,20 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages ./packages
 RUN npm ci --ignore-scripts --no-audit --no-fund \
-    && npm cache clean --force
+    && npm cache clean --force \
+    && apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pbos ./pbos
 COPY tsconfig.json tsconfig.cloud-run.json ./
 
 # Admission and worker both refuse any missing identity/approval. The image
 # does not create writable Genesis state or perform automatic admission.
+COPY containers/mb03-controller/stage-secrets.sh /usr/local/bin/mb03-stage-secrets
+RUN chmod 0500 /usr/local/bin/mb03-stage-secrets
 ENV NODE_ENV=production
-USER node
+# Start as root ONLY to stage root-owned Cloud Run secret volumes.
+# The wrapper immediately drops privileges to node before running any controller code.
 STOPSIGNAL SIGTERM
-CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-protected-playbook-codex.ts"]
+ENTRYPOINT ["/usr/local/bin/mb03-stage-secrets"]
+CMD ["./node_modules/.bin/tsx", "pbos/tools/mb03-protected-playbook-codex.ts", "--verify-bindings"]
