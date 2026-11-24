@@ -7,6 +7,11 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 root=/var/lib/pbos-private
+# Refuse pre-existing staging targets; never overwrite or traverse a planted link.
+if [ -e "$root" ] || [ -L "$root" ]; then
+  echo 'MB03_SECRET_STAGE:existing-target' >&2
+  exit 2
+fi
 install -d -o node -g node -m 0700 "$root"
 stage() {
   src="$1"
