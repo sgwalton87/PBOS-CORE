@@ -37,7 +37,7 @@ function job(isSigned) {
   makeEnv("PBOS_APPROVAL_PUBLIC_KEY_SHA256","db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0"),
   makeEnv("PBOS_PROVIDER_PUBLIC_KEY_SHA256","e4a807a070776cc37dae41c597a24d88a19c5a5d77feae187d57fec37e83345d"),
   makeEnv("PBOS_DISPOSABLE_AUTHORITY_ID","84464dfd-2ada-4292-a15b-99d3fa5f28e2"),
-  makeEnv("PBOS_STATE_NAMESPACE","mb03-stage4-synthetic-20261124"),
+  makeEnv("PBOS_STATE_NAMESPACE","mb03-stage4-synthetic-20261125"),
   makeEnv("PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT",SERVICE_ACCOUNT)
  ];
  const allMounts=[...mounts],volumes=[gcs("execution-state",!isSigned),gcs("observation-state",true),gcs("pps-canon",true),...keys];

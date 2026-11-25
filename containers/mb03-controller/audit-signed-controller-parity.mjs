@@ -148,7 +148,7 @@ export function audit(readiness, signed) {
     same(value(c, "PBOS_APPROVAL_PUBLIC_KEY_SHA256"), "db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0", scope + "_OPERATOR_KEY_PIN", errors);
     same(value(c, "PBOS_PROVIDER_PUBLIC_KEY_SHA256"), "e4a807a070776cc37dae41c597a24d88a19c5a5d77feae187d57fec37e83345d", scope + "_PROVIDER_KEY_PIN", errors);
     same(value(c, "PBOS_DISPOSABLE_AUTHORITY_ID"), "84464dfd-2ada-4292-a15b-99d3fa5f28e2", scope + "_DISPOSABLE_AUTHORITY", errors);
-    same(value(c, "PBOS_STATE_NAMESPACE"), "mb03-stage4-synthetic-20261124", scope + "_STATE_NAMESPACE", errors);
+    same(value(c, "PBOS_STATE_NAMESPACE"), "mb03-stage4-synthetic-20261125", scope + "_STATE_NAMESPACE", errors);
     same(value(c, "PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT"), SERVICE_ACCOUNT, scope + "_ATTESTED_ACCOUNT", errors);
   }
   return { status: errors.length ? "BLOCKED" : "PARITY_VERIFIED", checks: "CONFIG_PARITY_ONLY", findings: [...new Set(errors)].sort(),
