@@ -5,6 +5,18 @@ import type { Mb03Mission } from "./mb03-disposable-mission";
 export type PlaybookMb03MissionId = "MB03-MISSION-001" | "MB03-MISSION-002";
 export const PLAYBOOK_REMOTE_REPOSITORY = "sgwalton87/playbook-platform";
 
+/**
+ * The original custodian signing contract uses pbos/mission-* branches.  The
+ * generic remote-worker boundary historically accepted only disposable/*,
+ * which made a valid, independently signed Playbook scope impossible to run.
+ * Keep the allow-list explicit: these are staging-only mission branches, never
+ * arbitrary repository branches.
+ */
+export function isApprovedPlaybookMissionBranch(branch: string): boolean {
+    return /^pbos\/mission-MB03-MISSION-(001|002)$/.test(branch) ||
+        /^disposable\/mb03-mission-(001|002)$/.test(branch);
+}
+
 export interface PlaybookRemoteTarget {
     readonly missionId: PlaybookMb03MissionId;
     /** Exact content already tracked at the reviewed Playbook SHA. */

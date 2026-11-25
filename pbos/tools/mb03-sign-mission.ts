@@ -8,12 +8,15 @@ import {
   type SignedHostedMissionApproval, type HostedMissionLineage
 } from "../production-runtime/hosted-signed-mission-approval";
 
-const SOURCE = "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea";
-const REPOSITORY = "sgwalton87/playbook-platform";
-const MISSIONS = {
+export const MB03_PLAYBOOK_SOURCE_SHA = "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea";
+export const MB03_PLAYBOOK_REPOSITORY = "sgwalton87/playbook-platform";
+export const MB03_MISSION_SCOPES = {
   "MB03-MISSION-001": { branch: "pbos/mission-MB03-MISSION-001", path: "docs/pbos-missions/MB03-MISSION-001.md", contentSha256: "f47d3b241663ccf0f1a60ce7e5df7344ed246babd34fe96bca8105dea9910746" },
   "MB03-MISSION-002": { branch: "pbos/mission-MB03-MISSION-002", path: "docs/pbos-missions/MB03-MISSION-002.md", contentSha256: "4b48dca4e087a6355b1621639eb35c8722af91844067a9493783f6b2207bbaad" }
 } as const;
+const SOURCE = "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea";
+const REPOSITORY = MB03_PLAYBOOK_REPOSITORY;
+const MISSIONS = MB03_MISSION_SCOPES;
 
 export function makeUnsignedMissionPayload(missionId: keyof typeof MISSIONS, operatorId: string, now = new Date(), nonce = randomUUID()) {
   const scope = MISSIONS[missionId];

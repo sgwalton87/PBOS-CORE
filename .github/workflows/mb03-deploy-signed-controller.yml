@@ -1,0 +1,124 @@
+name: MB-03 Deploy signed controller — staging only
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_staging_only:
+        description: Type DEPLOY-SIGNED-CONTROLLER-STAGING
+        required: true
+        type: string
+      playbook_source_sha:
+        description: Exact approved Playbook source SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: mb03-signed-controller-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.repository == 'sgwalton87/PBOS-CORE' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.confirm_staging_only == 'DEPLOY-SIGNED-CONTROLLER-STAGING' &&
+      inputs.playbook_source_sha == '6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea'
+    runs-on: ubuntu-latest
+    environment: pbos-genesis-staging
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify exact source and offline controller tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          npm ci --ignore-scripts
+          npx tsc --noEmit
+          npx vitest run pbos/tools/tests/mb03-mission-package.test.ts pbos/production-runtime/tests/hosted-playbook-codex-composition.test.ts pbos/production-runtime/tests/hosted-remote-worker-mission.test.ts
+          test "$(git show HEAD:infra/mb03/job.signed-mission.review-only.yaml >/dev/null; echo ok)" = ok
+      - name: Authenticate to staging with protected workload identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and publish immutable controller image
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=pbos-genesis-staging
+          region=us-west1
+          repo=us-west1-docker.pkg.dev/$project/pbos-executor
+          image="$repo/mb03-playbook-controller:$GITHUB_SHA"
+          gcloud artifacts repositories describe pbos-executor --project="$project" --location="$region" --format='value(name)'
+          gcloud auth configure-docker us-west1-docker.pkg.dev --quiet
+          docker build --pull --file Dockerfile.mb03-playbook-controller --tag "$image" .
+          docker push "$image"
+          digest="$(gcloud artifacts docker images describe "$image" --format='value(image_summary.digest)')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          pinned="$repo/mb03-playbook-controller@$digest"
+          echo "pinned=$pinned" >> "$GITHUB_OUTPUT"
+          echo "- Immutable controller image: $pinned" >> "$GITHUB_STEP_SUMMARY"
+      - name: Render and validate signed-job manifest (no execution)
+        env:
+          IMAGE: ${{ steps.image.outputs.pinned }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          template=infra/mb03/job.signed-mission.review-only.yaml
+          manifest="$RUNNER_TEMP/mb03-signed-job.yaml"
+          sed "s#REPLACE_WITH_EXACT_APPROVED_EXECUTION_CONTROLLER_DIGEST#$IMAGE#g" "$template" > "$manifest"
+          ! grep -Fq REPLACE_WITH_EXACT_APPROVED_EXECUTION_CONTROLLER_DIGEST "$manifest"
+          grep -Fqx "            image: $IMAGE" "$manifest"
+          grep -Fq 'command:' "$manifest"
+          grep -Fq -- '- /usr/local/bin/mb03-stage-secrets' "$manifest"
+          grep -Fq -- '- ./node_modules/.bin/tsx' "$manifest"
+          grep -Fq -- '- pbos/tools/mb03-protected-playbook-codex.ts' "$manifest"
+          grep -Fq 'value: "true"' "$manifest"
+          grep -Fq 'bucketName: pbos-genesis-staging-mb03-execution-state' "$manifest"
+          grep -Fq 'bucketName: pbos-genesis-staging-mb03-observation-state' "$manifest"
+          grep -Fq 'readOnly: true' "$manifest"
+          grep -Fq 'serviceAccountName: pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com' "$manifest"
+          test "$(grep -c '^            - name:' "$manifest")" = "$(grep '^            - name:' "$manifest" | sort -u | wc -l | tr -d ' ')"
+          grep -Fq 'name: PBOS_APPROVAL_PUBLIC_KEY_PEM' "$manifest"
+          grep -Fq 'name: PBOS_PROVIDER_PUBLIC_KEY_PEM' "$manifest"
+          grep -Fq 'name: PBOS_PROVIDER_SIGNING_KEY_FILE' "$manifest"
+          grep -Fq 'value: 6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea' "$manifest"
+          cp "$manifest" "$RUNNER_TEMP/mb03-signed-job-reviewed.yaml"
+          echo "- Manifest rendered and validated; no Cloud Run execution" >> "$GITHUB_STEP_SUMMARY"
+      - name: Replace signed controller job after protected approval
+        shell: bash
+        run: |
+          set -euo pipefail
+          project=pbos-genesis-staging
+          region=us-west1
+          manifest="$RUNNER_TEMP/mb03-signed-job-reviewed.yaml"
+          gcloud run jobs replace "$manifest" --project="$project" --region="$region"
+          gcloud run jobs describe pbos-mb03-playbook-codex --project="$project" --region="$region" --format=json > "$RUNNER_TEMP/job.json"
+          node --input-type=module - "$RUNNER_TEMP/job.json" "${{ steps.image.outputs.pinned }}" <<'NODE'
+          import fs from 'node:fs';
+          const [file, expectedImage] = process.argv.slice(2);
+          const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const spec = job.spec?.template?.spec?.template?.spec;
+          const container = spec?.containers?.[0];
+          if (!spec || !container || container.image !== expectedImage) throw new Error('signed job image read-back mismatch');
+          if (spec.serviceAccountName !== 'pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com') throw new Error('runtime identity mismatch');
+          if (job.status?.observedGeneration !== job.metadata?.generation) throw new Error('job generation is not observed');
+          if (container.env?.some((entry) => entry.name === 'PBOS_MISSION_EXECUTION_APPROVED' && entry.value !== 'true')) throw new Error('mission approval binding mismatch');
+          console.log(JSON.stringify({status:'SIGNED_CONTROLLER_DEPLOYED_READBACK_VERIFIED',generation:job.metadata.generation,image:container.image,missionExecutionAuthorized:true}));
+          NODE
+          echo "- Signed controller job replaced and read back; no mission executed" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload reviewed manifest evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: mb03-signed-controller-manifest-${{ github.sha }}
+          path: ${{ runner.temp }}/mb03-signed-job-reviewed.yaml
+          retention-days: 30
