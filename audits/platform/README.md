@@ -4,34 +4,29 @@
 
 Captured on **2026-11-25 UTC** (2026-11-24 Pacific). Based on the supplied 106-item register and directly inspected GitHub, Cloud Run GitHub logs, connected Vercel, Supabase and Neon data. All source files and evidence observations are versioned; raw credentials or protected secret values were **not** collected.
 
-## Run it (Node 22+, no Docker or paid product)
+## Run this repository-backed audit (Node 22+, no local Docker)
 
 ```bash
-node --test tests/*.test.mjs
+cd audits/platform
+node --test tests/audit.nodecheck.mjs mb03-5dhzb.nodecheck.mjs
 node audit.mjs --register register.json --observations evidence/observations.json --out results/current
 ```
 
-**Exit code 0:** all required conditions are eligible for independent review (does **not** grant launch/mission authority). **Exit 2:** blocked, including failures and missing evidence. **Exit 3:** invalid inputs or broken audit. The current evidence is expected to yield **exit 2**—that's an honest, successful detection, not a broken test harness.
+**Exit 2** means launch is correctly blocked by the observed evidence; **exit 3** means audit input or harness error. The runner writes only local report JSON/Markdown and never signs, deploys or executes a cloud job. The CI workflow at `../../.github/workflows/pbos-platform-evidence-audit.yml` expects the blocked result and uploads a sanitized report; green CI here proves the **harness** behaved correctly, not launch readiness.
 
-Outputs: `results/current.json` and `results/current.md`, with SHA-256 digests of the exact input bytes; these digests provide reproducibility, **not signatures or attested cloud origin**. The snapshot becomes **stale after 24 hours**; do not keep reusing it to pass release gates.
+## Repository audit files
 
-## What is inside
-
-| File | Purpose |
+| File in this PR | Evidence function |
 |---|---|
-| `register.json`, `register.csv` | All 106 original IDs, risk tiers, classifications, source links, closure criteria, proposed owner roles and dependencies. No silent item closure. |
-| `input/PLAYBOOK_PLATFORM_FULL_SYSTEMS_GAP_REGISTER_2026-11-24.md` | Exact baseline source, SHA-256 recorded in `register.json` |
-| `evidence/observations.json` | Sanitized dated live and reported observations with origin IDs; no secrets |
-| `evidence/sources.json` | Evidence/source inventory and provenance limitations |
-| `evidence/supabase-advisor-object-inventory.md` | Nine advisor categories, 254 individual object findings, link to their sanitized object-level snapshot in PBOS-CORE |
-| `audit.mjs` | Deterministic, offline, fail-closed release gate evaluator |
-| `tests/audit.test.mjs` | Missing evidence, bad registry, falsified completion, stale snapshots and environment mismatch tests |
-| `forensics/cloudrun-5dhzb.mjs` | Read-only Cloud Run job/execution JSON forensic analyzer; no credential access |
-| `tests/forensics.test.mjs` | Negative tests for image drift, old secret path, missing wrapper, incomplete generation |
-| `github-workflows/pbos-cross-stack-forensics-readonly.yml` | Template for protected staging `gcloud run jobs describe` and historical execution describe only |
-| `FORENSIC_REPORT.md` | Root-cause proof, remaining evidence, limitations and nonmutation status |
-| `SYSTEMS_MAP.md` | Dependency diagram, authority boundaries, service owners and source maps |
-| `results/current.*` | Reproducible, executed blocked audit result |
+| `register.json`, `register.csv` | All 106 original numbered gaps, preservation of source classification, source ID, closure proof, ownership/dependency proposals |
+| `audit.mjs`, `tests/audit.nodecheck.mjs` | Exact evidence, stale snapshot, missing proof and negative-case certification evaluator |
+| `evidence/observations.json` | Provider-connector/CI sourced, sanitized environment snapshot. No secret values. |
+| `evidence/supabase-advisor-2026-11-25.json` | All 254 individual Supabase advisor observations, including object metadata and timestamps |
+| `mb03-5dhzb-forensic.mjs`, `mb03-5dhzb.nodecheck.mjs` | Offline forensic parser and negative tests for historical Cloud Run image and private secret-staging paths |
+| `SYSTEMS_MAP.md`, `FORENSIC_REPORT.md` | Cross-stack authority and release DAG with explicit limitations |
+| `../../.github/workflows/mb03-5dhzb-readonly-forensics.yml` | Protected GitHub Actions **read-only** GCP job/execution describe, after approved merge |
+
+The original 106-item Markdown baseline, the July project JSON, offline HTML dashboard, input SHA-256 manifest and full reproducible distribution are preserved in the separately delivered audit package. These private historical source attachments are **not** unnecessarily copied into the public repository.
 
 ## Evidence classification: definitions matter
 
