@@ -65,7 +65,11 @@ describe("hosted Playbook mission executable", () => {
     const github: GitHubPrApi = {
       getBranchSha: vi.fn(async (_repo,branch) => branch === "main" ? baseSha : (branchCreated ? "c".repeat(40) : Promise.reject(new Error("GITHUB_BRANCH_NOT_FOUND")))),
       getFileContent: vi.fn(async () => content),
-      createBranch: vi.fn(async () => { branchCreated = true; }), createFile: vi.fn(async () => undefined),
+      createBranch: vi.fn(async () => { branchCreated = true; }),
+      getTrackedFileBlob: vi.fn(),
+      assertSingleTrackedEdit: vi.fn(),
+      updateTrackedFile: vi.fn(),
+      createFile: vi.fn(async () => undefined),
       createPullRequest: vi.fn(async () => ({url:"https://github.com/sgwalton87/playbook-platform/pull/999",number:999})),
       findPullRequest: vi.fn(async () => null)
     };

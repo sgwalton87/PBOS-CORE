@@ -5,17 +5,31 @@
  * GitHub itself does not support fencing tokens: stale workers are checked before
  * each call and must be prevented from concurrent mutation by the lease service.
  */
+import { createHash } from "node:crypto";
 import type { HostedExecutionLease } from "./hosted-approved-mission";
+
+export interface GithubDraftReference {
+  readonly url: string;
+  readonly number: number;
+  readonly headSha?: string;
+  readonly baseSha?: string;
+}
 
 export interface GitHubPrApi {
   getBranchSha(repository: string, branch: string): Promise<string>;
   getFileContent(repository: string, branch: string, path: string): Promise<string>;
   createBranch(repository: string, branch: string, fromSha: string): Promise<void>;
+  getTrackedFileBlob(repository: string, revision: string, path: string): Promise<string>;
+  assertSingleTrackedEdit(input: FencedPrInput, revision: string, outputBlob: string): Promise<void>;
+  updateTrackedFile(input: FencedPrInput): Promise<string>;
   createFile(repository: string, branch: string, path: string, content: string, message: string): Promise<void>;
-  createPullRequest(repository: string, branch: string, base: string, title: string, body: string): Promise<{url:string;number:number}>;
-  findPullRequest(repository: string, branch: string, base: string): Promise<{url:string;number:number}|null>;
+  createPullRequest(repository: string, branch: string, base: string, title: string, body: string): Promise<GithubDraftReference>;
+  findPullRequest(repository: string, branch: string, base: string): Promise<GithubDraftReference|null>;
 }
-export interface FencedPrResult { readonly url: string; readonly number: number; readonly branch: string; }
+export interface FencedPrResult extends GithubDraftReference {
+  readonly branch: string;
+  readonly fileOperation: "added" | "modified";
+}
 export interface FencedPrInput {
   readonly repository: "sgwalton87/playbook-platform";
   readonly baseSha: string;
@@ -50,13 +64,28 @@ export async function createFencedPlaybookPr(
   await fence();
   const base = await api.getBranchSha(input.repository,"main");
   if (base !== input.baseSha) throw new Error("Playbook main advanced: mission requires new signed approval.");
+  const tracked = /^MB03-MISSION-(001|002)$/.test(input.missionId);
+  const bytes = Buffer.from(input.content, "utf8");
+  const outputBlob = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+  await fence();
+  const previousBlob = tracked ? await api.getTrackedFileBlob(input.repository, base, input.path) : undefined;
+  if (tracked && previousBlob === outputBlob) throw new Error("Tracked mission proposes no change.");
+  const verifyHead = async () => {
+    const head = await api.getBranchSha(input.repository, input.branch);
+    await api.assertSingleTrackedEdit(input, head, outputBlob);
+    return head;
+  };
   await fence();
   const existing = await api.findPullRequest(input.repository,input.branch,"main");
   if (existing) {
     await fence();
+    if (tracked) {
+      const head = await verifyHead();
+      if (existing.headSha !== head || existing.baseSha !== base) throw new Error("Existing draft PR head differs from the verified edit.");
+    }
     const content = await api.getFileContent(input.repository,input.branch,input.path);
     if (content !== input.content) throw new Error("Existing mission PR content differs from the signed payload.");
-    return {...existing,branch:input.branch};
+    return {...existing, branch: input.branch, fileOperation: tracked ? "modified" : "added"};
   }
   await fence();
   // An existing branch without a PR is NOT reused: unknown content could be overwritten.
@@ -69,12 +98,21 @@ export async function createFencedPlaybookPr(
   await fence();
   await api.createBranch(input.repository,input.branch,input.baseSha);
   await fence();
-  await api.createFile(input.repository,input.branch,input.path,input.content,
-    `docs(pbos): record bounded mission ${input.missionId}`);
+  let writtenHead: string | undefined;
+  if (tracked) {
+    writtenHead = await api.updateTrackedFile(input);
+  } else {
+    await api.createFile(input.repository,input.branch,input.path,input.content,
+      `docs(pbos): record bounded mission ${input.missionId}`);
+  }
+  await fence();
+  const verifiedHead = tracked ? await verifyHead() : undefined;
+  if (tracked && verifiedHead !== writtenHead) throw new Error("Mission branch moved after conditional commit.");
   await fence();
   const pr=await api.createPullRequest(input.repository,input.branch,"main",input.title,input.body);
   if (!/^https:\/\/github\.com\/sgwalton87\/playbook-platform\/pull\/\d+$/.test(pr.url)) {
     throw new Error("GitHub returned untrusted Playbook PR URL.");
   }
-  return {...pr,branch:input.branch};
+  if (tracked && (pr.headSha !== verifiedHead || pr.baseSha !== base)) throw new Error("New draft PR head differs from the verified edit.");
+  return {...pr, branch: input.branch, fileOperation: tracked ? "modified" : "added"};
 }

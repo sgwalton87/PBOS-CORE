@@ -1,10 +1,13 @@
-import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { createDecipheriv, createHash, randomBytes, generateKeyPairSync, randomUUID, sign } from "node:crypto";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sandbox } from "@vercel/sandbox";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { checkpointSealer } from "../../tools/mb03-hosted-executor";
+import { createFencedPlaybookPr } from "../fenced-playbook-pr-executor";
+import { GitHubAppPlaybookPrApi } from "../github-app-playbook-pr-api";
 import { GenesisStateRepository } from "../../genesis-state";
 import { ProductionRuntimeService } from "../production-runtime-service";
 import { ProductionMissionRunner } from "../production-mission-runner";
@@ -41,7 +44,7 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
     }]);
     const repository = "sgwalton87/playbook-platform";
     const sourceSha = "a".repeat(40);
-    const branch = "disposable/" + missionId.toLowerCase();
+    const branch = "pbos/mission-" + missionId;
     const before = "# Tracked synthetic input\n";
     const after = "# Independently review this proposed Codex output\n";
     const target = { missionId, before, after };
@@ -100,7 +103,10 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
         stop: vi.fn(async () => ({ status: "stopped", id: "sandbox-isolated-fixture" }))
     };
     const api = {
-        create: vi.fn(async (_options: object) => vm),
+        create: vi.fn(async (_options: object) => {
+            vm.expiresAt = new Date(Date.now() + 25_000);
+            return vm;
+        }),
         get: vi.fn(async (_options: object) => vm)
     } as unknown as Pick<typeof Sandbox, "create" | "get">;
     const instance = new VercelPlaybookProvider(policy, api);
@@ -131,7 +137,7 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
             admission, trust, checkpoints, sealCheckpoint: sealed
         }
     };
-    return { composition, state, vm, api, reserve, issued, revoked, sealed, checkpoints };
+    return { root, composition, state, vm, api, reserve, issued, revoked, sealed, checkpoints };
 }
 
 describe("MB-03 composed hosted Playbook Codex execution", () => {
@@ -164,6 +170,147 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(f.state.executionLeases().at(-1)?.status).toBe("RELEASED");
         expect(result.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
     }, 45_000);
+    it("reopens a plan-ready interruption without spending another nonce or starting a worker", async () => {
+        let stateFile = "";
+        let saved = { bytes: "", generation: "1" };
+        let interrupted = false;
+        const open = (path: string, namespace: string) => new GenesisStateRepository(path, namespace, {
+            managedRemote: true, versionedObject: {
+                read: () => saved,
+                replace(expected, bytes) {
+                    if (expected !== saved.generation) throw Error("stale fixture generation");
+                    const state = JSON.parse(saved.bytes);
+                    if (state.productionRuns?.[0]?.status === "RUNNING" &&
+                        state.productionEvents?.at(-1)?.type === "EXECUTION_PLAN_READY") {
+                        interrupted = true;
+                        throw Error("fixture controller stopped after plan persistence");
+                    }
+                    saved = { bytes, generation: String(Number(expected) + 1) };
+                }
+            }
+        });
+        const f = fixture("MB03-MISSION-001", (path, namespace) => {
+            GenesisStateRepository.createDisposable(path, namespace);
+            stateFile = path;
+            saved.bytes = readFileSync(path, "utf8");
+            return open(path, namespace);
+        });
+        await expect(executeHostedPlaybookCodexMission(f.composition, f.api)).rejects.toThrow("after plan persistence");
+        expect(interrupted).toBe(true);
+        const beforeRestart = { ...saved };
+        const admission = f.composition.adapters.admission;
+        expect(admission.recordApprovalNonce).toHaveBeenCalledOnce();
+        const reopened = open(stateFile, admission.disposableNamespace);
+        f.composition.adapters.runner = new ProductionMissionRunner(reopened);
+        await expect(executeHostedPlaybookCodexMission(f.composition, f.api)).rejects.toThrow("active run or lease");
+        expect(saved).toEqual(beforeRestart);
+        expect(f.reserve).not.toHaveBeenCalled();
+        expect(f.api.create).not.toHaveBeenCalled();
+        expect(admission.recordApprovalNonce).toHaveBeenCalledOnce();
+    });
+
+    it("publishes the verified tracked-file bytes once even when the draft PR acknowledgment is lost", async () => {
+        const f = fixture("MB03-MISSION-001");
+        const checkpointFile = join(f.root, "worker-output.sealed");
+        const testKey = randomBytes(32);
+        f.sealed.mockImplementation(checkpointSealer(testKey.toString("base64")));
+        f.checkpoints.commit.mockImplementation(async (_lease, missionId, repo, version, bytes) => {
+            expect(missionId).toBe("MB03-MISSION-001");
+            expect(repo).toBe(f.composition.input.request.repository);
+            expect(version).toBe(0n);
+            writeFileSync(checkpointFile, bytes, { flag: "wx", mode: 0o600 });
+            return 1n;
+        });
+        const workerResult = await executeHostedPlaybookCodexMission(f.composition, f.api);
+        expect(workerResult.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
+        const { mission, scope, request, approval } = f.composition.input;
+        expect(workerResult.runs[0].disposableAttempt).toMatchObject({
+            missionId: mission.missionId, attemptId: approval.payload.nonce, scopeDigest: approval.payload.scopeDigest
+        });
+        function openCheckpoint(bytes: Buffer) {
+            expect(bytes[0]).toBe(1);
+            const decipher = createDecipheriv("aes-256-gcm", testKey, bytes.subarray(1, 13));
+            decipher.setAuthTag(bytes.subarray(13, 29));
+            return Buffer.concat([decipher.update(bytes.subarray(29)), decipher.final()]);
+        }
+        const ciphertext = readFileSync(checkpointFile);
+        const tampered = Buffer.from(ciphertext);
+        tampered[13] ^= 1;
+        expect(() => openCheckpoint(tampered)).toThrow();
+        const output = JSON.parse(openCheckpoint(ciphertext).toString("utf8"));
+        expect(workerResult.runs[0].evidenceIds).toContain(output.remoteEvidenceDigest);
+        expect(workerResult.runs[0].evidenceIds).toContain("hosted-remote-checkpoint:v1");
+        expect(f.composition.adapters.trust.archive.read(output.remoteEvidenceDigest)).toMatchObject({
+            binding: {mission: {missionId: mission.missionId, attemptId: approval.payload.nonce}},
+            manifest: [{path: scope.path, digest: scope.contentSha256}]
+        });
+        const content = Buffer.from(output.contentBase64, "base64");
+        expect(output).toMatchObject({ missionId: mission.missionId, repository: request.repository,
+            revision: request.commit, path: scope.path });
+        expect(createHash("sha256").update(content).digest("hex")).toBe(scope.contentSha256);
+        const proposal = { repository: "sgwalton87/playbook-platform" as const, baseSha: request.commit,
+            branch: scope.branch, path: scope.path, missionId: mission.missionId, content: content.toString("utf8"),
+            title: "Review fixture change", body: "Fixture proposal from the verified worker output" };
+        const blob = (bytes: Buffer) => createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+        const original = blob(Buffer.from(f.composition.policy.playbook.before));
+        const changed = blob(content);
+        const newHead = "c".repeat(40);
+        let head: string | undefined;
+        let draft = false;
+        const writes: string[] = [];
+        const repoInfo = { full_name: proposal.repository };
+        const pr = { number: 1, html_url: "https://github.com/sgwalton87/playbook-platform/pull/1", draft: true,
+            head: { ref: scope.branch, sha: newHead, repo: repoInfo },
+            base: { ref: "main", sha:request.commit, repo: repoInfo }, state: "open" };
+        const github = new GitHubAppPlaybookPrApi("fixture", async (url, options) => {
+            const route = new URL(String(url)).pathname.replace("/repos/" + proposal.repository, "");
+            const method = options?.method ?? "GET";
+            if (method !== "GET") writes.push(method + " " + route);
+            const body = options?.body ? JSON.parse(String(options.body)) : {};
+            if (method === "GET" && route === "/git/ref/heads/main") return Response.json({object:{sha:request.commit}});
+            if (method === "GET" && route === "/git/ref/heads/" + scope.branch) return head ?
+                Response.json({object:{sha:head}}) : new Response(null, {status:404});
+            if (method === "GET" && route === "/pulls") return Response.json(draft ? [pr] : []);
+            if (method === "GET" && route.startsWith("/git/trees/")) {
+                const rev = route.slice("/git/trees/".length);
+                expect([request.commit, newHead]).toContain(rev);
+                return Response.json({truncated:false, tree:[{type:"blob", mode:"100644", path:scope.path,
+                    sha: rev === request.commit ? original : changed}]});
+            }
+            if (method === "POST" && route === "/git/refs") {
+                expect(body).toEqual({ref:"refs/heads/" + scope.branch, sha:request.commit});
+                head = request.commit;
+                return Response.json({});
+            }
+            if (method === "POST" && route === "/graphql") {
+                const patch = body.variables.input;
+                expect(patch.branch).toEqual({repositoryNameWithOwner:request.repository, branchName:scope.branch});
+                expect(patch.expectedHeadOid).toBe(request.commit);
+                if (patch.expectedHeadOid !== head) return Response.json({errors:[{message:"stale branch"}]});
+                expect(patch.fileChanges).toEqual({additions:[{path:scope.path, contents:output.contentBase64}]});
+                head = newHead;
+                return Response.json({data:{createCommitOnBranch:{commit:{oid:head}}}});
+            }
+            if (method === "GET" && route === "/commits/" + newHead) return Response.json({
+                sha:newHead, parents:[{sha:request.commit}], files:[{filename:scope.path, status:"modified", sha:changed}] });
+            if (method === "GET" && route === "/contents/" + scope.path) return Response.json({encoding:"base64",content:output.contentBase64});
+            if (method === "POST" && route === "/pulls") {
+                expect(body).toMatchObject({head:scope.branch, base:"main", draft:true});
+                draft = true;
+                throw Error("fixture lost response after GitHub created draft");
+            }
+            throw Error("Unexpected fixture request: " + method + " " + route);
+        });
+        const lease = {resource:"pbos:mission:" + request.repository + ":" + mission.missionId,
+            ownerId:"fixture-publisher", fencingToken:2n};
+        const publish = () => createFencedPlaybookPr(github, lease, async () => true, proposal);
+        await expect(publish()).rejects.toThrow("lost response");
+        await expect(publish()).resolves.toMatchObject({number:1, branch:scope.branch, headSha:newHead, fileOperation:"modified"});
+        expect(writes).toEqual(["POST /git/refs", "POST /graphql", "POST /pulls"]);
+        expect(f.api.create).toHaveBeenCalledOnce();
+        expect(f.checkpoints.commit).toHaveBeenCalledOnce();
+    });
+
     it.each(["MB03-MISSION-001", "MB03-MISSION-002"] as const)(
         "adopts one signed %s provider return, then stops before independent certification",
         async missionId => {

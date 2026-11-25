@@ -26,3 +26,54 @@ describe("GitHub App Playbook transport",()=>{
  });
  it("rejects missing installation token",()=>expect(()=>new GitHubAppPlaybookPrApi("")).toThrow("token"));
 });
+
+describe("Mission 001 tracked-document safeguards", () => {
+  const missionId = "MB03-MISSION-001";
+  const input = {
+    repository: "sgwalton87/playbook-platform" as const, baseSha: "a".repeat(40),
+    branch: "pbos/mission-" + missionId, path: "docs/pbos-missions/" + missionId + ".md",
+    missionId, content: "reviewed bytes", title: "Fixture", body: "Test"
+  };
+  const head = "b".repeat(40);
+  const blob = "c".repeat(40);
+  const entry = {path: input.path, type: "blob", mode: "100644", sha: blob};
+
+  it.each([
+    {truncated: true, tree: [entry]},
+    {truncated: false, tree: [{...entry, mode: "120000"}]},
+    {truncated: false, tree: []}
+  ])("requires a regular file in a complete tree", async tree => {
+    const api = new GitHubAppPlaybookPrApi("fixture", async () => Response.json(tree));
+    await expect(api.getTrackedFileBlob(input.repository, head, input.path)).rejects.toThrow();
+  });
+
+  it("rejects a moved branch even when GitHub returns HTTP success", async () => {
+    const transport = vi.fn(async () => Response.json({errors: [{type: "STALE_DATA"}]}));
+    const api = new GitHubAppPlaybookPrApi("fixture", transport);
+    await expect(api.updateTrackedFile(input)).rejects.toThrow("conditional tracked-file commit");
+    expect(transport).toHaveBeenCalledOnce();
+  });
+
+  it("rejects unrelated changes on a head with the correct target bytes", async () => {
+    const api = new GitHubAppPlaybookPrApi("fixture", async url =>
+      Response.json(String(url).includes("/git/trees/") ? {truncated: false, tree: [entry]} :
+        {sha: head, parents: [{sha: input.baseSha}], files: [
+          {filename: input.path, status: "modified", sha: blob},
+          {filename: "unreviewed", status: "added", sha: "d".repeat(40)}
+        ]}));
+    await expect(api.assertSingleTrackedEdit(input, head, blob)).rejects.toThrow("only the approved edit");
+  });
+
+  it.each([{state: "open", draft: false}, {state: "closed", draft: true}])(
+    "refuses to replace a mission PR in state $state with draft=$draft", async status => {
+      const repo = {full_name: input.repository};
+      const api = new GitHubAppPlaybookPrApi("fixture", async url => {
+        expect(new URL(String(url)).searchParams.get("state")).toBe("all");
+        return Response.json([{
+          html_url: "https://github.com/" + input.repository + "/pull/1", number: 1, ...status,
+          head: {ref: input.branch, sha: head, repo}, base: {ref: "main", sha: input.baseSha, repo}
+        }]);
+      });
+      await expect(api.findPullRequest(input.repository, input.branch, "main")).rejects.toThrow("draft PR lineage");
+    });
+});
