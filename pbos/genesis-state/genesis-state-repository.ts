@@ -55,14 +55,15 @@ export class GenesisStateRepository {
     private readonly disposableAuthorityId?: string;
     private readonly disposablePlacement?: DurableGenesisState["disposablePlacement"];
     constructor(path: string, private readonly requireDisposableNamespace?: string,
-        options?: { readonly readOnlyRemote?: boolean }) {
+        options?: { readonly readOnlyRemote?: boolean; readonly managedRemote?: boolean }) {
         const readOnlyRemote = options?.readOnlyRemote === true;
+        const managedRemote = options?.managedRemote === true;
         this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
             !requireDisposableNamespace, requireDisposableNamespace ? value => {
                 const current = value as DurableGenesisState;
                 if (current.disposableNamespace !== requireDisposableNamespace ||
                     (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
-                    (!readOnlyRemote && this.disposablePlacement &&
+                    (!readOnlyRemote && !managedRemote && this.disposablePlacement &&
                         JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
                     throw new Error("Disposable authority changed or is inconsistent.");
                 }

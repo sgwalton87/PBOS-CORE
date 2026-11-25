@@ -248,7 +248,10 @@ export async function runProtectedMb03PlaybookCodex(
     // entrypoint is allowed to initialize or silently recover Genesis.
     readProtectedMb03File(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "disposable-state");
     const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
-        { readOnlyRemote: verifyOnly });
+        // Cloud Run's GCSFuse mount is the approved durable boundary. Its
+        // local inode/device cannot equal the source workstation placement;
+        // authority, namespace, integrity and bucket binding remain enforced.
+        { readOnlyRemote: verifyOnly, managedRemote: !verifyOnly });
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
     const runtime = new ProductionRuntimeService(state);
     if (!runtime.verifyIntegrity().valid) throw new Error("Disposable state integrity failed.");
