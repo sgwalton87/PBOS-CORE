@@ -108,3 +108,59 @@ test('historical failed image is NOT required to match a future approved image',
  assert.equal(gate(evaluate(reg,snap,current),'CLOUD-02').status,'PASS');
  assert.equal(gate(evaluate(reg,snap,current),'CLOUD-07').status,'FAIL');
 });
+
+test('Codex P2: stale closure evidence from 2020 cannot certify current findings',()=>{
+ const snap=copy(input);
+ snap.closureEvidence={'G-001':{
+  findingId:'G-001',result:'PASS',evidenceSourceId:'SRC-GCP-AUDIT',evidenceSha256:'a'.repeat(64),
+  reviewerId:'Independent Reviewer',testRunLocator:'https://github.com/sgwalton87/PBOS-CORE/actions/runs/1234',
+  reviewedAt:'2020-01-01T00:00:00Z',releaseCommitSha:snap.observations.playbook.productionDeploymentCommit
+ }};
+ assert.equal(evaluate(reg,snap,current).findingsClosed,0);
+ snap.closureEvidence['G-001'].reviewedAt='2026-11-25T00:35:00Z';
+ assert.equal(evaluate(reg,snap,new Date('2026-11-28T00:36:00Z')).findingsClosed,0);
+});
+test('Codex P2: collector cannot redefine required activation contract as empty',()=>{
+ const snap=copy(input);
+ snap.observations.playbook.requiredProductionActivationKeys=[];
+ snap.observations.playbook.productionEnvKeys=[];
+ assert.equal(gate(evaluate(reg,snap,current),'APP-01').status,'BLOCKED_UNKNOWN');
+});
+test('Codex P2: duplicate roles and absent production revision never certify role matrix',()=>{
+ const snap=copy(input);
+ const a=snap.observations.playbook;
+ a.liveAcceptedAll15Roles=true;
+ a.fullyCertifiedRoleNames=Array(15).fill('scholar');
+ a.liveRoleEvidenceRunId=12345;
+ a.liveNegativeAuthorityTestsPassed=true;
+ a.liveRoleEvidenceRevision=undefined;
+ assert.equal(gate(evaluate(reg,snap,current),'APP-05').status,'BLOCKED_UNKNOWN');
+ a.fullyCertifiedRoleNames=[
+  'scholar','scholar-athlete','transition-youth','family','mentor','educator',
+  'high-school-counselor','coach','college-coach','college-admissions',
+  'brand-partner','employer','district','athlete-abroad','other'];
+ assert.equal(gate(evaluate(reg,snap,current),'APP-05').status,'BLOCKED_UNKNOWN');
+ a.liveRoleEvidenceRevision=a.productionDeploymentCommit;
+ assert.equal(gate(evaluate(reg,snap,current),'APP-05').status,'PASS');
+});
+test('production connector variable names alone do not certify the signing transport',()=>{
+ const snap=copy(input),a=snap.observations.playbook;
+ a.productionEnvKeys=[...a.requiredProductionActivationKeys];
+ assert.equal(gate(evaluate(reg,snap,current),'APP-01').status,'BLOCKED_UNKNOWN');
+ a.productionPbosConnectivityAttested=true;
+ assert.equal(gate(evaluate(reg,snap,current),'APP-01').status,'PASS');
+});
+test('security linter cannot pass without distinct per-object dispositions',()=>{
+ const snap=copy(input),s=snap.observations.supabase;
+ s.securityWarningsIndependentlyResolved=true;
+ assert.equal(gate(evaluate(reg,snap,current),'DB-02').status,'REVIEW_REQUIRED');
+});
+test('generation boolean without actual numeric generation evidence never certifies',()=>{
+ const snap=copy(input),p=snap.observations.pbos;
+ p.generationObservedMatch=true;
+ assert.equal(gate(evaluate(reg,snap,current),'CLOUD-04').status,'BLOCKED_UNKNOWN');
+ p.currentJobGeneration=23;p.observedJobGeneration=22;
+ assert.equal(gate(evaluate(reg,snap,current),'CLOUD-04').status,'FAIL');
+ p.observedJobGeneration=23;
+ assert.equal(gate(evaluate(reg,snap,current),'CLOUD-04').status,'PASS');
+});
