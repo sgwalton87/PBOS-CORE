@@ -202,8 +202,11 @@ export async function runMb03DisposableMission(state: GenesisStateRepository, id
 export function inspectMb03Recovery(state: GenesisStateRepository, runId: string, at = new Date()) {
     const { run, activeLease, evidence } = state.inspectDisposableRun(runId);
     const attempt = run.disposableAttempt!;
+    // Hosted providers reserve dispatch in a separate journal. Local worker
+    // timestamps can be absent even after a verified remote return.
     const phase = attempt.quarantine ? "QUARANTINED" : attempt.workerFinishedAt ? "RETURN_OBSERVED" :
-        attempt.workerStartedAt ? "DISPATCH_UNCERTAIN" : "DISPATCH_NOT_RECORDED";
+        attempt.workerStartedAt ? "DISPATCH_UNCERTAIN" :
+        run.authorizationArtifactId?.startsWith("hosted-approval:") ? "HOSTED_JOURNAL_REQUIRED" : "DISPATCH_NOT_RECORDED";
     const expiresAt = Date.parse(activeLease?.expiresAt ?? "");
     return {
         phase,
