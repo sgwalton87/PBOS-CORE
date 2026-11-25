@@ -21,14 +21,14 @@ import { verifyHostedNeonReadiness } from "../production-runtime/hosted-neon-rea
 import { composeHostedNeonExecutor } from "../production-runtime/hosted-neon-executor-composition";
 import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provider";
 import {
-    executeHostedPlaybookCodexMission, type HostedPlaybookCodexComposition
+    executeHostedPlaybookCodexMission
 } from "../production-runtime/hosted-playbook-codex-composition";
 import { checkpointSealer } from "./mb03-hosted-executor";
 import { VercelPlaybookProvider } from "../master-builder/vercel-remote-provider";
 import { GcsRemoteDispatchJournal } from "../master-builder/remote-dispatch-journal";
 import { HttpsModelLeaseIssuer } from "../master-builder/remote-model-credential";
 import { RemoteEvidenceArchive } from "../master-builder/remote-evidence-archive";
-import type { PlaybookRemoteTarget } from "../master-builder/playbook-remote-mission";
+import type { ProtectedPlaybookMissionFile } from "./mb03-mission-package";
 
 const REQUIRED = [
     "PBOS_DATABASE_URL", "PBOS_EXPECTED_NEON_HOST", "PBOS_EXPECTED_NEON_ROLE",
@@ -211,14 +211,6 @@ async function googleAccessToken(signal: AbortSignal): Promise<string> {
     return record.access_token;
 }
 
-interface PrivateMissionFile {
-    readonly request: HostedPlaybookCodexComposition["input"]["request"];
-    readonly approval: HostedPlaybookCodexComposition["input"]["approval"];
-    readonly mission: HostedPlaybookCodexComposition["input"]["mission"];
-    readonly scope: HostedPlaybookCodexComposition["input"]["scope"];
-    readonly target: PlaybookRemoteTarget;
-}
-
 function sanitizedFailure(error: unknown): string {
     const raw = error instanceof Error ? error.message : String(error);
     return raw
@@ -242,7 +234,7 @@ export async function runProtectedMb03PlaybookCodex(
         config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 === config.PBOS_PROVIDER_PUBLIC_KEY_SHA256) {
         throw new Error("Independently pinned operator and provider public keys are invalid or reused.");
     }
-    let mission: PrivateMissionFile | undefined;
+    let mission: ProtectedPlaybookMissionFile | undefined;
     if (!verifyOnly) {
         mission = JSON.parse(readProtectedMb03File(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input").toString("utf8")) as PrivateMissionFile;
         if (!mission || typeof mission !== "object" || !mission.target ||

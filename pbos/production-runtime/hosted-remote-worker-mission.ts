@@ -20,6 +20,7 @@ import {
 import type {
     RemoteWorkerBinding, TrustedRemoteWorkerProvider, RemoteWorkerTrust
 } from "../master-builder/trusted-remote-worker";
+import { isApprovedPlaybookMissionBranch } from "../master-builder/playbook-remote-mission";
 
 export interface HostedRemoteWorkerInput {
     readonly request: ProductionMissionRequest;
@@ -63,7 +64,7 @@ function assertBoundedInput(input: HostedRemoteWorkerInput, adapters: HostedRemo
         request.approvedMissionIds[0] !== mission.missionId ||
         request.autonomousContinuation !== false || request.maximumMissions !== 1 ||
         request.triggerSource === "CONTINUATION" ||
-        !/^disposable\/[A-Za-z0-9._/-]+$/.test(request.branch) ||
+        !isApprovedPlaybookMissionBranch(request.branch) ||
         scope.branch !== request.branch || !scope.path || !evidenceSha256(scope.contentSha256) ||
         mission.allowedPaths.length !== 1 || mission.allowedPaths[0] !== scope.path ||
         !isExactDisposableFile(scope.path)) {
