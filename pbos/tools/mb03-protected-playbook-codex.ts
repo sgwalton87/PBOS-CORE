@@ -236,7 +236,7 @@ export async function runProtectedMb03PlaybookCodex(
     }
     let mission: ProtectedPlaybookMissionFile | undefined;
     if (!verifyOnly) {
-        mission = JSON.parse(readProtectedMb03File(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input").toString("utf8")) as PrivateMissionFile;
+        mission = JSON.parse(readProtectedMb03File(config.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input").toString("utf8")) as ProtectedPlaybookMissionFile;
         if (!mission || typeof mission !== "object" || !mission.target ||
             mission.request?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA ||
             mission.approval?.payload?.commit !== config.PBOS_PLAYBOOK_SOURCE_SHA) {
