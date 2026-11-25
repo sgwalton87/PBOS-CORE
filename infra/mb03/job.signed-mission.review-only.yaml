@@ -110,6 +110,8 @@ spec:
             volumeMounts:
             - name: execution-state
               mountPath: /var/lib/pbos-missions
+            - name: evidence-state
+              mountPath: /var/lib/pbos-evidence
             - name: observation-state
               mountPath: /var/lib/pbos-observation
             - name: pps-canon
@@ -132,6 +134,13 @@ spec:
               volumeAttributes:
                 bucketName: pbos-genesis-staging-mb03-execution-state
                 mountOptions: only-dir=synthetic,uid=1000,gid=1000,file-mode=0400,dir-mode=0500
+          - name: evidence-state
+            csi:
+              driver: gcsfuse.run.googleapis.com
+              readOnly: false
+              volumeAttributes:
+                bucketName: pbos-genesis-staging-mb03-execution-state
+                mountOptions: only-dir=synthetic/evidence,uid=1000,gid=1000,file-mode=0600,dir-mode=0700
           - name: observation-state
             csi:
               driver: gcsfuse.run.googleapis.com
