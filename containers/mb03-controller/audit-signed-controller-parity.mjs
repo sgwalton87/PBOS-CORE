@@ -8,7 +8,7 @@ export const SIGNED = "pbos-mb03-playbook-codex";
 export const SERVICE_ACCOUNT = "pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com";
 export const APPROVED_IMAGE =
   "us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:95161c3080111b6beca1debd3ec251700413940ab1164c4325aee5455bd859e2";
-export const APPROVED_SOURCE = "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea";
+export const APPROVED_SOURCE = "b2c2259d67f30ca068f32cd1889542991f294e42";
 export const APPROVED_STATE_PIN = "2f48068fc89fd278cf4f932ac4ea3cd9ec4e9e2990a330cf78d7551b33ccb47d";
 export const APPROVED_PPS_PIN = "54fc93d82f5b5b39584776b3b92ba3949f927425d3ee05505803d63b9957b68b";
 export const APPROVED_PLAYBOOK_IMAGE =
