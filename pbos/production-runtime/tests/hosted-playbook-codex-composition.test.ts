@@ -1,7 +1,7 @@
 import { createDecipheriv, createHash, randomBytes, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sandbox } from "@vercel/sandbox";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +14,8 @@ import { ProductionMissionRunner } from "../production-mission-runner";
 import {
     executeHostedPlaybookCodexMission, prepareHostedPlaybookCodexMission
 } from "../hosted-playbook-codex-composition";
+import { orphan } from "../../tools/tests/fixtures/disposable-gcs-object";
+import { preparePlanReadyLeaseHandoff } from "../plan-ready-lease-handoff";
 import { inspectMb03Recovery } from "../../master-builder/mb03-disposable-mission";
 import { hostedMissionScopeDigest } from "../hosted-signed-mission-approval";
 import { VercelPlaybookProvider } from "../../master-builder/vercel-remote-provider";
@@ -250,6 +252,46 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(readFileSync(join(f.root, "nonce.fixture"), "utf8")).toBe(approval.payload.nonce);
         expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
         expect(readFileSync(file).equals(before)).toBe(true);
+
+        const old = reopened.executionLeases()[0];
+        const pin = { runId: run.runId, missionId: approval.payload.missionId, repository: run.repository,
+            commit: run.startingCommit, nonce: approval.payload.nonce, scopeDigest: approval.payload.scopeDigest,
+            oldLeaseId: old.leaseId, stateGeneration: "71", lockGeneration: "72",
+            stateSha256: createHash("sha256").update(before).digest("hex") };
+        const owner = { pid: process.pid, host: hostname(), now: new Date(), expiresAt: new Date(Date.now() + 30_000),
+            fence: { ownerId: randomUUID(), resource: "pbos:mission:" + run.repository + ":" + pin.missionId, fencingToken: 2n } };
+        const observations = { terminatedController: child.signal === "SIGKILL", journal: "absent" as const,
+            checkpointCount: 0, consumedNonce: readFileSync(join(f.root, "nonce.fixture"), "utf8"), fenceCurrent: true };
+        for (const journal of ["reserved", "unknown"] as const) {
+            expect(() => preparePlanReadyLeaseHandoff(before.toString(), pin, owner, { ...observations, journal }))
+                .toThrow("RECOVERY_EXTERNAL_EVIDENCE");
+        }
+        for (const changed of [{ fenceCurrent: false }, { terminatedController: false }, { checkpointCount: 1 }]) {
+            expect(() => preparePlanReadyLeaseHandoff(before.toString(), pin, owner, { ...observations, ...changed }))
+                .toThrow("RECOVERY_EXTERNAL_EVIDENCE");
+        }
+        for (const changed of [{ nonce: randomUUID() }, { stateSha256: "0".repeat(64) },
+            { oldLeaseId: randomUUID() }, { commit: "b".repeat(40) }]) {
+            expect(() => preparePlanReadyLeaseHandoff(before.toString(), { ...pin, ...changed }, owner, observations)).toThrow(/RECOVERY_/);
+        }
+        const prepared = preparePlanReadyLeaseHandoff(before.toString(), pin, owner, observations);
+        const scratch = orphan(before.toString());
+        const receipt = await scratch.transfer(prepared.bytes);
+        const readback = await scratch.call("read");
+        expect(readback).toEqual({ generation: receipt.generation, bytes: prepared.bytes });
+        await expect(scratch.transfer(prepared.bytes)).rejects.toThrow("STATE_RECOVERY_PIN");
+        // Reopen the verified scratch bytes through the repository used by the replacement owner.
+        writeFileSync(file, readback.bytes);
+        const recovered = new GenesisStateRepository(file, admission.disposableNamespace);
+        expect(recovered.productionRuns()).toEqual(runs);
+        expect(recovered.productionEvents(run.runId)).toEqual(JSON.parse(before.toString()).productionEvents);
+        expect(recovered.executionLeases()).toEqual([{ ...old, status: "STALE", releaseMethod: "RECOVERED" }, prepared.lease]);
+        expect(() => recovered.renewDisposableLease(run.runId, old.host, child.pid!, owner.now,
+            owner.expiresAt.toISOString(), old.leaseId)).toThrow(/lost or expired/);
+        expect(recovered.renewDisposableLease(run.runId, owner.host, owner.pid, owner.now,
+            owner.expiresAt.toISOString(), prepared.lease.leaseId).runId).toBe(run.runId);
+        expect(readFileSync(join(f.root, "nonce.fixture"), "utf8")).toBe(pin.nonce);
+        expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
     }, 20_000);
 
     it("publishes the verified tracked-file bytes once even when the draft PR acknowledgment is lost", async () => {
