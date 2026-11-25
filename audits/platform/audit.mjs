@@ -14,6 +14,23 @@ import { pathToFileURL } from 'node:url';
 const sha = raw => createHash('sha256').update(raw).digest('hex');
 const strictDigest = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const isTrue = v => v === true;
+// Canonical contract from reviewed app source lib/pbos/activation-config.ts.
+// Never allow a missing/empty observation to redefine a P0 requirement.
+export const REQUIRED_ACTIVATION_KEYS = Object.freeze([
+  "PBOS_API_URL", "PBOS_ORGANIZATION_ID", "PBOS_CONNECTOR_ID", "PBOS_CONNECTOR_KEY_ID",
+  "PBOS_CONNECTOR_SECRET_BASE64", "PBOS_SCHOLAR_IDENTITY_APPROVAL_ID",
+  "PBOS_SCHOLAR_EXCHANGE_APPROVAL_ID", "PBOS_SCHOLAR_ATHLETE_IDENTITY_APPROVAL_ID",
+  "PBOS_SCHOLAR_ATHLETE_EXCHANGE_APPROVAL_ID", "PBOS_TRANSITION_YOUTH_IDENTITY_APPROVAL_ID",
+  "PBOS_TRANSITION_YOUTH_EXCHANGE_APPROVAL_ID"
+]);
+export const CANONICAL_ROLES = Object.freeze([
+  "scholar", "scholar-athlete", "transition-youth", "family", "mentor", "educator",
+  "high-school-counselor", "coach", "college-coach", "college-admissions",
+  "brand-partner", "employer", "district", "athlete-abroad", "other"
+]);
+const exactSet=(items,expected)=>Array.isArray(items)&&items.length===expected.length&&
+  new Set(items).size===expected.length&&expected.every(x=>items.includes(x));
+const validSha40=v=>typeof v==='string'&&/^[a-f0-9]{40}$/.test(v);
 const observed = (v, reasonFail, reasonUnknown) => v === true ? ['PASS', null] : v === false ? ['FAIL', reasonFail] : ['BLOCKED_UNKNOWN', reasonUnknown];
 function gate(id, title, severity, scope, evaluate, refs = []) {
   const [status, reason] = evaluate();
@@ -58,24 +75,45 @@ export function evaluate(register, snapshot, now = new Date()) {
     return x.includes(false) ? ['FAIL','Deployed signed job does not use reviewed private secret staging'] : x.every(isTrue)
       ? ['PASS',null]:['BLOCKED_UNKNOWN','Live signed job startup command and operator key path not both attested'];
   },['SRC-GCP-OPERATOR','SRC-GCP-CONTROL']);
-  g('CLOUD-04','Current signed job generation fully reconciled','P0','PBOS staging',()=> observed(c.generationObservedMatch,'Current generation and observed generation disagree','Generation/observedGeneration evidence missing'),P.cloud);
-  g('CLOUD-05','Mission 001 and 002 signed-run completion and receipts','P0','PBOS staging',()=> c.missionsCertified === 2 && c.missionsRequired === 2 && c.missionReceiptsValidated === true
-    ? ['PASS',null]:c.missionsCertified === 0?['FAIL','0/2 signed missions certified']:['BLOCKED_UNKNOWN','Complete independent mission receipts absent'],['SRC-GCP-OPERATOR','SRC-GCP-AUDIT']);
-  g('CLOUD-06','Nonmission readiness signal — not signed-job authorization','P2','PBOS staging',()=>observed(c.readinessPassed,'Readiness failed','Signature-free readiness execution unavailable'),['SRC-GCP-READINESS']);
+  g('CLOUD-04','Current signed job generation fully reconciled','P0','PBOS staging',()=> {
+    if(!Number.isSafeInteger(c.currentJobGeneration)||!Number.isSafeInteger(c.observedJobGeneration)||
+      c.currentJobGeneration<1||c.observedJobGeneration<1)
+      return ['BLOCKED_UNKNOWN','Full job generation and observedGeneration evidence missing'];
+    return c.generationObservedMatch===true&&c.currentJobGeneration===c.observedJobGeneration
+      ? ['PASS',null]:['FAIL','Job is not reconciled to observed generation'];
+  },P.cloud);
+  g('CLOUD-05','Mission 001 and 002 signed-run completion and receipts','P0','PBOS staging',()=> {
+    const receipts=c.missionReceipts;
+    const distinct=Array.isArray(receipts)&&receipts.length===2&&new Set(receipts.map(x=>x.missionId)).size===2;
+    const proven=distinct&&receipts.every(x=>x.status==='CERTIFIED'&&validSha40(x.reviewedSourceSha)&&
+      typeof x.independentEvidenceUrl==='string'&&x.independentEvidenceUrl.startsWith('https://'));
+    return c.missionsCertified===2&&c.missionsRequired===2&&c.missionReceiptsValidated===true&&proven
+      ?['PASS',null]:c.missionsCertified===0?['FAIL','0/2 signed missions certified']:
+        ['BLOCKED_UNKNOWN','Signed mission receipts or independent evidence are incomplete'];
+  },['SRC-GCP-OPERATOR','SRC-GCP-AUDIT']);
+  g('CLOUD-06','Nonmission readiness signal — not signed-job authorization','P2','PBOS staging',()=>
+    c.readinessPassed===true&&c.readinessCloudRunExecution==='pbos-mb03-playbook-readiness-vlzxs'&&
+    strictDigest(c.readinessImageSha256)?['PASS',null]:['BLOCKED_UNKNOWN','No exact signed-free readiness execution and image evidence'],['SRC-GCP-READINESS']);
   g('CLOUD-07','Historic image-handoff incident reviewed and corrective gate installed','P1','PBOS staging',()=> {
     if(c.historyS7mkpImageDiffersFromCurrentJob===true && c.imageHandoffMitigationProven!==true)
       return ['FAIL','Historical image mismatch found; full digest handoff mitigation not yet proven'];
     return observed(c.imageHandoffMitigationProven,'Handoff remediation failed','Missing independent image-handoff remediation result');
   },['SRC-GCP-AUDIT']);
   const productionKeys = Array.isArray(a.productionEnvKeys)?a.productionEnvKeys:[];
-  const missing = (a.requiredProductionActivationKeys||[]).filter(x=>!productionKeys.includes(x));
+  const missing = REQUIRED_ACTIVATION_KEYS.filter(x=>!productionKeys.includes(x));
   g('APP-01','Production PBOS endpoint, connector identity and approval configuration','P0','Playbook production',()=>{
-    if (!Array.isArray(a.productionEnvKeys)||!Array.isArray(a.requiredProductionActivationKeys)) return ['BLOCKED_UNKNOWN','Unverified Vercel env names'];
-    return missing.length?['FAIL',`${missing.length} protected production PBOS keys absent (names only; no secret values)`]:['PASS',null];
+    if (!Array.isArray(a.productionEnvKeys)||!exactSet(a.requiredProductionActivationKeys,REQUIRED_ACTIVATION_KEYS))
+      return ['BLOCKED_UNKNOWN','Missing or invalid reviewed canonical activation contract'];
+    if(missing.length)return ['FAIL',`${missing.length} protected production PBOS keys absent (names only; no secret values)`];
+    return observed(a.productionPbosConnectivityAttested,'Signed production PBOS connectivity failed',
+      'Inventory is present but a safe signed production connectivity test has not passed');
   },['SRC-VERCEL-ENV','SRC-APP-REPO']);
   g('APP-02','Exact app source revision deployed to custom-domain production','P0','Playbook production',()=>{
-    if(!/^[a-f0-9]{40}$/.test(a.mainCommit||'')||!/^[a-f0-9]{40}$/.test(a.productionDeploymentCommit||'')) return ['BLOCKED_UNKNOWN','Exact 40-char source/deployment revisions missing'];
-    return a.mainCommit===a.productionDeploymentCommit ? ['PASS',null]:['FAIL','Playbook production commit differs from main'];
+    if(!validSha40(a.mainCommit)||!validSha40(a.productionDeploymentCommit)) return ['BLOCKED_UNKNOWN','Exact 40-char source/deployment revisions missing'];
+    if(a.mainCommit!==a.productionDeploymentCommit)return ['FAIL','Playbook production commit differs from main'];
+    return observed(a.productionDomainDeploymentShaVerified,
+      'Production custom domain does not serve accepted revision',
+      'Matching repository/deployment metadata does not prove the custom domain serves this exact SHA');
   },P.prod);
   g('APP-03','Exact app release promoted by verified release authority','P0','Playbook production',()=> observed(a.explicitReleaseReceiptVerified,
     'Production release receipt invalid','AutoGit deploy status alone is not release certification; require exact-revision promotion receipt'),['SRC-APP-VERCEL-CONFIG','SRC-VERCEL-PROJECT']);
@@ -83,37 +121,57 @@ export function evaluate(register, snapshot, now = new Date()) {
     ? ['FAIL','Last main role journey QA failed before journeys (configuration)']:
     a.lastProductionRoleQaConfigBlocked===false?['PASS',null]:['BLOCKED_UNKNOWN','Production role QA unavailable'],['SRC-APP-QA','SRC-APP-PLATFORM-QA']);
   g('APP-05','All 15 roles: exact-release live positive and negative journey acceptance','P0','Playbook production',()=> {
-    if(a.liveAcceptedAll15Roles===true && Array.isArray(a.fullyCertifiedRoleNames) && a.fullyCertifiedRoleNames.length===15 && a.liveRoleEvidenceRevision===a.productionDeploymentCommit) return ['PASS',null];
-    return ['BLOCKED_UNKNOWN',`Only ${a.fullyCertifiedRoleNames?.length||0}/15 live role journeys evidenced at current production revision`];
+    const exactRoles=exactSet(a.fullyCertifiedRoleNames,CANONICAL_ROLES);
+    const matchingRevision=validSha40(a.productionDeploymentCommit)&&validSha40(a.liveRoleEvidenceRevision)&&
+      a.liveRoleEvidenceRevision===a.productionDeploymentCommit;
+    const independentlyRun=Number.isSafeInteger(a.liveRoleEvidenceRunId)&&a.liveRoleEvidenceRunId>0&&
+      a.liveNegativeAuthorityTestsPassed===true;
+    if(a.liveAcceptedAll15Roles===true&&exactRoles&&matchingRevision&&independentlyRun)return ['PASS',null];
+    return ['BLOCKED_UNKNOWN',`No exact-revision authenticated, negative-case evidence for all 15 unique roles; currently ${new Set(a.fullyCertifiedRoleNames||[]).size}/15 unique role IDs recorded`];
   },P.roles);
   g('APP-06','Local-only isolated role tests (limited nonrelease signal)','P2','isolated local',()=>observed(a.localIsolated15RolesPassed,'Isolated QA failed','Local role QA result unavailable'),['SRC-APP-QA-LOCAL']);
   g('APP-07','Custom domain verified and production deployment READY (limited signal)','P2','Playbook production',()=> a.productionCustomDomainVerified===true&&a.productionDeploymentState==='READY'
     ? ['PASS',null]:['BLOCKED_UNKNOWN','Domain+READY status not jointly evidenced'],['SRC-VERCEL-PROJECT']);
-  g('DB-01','Supabase public-schema RLS enabled (limited coverage)','P1','Supabase production',()=> Number.isInteger(s.publicTableCount)&&s.publicTableCount>0&&s.publicRlsDisabledCount===0
-    ? ['PASS',null]:['BLOCKED_UNKNOWN','RLS not attested for every public table'],['SRC-SUPABASE-PROJECT']);
+  g('DB-01','Supabase public-schema RLS enabled (limited coverage)','P1','Supabase production',()=> Number.isInteger(s.publicTableCount)&&s.publicTableCount>0&&
+    s.publicRlsInspectedTableCount===s.publicTableCount&&s.publicRlsDisabledCount===0
+    ? ['PASS',null]:['BLOCKED_UNKNOWN','Full per-table public RLS inspection evidence missing'],['SRC-SUPABASE-PROJECT']);
   g('DB-02','All Supabase security advisory objects investigated','P0','Supabase production',()=> {
     const pending=(s.advisorObjectCounts?.anon_security_definer_function_executable||0)+(s.advisorObjectCounts?.authenticated_security_definer_function_executable||0)+(s.advisorObjectCounts?.auth_leaked_password_protection||0);
-    return s.securityWarningsIndependentlyResolved === true ? ['PASS',null]:pending>0?['REVIEW_REQUIRED',`${pending} WARN advisor object findings require per-object disposition`]:['BLOCKED_UNKNOWN','Security advisor disposition unknown'];
+    const triaged=Array.isArray(s.securityWarningDispositions)&&s.securityWarningDispositions.length===pending&&
+      new Set(s.securityWarningDispositions.map(x=>x.objectId)).size===pending&&
+      s.securityWarningDispositions.every(x=>x.disposition==='ACCEPTED_BOUNDARY'||x.disposition==='REMEDIATED')&&
+      s.securityWarningDispositions.every(x=>typeof x.evidenceUrl==='string'&&x.evidenceUrl.startsWith('https://'));
+    return s.securityWarningsIndependentlyResolved===true&&triaged&&pending>0
+      ? ['PASS',null]:pending>0?['REVIEW_REQUIRED',`${pending} WARN advisor object findings require distinct, independently documented dispositions`]:['BLOCKED_UNKNOWN','Security advisor disposition unknown'];
   },['SRC-SUPABASE-ADVISORS']);
   g('DB-03','Exact schema/migrations/RLS source-hosted parity certified','P0','Supabase production',()=> observed(s.hostedMigrationToSourceReconciliationPassed,'Hosted schema not aligned','169 applied migrations inventoried, complete source-to-hosted diff unproven'),['SRC-SUPABASE-PROJECT','SRC-APP-REPO']);
   g('DB-04','Supabase project operational health (limited signal)','P2','Supabase production',()=>s.status==='ACTIVE_HEALTHY'?['PASS',null]:['BLOCKED_UNKNOWN','Project health unverified'],['SRC-SUPABASE-PROJECT']);
   g('DATA-01','Neon fenced mission recovery verified','P0','PBOS staging',()=> observed(n.fenceAndNonceRecoveryCertified,'Neon fencing/recovery failed','Neon default branch ready does not prove protected lease or nonce recovery'),P.neon);
   g('OPS-01','Current authoritative release/task ledger','P1','governance',()=>observed(gov.currentReleaseLedgerAccepted,'Release ledger rejected','207-task July tracker is stale and has no actual reconciled owners/dependencies'),P.org);
   g('OPS-02','Isolated end-to-end restoration and rollback proof','P0','governance',()=>observed(gov.recoveryDrillCertified,'Rollback drill failed','No verified app+database+PBOS restore drill'),P.org);
-  g('OPS-03','Independent scoped human launch authorization','P0','governance',()=>observed(gov.independentHumanLaunchApproval,'Launch approval explicitly denied','No separately verified human launch decision'),P.org);
+  g('OPS-03','Independent scoped human launch authorization','P0','governance',()=>{
+    if(gov.independentHumanLaunchApproval===false)return ['FAIL','Independent launch approval denied'];
+    if(gov.independentHumanLaunchApproval===true&&validSha40(gov.approvedReleaseCommit)&&
+      gov.approvedReleaseCommit===a.productionDeploymentCommit&&
+      typeof gov.independentApprovalEvidenceUrl==='string'&&gov.independentApprovalEvidenceUrl.startsWith('https://'))
+       return ['PASS',null];
+    return ['BLOCKED_UNKNOWN','No exact-scope independent human launch decision and evidence locator'];
+  },P.org);
 
   // A reviewer may submit exact-scope, immutable proof records. Merely changing a register
   // status cannot close findings. A proof record requires an external source, a test-run
   // locator and the independent reviewer. This is deterministic input validation,
   // not a substitute for trusted provider verification or a human launch signature.
   const proposedClosures=snapshot.closureEvidence || {};
-  const isClosureValid=(f,proof)=> Boolean(proof && proof.findingId===f.id &&
+  const isClosureValid=(f,proof)=> Boolean(!stale && proof && proof.findingId===f.id &&
     proof.result==='PASS' && /^[a-f0-9]{64}$/.test(proof.evidenceSha256||'') &&
     typeof proof.testRunLocator==='string' && /^(https:\/\/|provider:)/.test(proof.testRunLocator) &&
     typeof proof.reviewerId==='string' && proof.reviewerId.length>=3 &&
     typeof proof.reviewedAt==='string' && Number.isFinite(Date.parse(proof.reviewedAt)) &&
     Date.parse(proof.reviewedAt) <= now.getTime() &&
-    proof.releaseCommitSha===a.productionDeploymentCommit &&
+    Date.parse(proof.reviewedAt) >= now.getTime() - 24*3600000 &&
+    Date.parse(proof.reviewedAt) >= capturedMs - 24*3600000 &&
+    validSha40(proof.releaseCommitSha) && proof.releaseCommitSha===a.productionDeploymentCommit &&
     f.evidenceSourceIds.includes(proof.evidenceSourceId));
   const closure = register.findings.map(f=>{
     const certified=isClosureValid(f,proposedClosures[f.id]);
