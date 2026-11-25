@@ -77,7 +77,7 @@ jobs:
           manifest="$RUNNER_TEMP/mb03-signed-job.yaml"
           sed "s#REPLACE_WITH_EXACT_APPROVED_EXECUTION_CONTROLLER_DIGEST#$IMAGE#g" "$template" > "$manifest"
           ! grep -Fq REPLACE_WITH_EXACT_APPROVED_EXECUTION_CONTROLLER_DIGEST "$manifest"
-          grep -Fqx "            image: $IMAGE" "$manifest"
+          grep -Fqx "          - image: $IMAGE" "$manifest"
           grep -Fq 'command:' "$manifest"
           grep -Fq -- '- /usr/local/bin/mb03-stage-secrets' "$manifest"
           grep -Fq -- '- ./node_modules/.bin/tsx' "$manifest"
