@@ -35,12 +35,15 @@ export function probeDisposableWriter(token: string) {
     const store = new GenerationStateStore<{ counter: number }>(backend, value => {
         if (!Number.isInteger(value.counter)) throw new Error("Invalid scratch state.");
     });
-    store.update(value => {
-        if (value.counter !== 0) throw new Error("Unexpected scratch baseline.");
-        return { counter: 1 };
-    });
+    const consecutiveUpdates = 6;
+    for (let counter = 0; counter < consecutiveUpdates; counter++) {
+        store.update(value => {
+            if (value.counter !== counter) throw new Error("Unexpected scratch baseline.");
+            return { counter: counter + 1 };
+        });
+    }
     const updated = backend.read();
-    if (updated.generation === first || JSON.parse(updated.bytes).counter !== 1) throw new Error("Scratch update mismatch.");
+    if (updated.generation === first || JSON.parse(updated.bytes).counter !== consecutiveUpdates) throw new Error("Scratch update mismatch.");
     try {
         backend.replace(first, '{"counter":2}');
         throw new Error("Scratch stale write was accepted.");
@@ -51,5 +54,5 @@ export function probeDisposableWriter(token: string) {
     if (verified.generation !== updated.generation || verified.bytes !== updated.bytes) throw new Error("Scratch read-back mismatch.");
     storageRequest(object, token, "remove-scratch", verified.generation);
     return { status: "STATE_WRITER_VERIFIED", object, initialGeneration: first, updatedGeneration: verified.generation,
-        staleWriteRejected: true, scratchRemoved: true, missionExecutionAuthorized: false };
+        consecutiveUpdates, staleWriteRejected: true, scratchRemoved: true, missionExecutionAuthorized: false };
 }

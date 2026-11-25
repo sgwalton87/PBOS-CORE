@@ -2,6 +2,7 @@
 // per child invocation; bearer and object bytes travel only through private pipes.
 const { createHash } = require("node:crypto");
 const { readFileSync } = require("node:fs");
+const { setTimeout: sleep } = require("node:timers/promises");
 
 const bucket = "pbos-genesis-staging-mb03-execution-state";
 const maxBytes = 32 * 1024 * 1024;
@@ -20,20 +21,33 @@ async function googleAccessToken(signal) {
     return record.access_token;
 }
 
-async function stateRequest({ object, op, generation, bytes, token }, http = fetch) {
+async function stateRequest({ object, op, generation, bytes, token }, http = fetch, wait = sleep) {
     if (object !== "synthetic/genesis-state.json" && !scratch.test(object)) throw Error("STATE_TARGET");
     if (typeof token !== "string" || !token || /\s/.test(token)) throw Error("STATE_IDENTITY");
     const headers = { authorization: "Bearer " + token };
     const media = name => new URL("https://storage.googleapis.com/storage/v1/b/" + bucket + "/o/" + encodeURIComponent(name));
     async function request(url, method, body) {
-        const response = await http(url, { method, headers: body === undefined ? headers : {
+        const signal = AbortSignal.timeout(5000);
+        const deadline = Date.now() + 5000;
+        const options = { method, headers: body === undefined ? headers : {
             ...headers, "content-type": "application/json", "content-md5": createHash("md5").update(body).digest("base64")
-        }, body, redirect: "error", signal: AbortSignal.timeout(5000) });
-        if (!response.ok) {
+        }, body, redirect: "error", signal };
+        // Repeat only an explicitly throttled storage operation, with exactly the
+        // same generation fence. A transport error has an unknown outcome.
+        for (let attempt = 0; ; attempt++) {
+            const response = await http(url, options);
+            if (response.ok) return response;
             await response.body?.cancel();
-            throw Error("STATE_HTTP_" + response.status);
+            if (response.status !== 429 || attempt >= 2) throw Error("STATE_HTTP_" + response.status);
+            const after = response.headers.get("retry-after");
+            let delay = 1000 * (2 ** attempt);
+            if (after !== null) {
+                const suggested = /^\d+$/.test(after) ? Number(after) * 1000 : Date.parse(after) - Date.now();
+                if (Number.isFinite(suggested)) delay = Math.max(delay, suggested);
+            }
+            if (Date.now() + delay >= deadline) throw Error("STATE_HTTP_429");
+            await wait(delay, undefined, { signal });
         }
-        return response;
     }
     async function put(name, expected, body) {
         const url = new URL("https://storage.googleapis.com/upload/storage/v1/b/" + bucket + "/o");

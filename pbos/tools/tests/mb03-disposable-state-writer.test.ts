@@ -30,12 +30,52 @@ function fixture() {
         objects.set(name, { bytes, generation: String(++generation) });
         return Response.json({ generation: String(generation), name, md5Hash: createHash("md5").update(bytes).digest("base64") });
     });
+    const wait = vi.fn(async (_delay: number) => {});
     const call = (op: string, ver?: string, bytes?: string, name = object) =>
-        stateRequest({ object: name, token: "fixture", op, generation: ver, bytes }, http);
-    return { http, call, objects };
+        stateRequest({ object: name, token: "fixture", op, generation: ver, bytes }, http, wait);
+    return { http, call, objects, wait };
 }
 
 describe("staging disposable object writer", () => {
+    it.each(["lock", "data", "release"])("survives throttling during %s across successive updates", async stage => {
+        const { call, objects, http, wait } = fixture();
+        const first = await call("create-scratch", undefined, "0");
+        const second = await call("replace", first.generation, "1");
+        const normal = http.getMockImplementation()!;
+        const attempts: string[] = [];
+        http.mockImplementation(async (url, init) => {
+            const name = url.searchParams.get("name");
+            const phase = init.method === "DELETE" ? "release" : name === object ? "data" : "lock";
+            if (phase === stage) {
+                attempts.push(JSON.stringify([String(url), init.method, init.body]));
+                if (attempts.length === 1) return new Response(null, { status: 429, headers: { "retry-after": "2" } });
+            }
+            return normal(url, init);
+        });
+        const third = await call("replace", second.generation, "2");
+        expect(attempts).toHaveLength(2);
+        expect(attempts[1]).toBe(attempts[0]);
+        expect(wait.mock.calls.map(([delay]) => delay)).toEqual([2000]);
+        expect(objects.get(object)).toEqual({ generation: third.generation, bytes: "2" });
+        expect(objects.has(object + ".lock")).toBe(false);
+    });
+    it.each([["1", 3], ["90", 1]] as const)("stops persistent throttling with Retry-After %s", async (after, expectedRequests) => {
+        const { call, objects, http } = fixture();
+        const first = await call("create-scratch", undefined, "0");
+        const normal = http.getMockImplementation()!;
+        let throttled = 0;
+        http.mockImplementation(async (url, init) => {
+            if (url.searchParams.get("name") === object) {
+                throttled++;
+                return new Response(null, { status: 429, headers: { "retry-after": after } });
+            }
+            return normal(url, init);
+        });
+        await expect(call("replace", first.generation, "1")).rejects.toThrow("STATE_HTTP_429");
+        expect(throttled).toBe(expectedRequests);
+        expect(objects.get(object)).toEqual({ generation: first.generation, bytes: "0" });
+        expect(objects.has(object + ".lock")).toBe(true);
+    });
     it("locks, replaces exactly one generation, releases its lock and rejects stale state", async () => {
         const { call, objects } = fixture();
         const first = await call("create-scratch", undefined, "{}");
