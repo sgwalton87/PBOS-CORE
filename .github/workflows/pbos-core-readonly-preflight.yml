@@ -15,6 +15,132 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hostinger-linux-browser-smoke:
+    name: Exact Platform Chromium and FFmpeg smoke (no runtime authority)
+    if: github.event_name == 'pull_request' && github.event.pull_request.number == 113
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact public Platform revision
+        uses: actions/checkout@v4
+        with:
+          repository: sgwalton87/playbook-platform
+          ref: 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6
+          persist-credentials: false
+      - name: Check exact source revision
+        run: test "$(git rev-parse HEAD)" = 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6
+      - name: Configure Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install locked test dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify Playwright version and install its Chromium dependencies
+        run: |
+          test "$(node -p 'require("@playwright/test/package.json").version')" = 1.62.1
+          npx playwright install --with-deps chromium
+      - name: Smoke-test Chromium and FFmpeg without network access
+        run: |
+          node <<'NODE'
+          const { chromium } = require('@playwright/test');
+          const { mkdtempSync, writeFileSync } = require('node:fs');
+          const { join } = require('node:path');
+          (async () => {
+            const dir = mkdtempSync(join(process.env.RUNNER_TEMP, 'pbos-browser-smoke-'));
+            const browser = await chromium.launch();
+            try {
+              const context = await browser.newContext({ recordVideo: { dir } });
+              await context.route('**/*', route => route.abort());
+              const page = await context.newPage();
+              await page.setContent('<title>PBOS isolated browser smoke</title>');
+              if (await page.title() !== 'PBOS isolated browser smoke') throw Error('Unexpected page title');
+              await context.close();
+              writeFileSync(join(process.env.RUNNER_TEMP, 'pbos-browser-smoke.txt'),
+                'Platform 58e2da9f647c5c67bdea8fe1070e9ae3372db3b6\nPlaywright 1.62.1\nChromium and video context: PASS\n');
+            } finally { await browser.close(); }
+          })().catch(error => { console.error(error.message); process.exitCode = 1; });
+          NODE
+      - name: Install existing Supabase CLI
+        uses: supabase/setup-cli@v2
+        with:
+          version: 3.2.0
+      - name: Prepare disposable database fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/hostinger-fixture"
+          mkdir -p "$fixture/supabase"
+          cp supabase/config.toml "$fixture/supabase/config.toml"
+          cp -R supabase/migrations supabase/tests "$fixture/supabase/"
+          python3 <<'PY'
+          from pathlib import Path
+          import os, re
+          root = Path(os.environ['RUNNER_TEMP']) / 'hostinger-fixture' / 'supabase'
+          config = root / 'config.toml'
+          text = config.read_text().replace('project_id = "playbook-platform-local"', 'project_id = "pbos-hostinger-cloud-smoke"')
+          text = text.replace('http://127.0.0.1:3000', 'http://127.0.0.1:4319')
+          if 'project_id = "pbos-hostinger-cloud-smoke"' not in text:
+              raise SystemExit('Unexpected local Supabase config')
+          config.write_text(text)
+          scripts = sorted(p for p in (root / 'migrations').glob('*.sql') if re.match(r'^\d+_', p.name))
+          if len(scripts) != 171:
+              raise SystemExit(f'Expected 171 pinned migration files, got {len(scripts)}')
+          for i, path in enumerate(scripts, 1):
+              path.rename(path.parent / f'20260101{i:06d}_{path.name.split("_", 1)[1]}')
+          print('Prepared 171 isolated migration versions; tracked files are unchanged.')
+          PY
+          docker network create -o com.docker.network.bridge.host_binding_ipv4=127.0.0.1 pbos-hostinger-loopback >/dev/null
+      - name: Start disposable local services and verify bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture="$RUNNER_TEMP/hostinger-fixture"
+          umask 077
+          supabase start --workdir "$fixture" --network-id pbos-hostinger-loopback --exclude postgres-meta,logflare,vector,studio,edge-runtime,imgproxy,realtime > "$RUNNER_TEMP/hostinger-supabase.log" 2>&1
+          python3 <<'PY'
+          import json, subprocess
+          prefix = 'pbos-hostinger-cloud-smoke'
+          for name in [f'supabase_db_{prefix}', f'supabase_kong_{prefix}', f'supabase_inbucket_{prefix}']:
+              data = json.loads(subprocess.check_output(['docker', 'inspect', name]))[0]
+              for bindings in data['NetworkSettings']['Ports'].values():
+                  for binding in bindings or []:
+                      if binding['HostIp'] != '127.0.0.1': raise SystemExit(f'{name} has a non-loopback published port')
+          print('Database, API, and SMTP capture published only on loopback.')
+          PY
+          curl --fail --silent http://127.0.0.1:54324/api/v1/info >/dev/null
+          docker exec supabase_db_pbos-hostinger-cloud-smoke psql -U postgres -d postgres -Atc 'select count(*) from supabase_migrations.schema_migrations' | grep -x 171
+          docker exec -i supabase_db_pbos-hostinger-cloud-smoke psql -U postgres -d postgres -v ON_ERROR_STOP=1 < "$fixture/supabase/tests/support_invitation_smtp_receipts_preflight.sql"
+      - name: Verify local application startup without sending email
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          supabase status --workdir "$RUNNER_TEMP/hostinger-fixture" -o env > "$RUNNER_TEMP/hostinger-local.env"
+          source "$RUNNER_TEMP/hostinger-local.env"
+          test "$API_URL" = http://127.0.0.1:54321
+          test -n "$ANON_KEY" && test -n "$SERVICE_ROLE_KEY"
+          env -i PATH="$PATH" HOME="$HOME" NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" SMTP_HOST=127.0.0.1 SMTP_PORT=54325 SMTP_SECURE=false SMTP_USER=synthetic SMTP_PASS=synthetic-local-only MAIL_GATEWAY_SECRET=synthetic-local-only-gateway npm run dev -- --hostname 127.0.0.1 --port 4319 > "$RUNNER_TEMP/hostinger-app.log" 2>&1 &
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:4319/login >/dev/null; then
+              printf 'Local Supabase: 171 migrations and receipt/RLS preflight passed\nLoopback mail capture and application login endpoint: PASS\n' >> "$RUNNER_TEMP/pbos-browser-smoke.txt"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo 'Local application did not become ready within 180 seconds.'
+          exit 1
+      - name: Preserve sanitized smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hostinger-linux-browser-smoke
+          path: ${{ runner.temp }}/pbos-browser-smoke.txt
+          if-no-files-found: error
+          retention-days: 7
+      - name: Stop disposable local services
+        if: always()
+        run: supabase stop --workdir "$RUNNER_TEMP/hostinger-fixture" --no-backup >/dev/null 2>&1 || true
+
   core-certification-preflight:
     name: Typecheck, tests and build (no runtime authority)
     runs-on: ubuntu-latest

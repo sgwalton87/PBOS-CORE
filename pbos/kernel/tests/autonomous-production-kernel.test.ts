@@ -4,6 +4,7 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 import { GenesisStateRepository } from "../../genesis-state";
 import { AutonomousProductionKernel } from "../index";
+import { AcceptanceInfrastructureError } from "../production/autonomous-production-kernel";
 import { ApplicationAcceptanceEvidence, FunctionalAcceptancePlan, FunctionalApplicationRuntime,
     FunctionalRuntimeResult, ProductionRuntimeService } from "../../production-runtime";
 
@@ -56,6 +57,16 @@ function fixture(application: Pick<FunctionalApplicationRuntime, "execute"> = { 
 }
 
 describe("PBS-5000 autonomous production kernel", () => {
+    it("blocks on a typed infrastructure interruption without consuming a repair", async () => {
+        const subject = fixture({ execute: async () => { throw new AcceptanceInfrastructureError("runner interrupted"); } });
+        await expect(subject.kernel.verifyApplication("run", evidence("INDEPENDENT_VALIDATION", "CI_VALIDATION")))
+            .rejects.toThrow("runner interrupted");
+        expect(subject.production.run("run")).toMatchObject({ status: "BLOCKED", repairAttempts: 0 });
+        const events = subject.production.events("run");
+        expect(events.some(event => event.type === "REPAIR_STARTED")).toBe(false);
+        expect(events.find(event => event.type === "RUN_BLOCKED")?.payload.classification)
+            .toBe("ACCEPTANCE_INFRASTRUCTURE_FAILURE");
+    });
     it("is the only path that advances a functional mission to human certification readiness", async () => {
         const subject = fixture();
         expect(() => subject.production.transition("run", "AWAITING_APPROVAL", "green CI"))

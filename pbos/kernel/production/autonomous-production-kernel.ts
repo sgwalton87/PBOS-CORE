@@ -2,6 +2,11 @@ import { GenesisStateRepository } from "../../genesis-state";
 import { ApplicationAcceptanceEvidence, FunctionalAcceptanceVerifier, FunctionalApplicationRuntime,
     FunctionalRuntimeResult, ProductionRun, ProductionRuntimeService } from "../../production-runtime";
 
+/** A verified infrastructure adapter may stop acceptance without charging an application repair. */
+export class AcceptanceInfrastructureError extends Error {
+    constructor(message: string) { super(message); this.name = "AcceptanceInfrastructureError"; }
+}
+
 export function classifyFunctionalAcceptanceFailure(error: unknown): string {
     const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
     if (["prerequisite", "dependency", "lockfile", "command not found", "enoent"].some(signal => message.includes(signal))) {
@@ -108,6 +113,13 @@ export class AutonomousProductionKernel {
                 reason);
             const latest = this.production.run(runId);
             if (latest?.status === "VALIDATING") {
+                if (error instanceof AcceptanceInfrastructureError) {
+                    this.production.blockMissionForRun(runId, reason);
+                    this.production.transition(runId, "BLOCKED", "Acceptance infrastructure is unavailable; no application repair was attempted.", {
+                        reason, classification: "ACCEPTANCE_INFRASTRUCTURE_FAILURE"
+                    });
+                    throw error;
+                }
                 const budget = this.production.repairBudget(runId);
                 if (budget.remaining === 0) {
                     const terminal = `${reason}\nPBOS bounded repair budget exhausted after ${budget.attempts}/${budget.limit} attempts; verified operator approval is required to continue.`;

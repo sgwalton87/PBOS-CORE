@@ -8,8 +8,49 @@ import { GitHubCheckCollector, RemediationRun } from "../validation-automation";
 import { GenesisBuildSession, GenesisControlPlane } from "./genesis-control-plane";
 
 export const CLOSED_PR_RECOVERY_ACTION = "RECOVER_CLOSED_PULL_REQUEST";
+export const MAX_RECOVERY_APPROVAL_MINUTES = 30 * 24 * 60;
+export function recoveryApprovalDuration(value: string | undefined): number {
+    if (value === undefined) return 30;
+    if (!/^\d+$/.test(value)) throw new Error("Recovery approval duration must be a whole number of minutes.");
+    const minutes = Number(value);
+    if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > MAX_RECOVERY_APPROVAL_MINUTES) {
+        throw new Error(`Recovery approval duration must be between 1 and ${MAX_RECOVERY_APPROVAL_MINUTES} minutes.`);
+    }
+    return minutes;
+}
 const HOSTINGER_MISSION = "048-phase-01-item-hostinger-email";
 const BROWSER_SPEC = "tests/acceptance/pbos-hostinger-email.spec.ts";
+const BROWSER_PREFLIGHT = String.raw`
+const { chromium } = require('@playwright/test');
+const { release } = require('node:os');
+const { mkdtempSync, rmSync } = require('node:fs');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
+(async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'pbos-browser-preflight-'));
+  let browser;
+  try {
+    const channel = process.platform === 'darwin' && Number(release().split('.')[0]) <= 21 ? 'chrome' : undefined;
+    browser = await chromium.launch({ channel });
+    const context = await browser.newContext({ recordVideo: { dir } });
+    const page = await context.newPage();
+    await page.goto('about:blank');
+    await context.close();
+  } finally {
+    if (browser) await browser.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+})().catch(e => { console.error(e.message); process.exitCode = 1; });`;
+
+/** Test the actual configured browser and video dependency before entering governed recovery. */
+export async function preflightRecoveryBrowser(commands: CommandRunner, checkout: string): Promise<void> {
+    try {
+        await commands.run(process.execPath, ["-e", BROWSER_PREFLIGHT], checkout, { timeoutMs: 60_000 });
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Browser environment preflight failed before governed recovery: ${reason}`);
+    }
+}
 const REQUIRED_ENVIRONMENT = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY", "SMTP_USER", "SMTP_PASS", "MAIL_GATEWAY_SECRET"] as const;
 
@@ -92,14 +133,37 @@ export async function verifyClosedPullRequestRecoveryCheckout(commands: CommandR
 type PreparedRecovery = Awaited<ReturnType<typeof prepareClosedPullRequestRecovery>>;
 
 export function verifyClosedPullRequestRecoveryApproval(identities: OperatorIdentityService, operator: AuthenticatedOperator,
-    session: GenesisBuildSession, approval: VerifiableApproval, resource: string, now = new Date()): void {
+    session: GenesisBuildSession, approval: VerifiableApproval, resource: string, now = new Date(), rebound = false): void {
     if (session.grant.issuedBy !== operator.operatorId || session.grant.mode !== "HUMAN_GATED" ||
         approval.operatorId !== operator.operatorId || approval.organizationId !== operator.organizationId ||
-        !(session.grant.issuedAt.getTime() <= Date.parse(approval.issuedAt)) ||
+        (!rebound && !(session.grant.issuedAt.getTime() <= Date.parse(approval.issuedAt))) ||
         !(Date.parse(approval.issuedAt) <= now.getTime()) || !(Date.parse(approval.expiresAt) > now.getTime()) ||
         !identities.verify(approval, CLOSED_PR_RECOVERY_ACTION, resource, now)) {
         throw new Error("A current operator-signed, exact-lineage recovery approval and human-gated build grant are required.");
     }
+}
+
+/** Attach a newly issued human-gated grant to an existing valid exact-scope signature. */
+export function rebindRegisteredRecoveryGrant(state: GenesisStateRepository, control: GenesisControlPlane,
+    identities: OperatorIdentityService, operator: AuthenticatedOperator, session: GenesisBuildSession,
+    prepared: Awaited<ReturnType<typeof prepareRegisteredRecoveryRenewal>>): void {
+    const { run, remediation, binding } = prepared;
+    const oldSession = state.sessions().find(item => item.sessionId === binding.sessionId);
+    const approval = state.audit().find(item => item.eventId === binding.approvalId)?.evidence.approval as VerifiableApproval | undefined;
+    if (!oldSession || !approval || run.actorId !== operator.operatorId || session.system.systemId !== run.systemId ||
+        session.system.repository !== run.repository || session.grant.issuedBy !== operator.operatorId ||
+        session.grant.mode !== "HUMAN_GATED") throw new Error("Existing approval or replacement grant is unavailable.");
+    const previouslyRebound = state.audit().some(item => item.type === "RECOVERY_GRANT_REBOUND" && item.actorId === operator.operatorId &&
+        item.resource === binding.resource && item.evidence.sessionId === oldSession.sessionId && item.evidence.approvalId === approval.approvalId);
+    verifyClosedPullRequestRecoveryApproval(identities, operator, oldSession, approval, binding.resource, new Date(), previouslyRebound);
+    if (!control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", run.currentBranch, approval.approvalId).allowed) {
+        throw new Error("Fresh recovery build grant is unavailable.");
+    }
+    const now = new Date().toISOString();
+    const updated = { ...remediation, closedPullRequestReplacement: { ...binding, sessionId: session.sessionId }, updatedAt: now };
+    state.renewClosedPullRequestApproval(remediation, updated, session.grant.grantId,
+        { eventId: randomUUID(), type: "RECOVERY_GRANT_REBOUND", actorId: operator.operatorId, resource: binding.resource,
+            occurredAt: now, evidence: { sessionId: session.sessionId, approvalId: approval.approvalId, grantId: session.grant.grantId } }, run.runId);
 }
 
 export function registerClosedPullRequestRecovery(state: GenesisStateRepository, control: GenesisControlPlane,
@@ -147,4 +211,54 @@ export function registerClosedPullRequestRecovery(state: GenesisStateRepository,
                 historicalPullRequest: historical.pullRequest.number, replacementPullRequest: pullRequest.number,
                 approvalId: approval.approvalId, baseCommit, commit } });
     return replacement;
+}
+
+export async function prepareRegisteredRecoveryRenewal(state: GenesisStateRepository, commands: CommandRunner, runId: string) {
+    const run = state.productionRun(runId);
+    const id = run?.evidenceIds.filter(value => value.startsWith("remediation-run:")).at(-1)?.slice("remediation-run:".length);
+    const remediation = id ? state.remediationRun(id) : undefined;
+    const binding = remediation?.closedPullRequestReplacement;
+    const production = new ProductionRuntimeService(state);
+    if (!run || run.status !== "BLOCKED" || !binding || !run.functionalAcceptancePlan?.localSyntheticHostingerRecovery ||
+        run.currentCommit !== binding.headSha || run.currentBranch !== remediation.pullRequest.branch ||
+        remediation.systemId !== run.systemId || remediation.pullRequest.repository !== run.repository ||
+        production.repairBudget(runId).remaining < 1 || production.activeRun(run.repository) ||
+        !production.verifyIntegrity().valid) throw new Error("Registered recovery is not eligible for renewal.");
+    const scope = JSON.parse(binding.resource) as Record<string, unknown>;
+    if (scope.runId !== runId || scope.missionId !== HOSTINGER_MISSION || scope.commit !== binding.headSha ||
+        scope.baseCommit !== binding.baseCommit || scope.repository !== run.repository ||
+        scope.replacementPullRequest !== remediation.pullRequest.number || scope.branch !== run.currentBranch) {
+        throw new Error("Registered recovery signature scope is inconsistent.");
+    }
+    const checks = await new GitHubCheckCollector(commands).collectPinnedReplacement(remediation.pullRequest, binding.baseCommit);
+    if (checks.pullRequestState !== "OPEN" || checks.headSha !== binding.headSha || checks.baseRefName !== run.startingBranch ||
+        !checks.evidence.some(item => item.state === "PASSED") ||
+        !checks.evidence.every(item => ["PASSED", "SKIPPED"].includes(item.state))) {
+        throw new Error("Registered recovery requires passing exact-revision checks on its open pull request.");
+    }
+    await verifyClosedPullRequestRecoveryCheckout(commands, run.functionalAcceptancePlan.workingDirectory,
+        run.currentBranch, binding.headSha, binding.baseCommit);
+    return { run, remediation, binding };
+}
+
+export function renewRegisteredRecovery(state: GenesisStateRepository, control: GenesisControlPlane,
+    identities: OperatorIdentityService, operator: AuthenticatedOperator, session: GenesisBuildSession,
+    approval: VerifiableApproval, prepared: Awaited<ReturnType<typeof prepareRegisteredRecoveryRenewal>>): void {
+    const { run, remediation, binding } = prepared;
+    verifyClosedPullRequestRecoveryApproval(identities, operator, session, approval, binding.resource);
+    const duration = Date.parse(approval.expiresAt) - Date.parse(approval.issuedAt);
+    if (!Number.isFinite(duration) || duration <= 0 || duration > MAX_RECOVERY_APPROVAL_MINUTES * 60_000) {
+        throw new Error("Recovery approval duration exceeds the allowed limit.");
+    }
+    if (run.actorId !== operator.operatorId || session.system.systemId !== run.systemId ||
+        session.system.repository !== run.repository ||
+        !control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", run.currentBranch, approval.approvalId).allowed) {
+        throw new Error("Recovery renewal requires the original operator and a scoped build grant.");
+    }
+    const now = new Date().toISOString();
+    const updated = { ...remediation, closedPullRequestReplacement: { ...binding,
+        approvalId: approval.approvalId, sessionId: session.sessionId }, updatedAt: now };
+    state.renewClosedPullRequestApproval(remediation, updated, session.grant.grantId,
+        { eventId: approval.approvalId, type: "VERIFIABLE_APPROVAL", actorId: operator.operatorId,
+            resource: binding.resource, occurredAt: now, evidence: { approval, purpose: CLOSED_PR_RECOVERY_ACTION } }, run.runId);
 }

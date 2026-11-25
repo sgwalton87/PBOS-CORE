@@ -72,7 +72,8 @@ import { ECOSYSTEM_CERTIFICATION_PLATFORMS, ecosystemFinalCertificationExecutor,
     inspectEcosystemFinalCertificationReadiness } from "../ecosystem-certification";
 import { assertIsolatedRecoveryState, CLOSED_PR_RECOVERY_ACTION, prepareClosedPullRequestRecovery,
     registerClosedPullRequestRecovery, verifyClosedPullRequestRecoveryApproval,
-    verifyClosedPullRequestRecoveryCheckout } from "./closed-pull-request-recovery";
+    verifyClosedPullRequestRecoveryCheckout, prepareRegisteredRecoveryRenewal, renewRegisteredRecovery, recoveryApprovalDuration,
+    preflightRecoveryBrowser, rebindRegisteredRecoveryGrant } from "./closed-pull-request-recovery";
 import { ensureFunctionalAcceptanceAuthority, functionalAcceptanceAuthorityDefinition,
     functionalAcceptanceAuthorityDefinitions } from "./functional-acceptance-authority";
 
@@ -551,7 +552,9 @@ async function authorizeRegisteredClosedPullRequestRecovery(services: ReturnType
         run.evidenceIds.filter(id => id.startsWith("remediation-run:")).at(-1) !== `remediation-run:${remediation.runId}`) {
         throw new Error("The approved replacement lineage or original bounded build grant is unavailable.");
     }
-    verifyClosedPullRequestRecoveryApproval(services.identities, services.operator, session, approval, replacement.resource);
+    const rebound = services.state.audit().some(item => item.type === "RECOVERY_GRANT_REBOUND" && item.actorId === services.operator.operatorId &&
+        item.resource === replacement.resource && item.evidence.sessionId === session.sessionId && item.evidence.approvalId === approval.approvalId);
+    verifyClosedPullRequestRecoveryApproval(services.identities, services.operator, session, approval, replacement.resource, new Date(), rebound);
     if (!services.control.authorizeAction(session.sessionId, "PROPOSE_CHANGE", "MEDIUM", plan.branch, approval.approvalId).allowed) {
         throw new Error("The bounded recovery build grant is unavailable.");
     }
@@ -584,6 +587,7 @@ async function resumeExistingProductionValidation(services: ReturnType<typeof ru
     const replacement = remediationRun.closedPullRequestReplacement;
     if (replacement && productionRun.status !== "AWAITING_APPROVAL") {
         await authorizeRegisteredClosedPullRequestRecovery(services, productionRun, remediationRun, replacement.sessionId);
+        await preflightRecoveryBrowser(new NodeCommandRunner(), productionRun.functionalAcceptancePlan!.workingDirectory);
     }
     const currentBudget = services.production.repairBudget(productionRun.runId);
     if (productionRun.status === "BLOCKED" && currentBudget.remaining === 0) {
@@ -1693,6 +1697,53 @@ export async function runPbosCli(args = process.argv.slice(2)): Promise<number> 
             message => stdout.write(`[READINESS] ${message}\n`));
         const next = new GovernedMissionQueue().next(services.state.missionQueue(requestedSystemId ?? "PLAYBOOK-SYSTEM-001"));
         stdout.write(next ? `${next.missionId} — ${next.title}\nReason: ${next.rationale}\nApproval required: ${next.approvalRequired ? "YES" : "NO"}\n` : "No eligible mission.\n"); return 0;
+    }
+    if (args[0] === "renew-recovery") {
+        const runId = args[1];
+        if (!runId || (args.length !== 2 && (args.length !== 4 || args[2] !== "--minutes"))) {
+            throw new Error("Usage: pbos renew-recovery <run-id> [--minutes <1-43200>]");
+        }
+        const durationMinutes = recoveryApprovalDuration(args[3]);
+        assertIsolatedRecoveryState(stateRoot, join(homedir(), ".pbos"));
+        const services = runtime();
+        await ensureGitHubAuthentication(profile());
+        const commands = new NodeCommandRunner();
+        const prepared = await prepareRegisteredRecoveryRenewal(services.state, commands, runId);
+        if (prepared.run.actorId !== services.operator.operatorId) throw new Error("Only the run's operator may renew recovery.");
+        const io = new NodeTerminalIO();
+        try {
+            io.write(`Recovery scope: ${prepared.binding.resource}`);
+            io.write(`Recovery approval validity: ${durationMinutes} minutes; build grants retain their existing limits.`);
+            if ((await io.prompt("Type ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001 to issue a human-gated build grant: ")).trim() !==
+                "ISSUE_BUILD_GRANT PLAYBOOK-SYSTEM-001") return 1;
+            const issuance = await services.sessionAuthority.authorize(prepared.run.systemId);
+            const session = services.control.activateSystem(prepared.run.systemId, "HUMAN_GATED", issuance.operatorId, issuance.approvalId);
+            const oldApproval = services.state.audit().find(item => item.eventId === prepared.binding.approvalId)?.evidence.approval as VerifiableApproval | undefined;
+            const oldSession = services.state.sessions().find(item => item.sessionId === prepared.binding.sessionId);
+            const rebound = services.state.audit().some(item => item.type === "RECOVERY_GRANT_REBOUND" && item.actorId === services.operator.operatorId &&
+                item.resource === prepared.binding.resource && item.evidence.sessionId === oldSession?.sessionId && item.evidence.approvalId === oldApproval?.approvalId);
+            let canReuse = false;
+            if (oldApproval && oldSession) {
+                try { verifyClosedPullRequestRecoveryApproval(services.identities, services.operator, oldSession, oldApproval, prepared.binding.resource, new Date(), rebound); canReuse = true; }
+                catch { /* A new exact-scope signature is required. */ }
+            }
+            if (canReuse) {
+                const fresh = await prepareRegisteredRecoveryRenewal(services.state, commands, runId);
+                rebindRegisteredRecoveryGrant(services.state, services.control, services.identities, services.operator, session, fresh);
+                io.write("Existing exact recovery signature retained with the newly approved build grant. Browser acceptance has not started.");
+                return 0;
+            }
+            if ((await io.prompt(`Type APPROVE ${prepared.binding.headSha} to renew exact recovery: `)).trim() !==
+                `APPROVE ${prepared.binding.headSha}`) return 1;
+            const fresh = await prepareRegisteredRecoveryRenewal(services.state, commands, runId);
+            if (fresh.binding.resource !== prepared.binding.resource || fresh.binding.approvalId !== prepared.binding.approvalId) {
+                throw new Error("The registered recovery changed during approval.");
+            }
+            const approval = services.identities.approve(services.operator, CLOSED_PR_RECOVERY_ACTION, fresh.binding.resource, durationMinutes);
+            renewRegisteredRecovery(services.state, services.control, services.identities, services.operator, session, approval, fresh);
+            io.write("Exact recovery approval renewed. Browser acceptance has not started.");
+            return 0;
+        } finally { io.close(); }
     }
     if (args[0] === "recover-replacement") {
         const [runId, pullRequest, baseCommit, headCommit, worktree] = args.slice(1);
