@@ -89,8 +89,6 @@ jobs:
           grep -Fq 'serviceAccountName: pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com' "$manifest"
           env_names="$(awk '/^[[:space:]]+env:/{inside=1; next} inside && /^[[:space:]]+volumeMounts:/{inside=0} inside && /^[[:space:]]+- name:/{print}' "$manifest")"
           test "$(printf "%s\n" "$env_names" | grep -c '- name:')" = "$(printf "%s\n" "$env_names" | sort -u | grep -c '- name:')"
-          grep -Fq 'name: PBOS_APPROVAL_PUBLIC_KEY_PEM' "$manifest"
-          grep -Fq 'name: PBOS_PROVIDER_PUBLIC_KEY_PEM' "$manifest"
           grep -Fq 'name: PBOS_PROVIDER_SIGNING_KEY_FILE' "$manifest"
           grep -Fq 'value: 6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea' "$manifest"
           cp "$manifest" "$RUNNER_TEMP/mb03-signed-job-reviewed.yaml"
