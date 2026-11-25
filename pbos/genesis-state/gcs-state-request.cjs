@@ -21,7 +21,7 @@ async function googleAccessToken(signal) {
     return record.access_token;
 }
 
-async function stateRequest({ object, op, generation, bytes, token }, http = fetch, wait = sleep) {
+async function stateRequest({ object, op, generation, bytes, token, recovery }, http = fetch, wait = sleep) {
     if (object !== "synthetic/genesis-state.json" && !scratch.test(object)) throw Error("STATE_TARGET");
     if (typeof token !== "string" || !token || /\s/.test(token)) throw Error("STATE_IDENTITY");
     const headers = { authorization: "Bearer " + token };
@@ -63,8 +63,8 @@ async function stateRequest({ object, op, generation, bytes, token }, http = fet
         url.searchParams.set("ifGenerationMatch",expected);
         await (await request(url, "DELETE")).body?.cancel();
     }
-    if (op === "read") {
-        const url = media(object);
+    async function read(name) {
+        const url = media(name);
         url.searchParams.set("alt", "media");
         const response = await request(url, "GET");
         const version = response.headers.get("x-goog-generation");
@@ -77,12 +77,37 @@ async function stateRequest({ object, op, generation, bytes, token }, http = fet
         if (content.length !== size) throw Error("STATE_SIZE");
         return { generation: version, bytes: content.toString("utf8") };
     }
+    if (op === "read") return read(object);
     if (op === "remove-scratch" && scratch.test(object) && validGeneration(generation)) {
         await remove(object, generation);
         return {};
     }
     if (typeof bytes !== "string" || !bytes || Buffer.byteLength(bytes) > maxBytes) throw Error("STATE_SIZE");
     if (op === "create-scratch" && scratch.test(object)) return { generation: await put(object, "0", bytes) };
+    // A scratch-only rehearsal. Normal and live mission writes cannot enter this path.
+    if (op === "recover-scratch" && scratch.test(object)) {
+        if (typeof recovery?.stateSha256 !== "string") throw Error("STATE_RECOVERY_PIN");
+        if (!validGeneration(generation) || !validGeneration(recovery?.lockGeneration) ||
+            !/^[0-9a-f]{64}$/.test(recovery.stateSha256)) throw Error("STATE_RECOVERY_PIN");
+        const previous = await read(object);
+        if (previous.generation !== generation ||
+            createHash("sha256").update(previous.bytes).digest("hex") !== recovery.stateSha256) throw Error("STATE_RECOVERY_PIN");
+        const lock = object + ".lock";
+        const previousLock = await read(lock);
+        if (previousLock.generation !== recovery.lockGeneration ||
+            previousLock.bytes !== JSON.stringify({ expectedGeneration: generation })) throw Error("STATE_RECOVERY_LOCK");
+        // Never delete the prior lock to obtain ownership. Only one claimant can
+        // rotate that exact version. Stale data writes remain generation-fenced.
+        const claimed = await put(lock, previousLock.generation, JSON.stringify({
+            expectedGeneration: generation, previousLockGeneration: previousLock.generation,
+            candidateSha256: createHash("sha256").update(bytes).digest("hex")
+        }));
+        const updated = await put(object, generation, bytes);
+        const observed = await read(object);
+        if (observed.generation !== updated || observed.bytes !== bytes) throw Error("STATE_RECEIPT");
+        await remove(lock, claimed);
+        return { generation: updated };
+    }
     if (op !== "replace" || !validGeneration(generation)) throw Error("STATE_OPERATION");
     // A crashed process leaves a lock for forensic reconciliation. Never steal
     // it on an age threshold. The data precondition also fences external writers.
@@ -117,7 +142,7 @@ if (require.main === module) {
         const result = await stateRequest(input);
         process.stdout.write(JSON.stringify(result));
     })().catch(error => {
-        process.stderr.write(/^STATE_(HTTP_[0-9]{3}|TARGET|IDENTITY|RECEIPT|METADATA|SIZE|OPERATION|LOCK_HELD|STALE_GENERATION)$/.test(error.message)
+        process.stderr.write(/^STATE_(HTTP_[0-9]{3}|TARGET|IDENTITY|RECEIPT|METADATA|SIZE|OPERATION|LOCK_HELD|STALE_GENERATION|RECOVERY_PIN|RECOVERY_LOCK)$/.test(error.message)
             ? error.message : "STATE_TRANSPORT");
         process.exitCode = 1;
     });

@@ -2,41 +2,61 @@ import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GenesisStateRepository } from "../../genesis-state/genesis-state-repository";
-import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GenerationStateStore } from "../../genesis-state/generation-state-store";
 import { disposableStateObject } from "../../genesis-state/gcs-disposable-state";
 import { verifyStateWriter } from "../mb03-protected-playbook-codex";
-const { stateRequest } = require("../../genesis-state/gcs-state-request.cjs");
 
-const object = "synthetic/state-writer-probes/08a68416-ef62-4462-9d03-644c4a167284.json";
-function fixture() {
-    const objects = new Map<string, { generation: string; bytes: string }>();
-    let generation = 0;
-    const http = vi.fn(async (url: URL, init: RequestInit) => {
-        expect(url.origin).toBe("https://storage.googleapis.com");
-        expect(init.redirect).toBe("error");
-        const name = url.searchParams.get("name") ?? decodeURIComponent(url.pathname.split("/o/")[1]);
-        const current = objects.get(name);
-        if (init.method === "GET") return current ? new Response(current.bytes, {
-            headers: { "content-length": String(Buffer.byteLength(current.bytes)), "x-goog-generation": current.generation }
-        }) : new Response(null, { status: 404 });
-        if (url.searchParams.get("ifGenerationMatch") !== (current?.generation ?? "0")) return new Response(null, { status: 412 });
-        if (init.method === "DELETE") {
-            objects.delete(name);
-            return new Response(null, { status: 204 });
-        }
-        const bytes = String(init.body);
-        objects.set(name, { bytes, generation: String(++generation) });
-        return Response.json({ generation: String(generation), name, md5Hash: createHash("md5").update(bytes).digest("base64") });
-    });
-    const wait = vi.fn(async (_delay: number) => {});
-    const call = (op: string, ver?: string, bytes?: string, name = object) =>
-        stateRequest({ object: name, token: "fixture", op, generation: ver, bytes }, http, wait);
-    return { http, call, objects, wait };
-}
+import { object, fixture, orphan } from "./fixtures/disposable-gcs-object";
 
 describe("staging disposable object writer", () => {
+    it("allows exactly one concurrent scratch handoff and rejects a replay", async () => {
+        const f = orphan();
+        const results = await Promise.allSettled([f.transfer("owner A"), f.transfer("owner B")]);
+        expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+        const winner = f.objects.get(object)!;
+        expect(["owner A", "owner B"]).toContain(winner.bytes);
+        expect(f.objects.has(object + ".lock")).toBe(false);
+        await expect(f.transfer("owner C")).rejects.toThrow("STATE_RECOVERY_PIN");
+        expect(f.objects.get(object)).toEqual(winner);
+    });
+    it.each(["live", "state", "lock", "lock body"])("refuses %s without writing", async kind => {
+        const f = orphan();
+        if (kind === "state") f.pin.stateSha256 = "0".repeat(64);
+        if (kind === "lock") f.pin.lockGeneration = "99";
+        if (kind === "lock body") f.objects.set(object + ".lock", { ...f.oldLock, bytes: '{"expectedGeneration":"8"}' });
+        await expect(f.transfer("candidate", kind === "live" ? "synthetic/genesis-state.json" : object)).rejects.toThrow();
+        expect(f.http.mock.calls.every(([, init]) => init.method === "GET")).toBe(true);
+    });
+    it("retains both the competing data version and the new lock when a stale writer wins the data race", async () => {
+        const f = orphan();
+        const normal = f.http.getMockImplementation()!;
+        f.http.mockImplementation(async (url, init) => {
+            const response = await normal(url, init);
+            if (init.method === "POST" && url.searchParams.get("name") === object + ".lock") {
+                f.objects.set(object, { generation: "73", bytes: "competing write" });
+            }
+            return response;
+        });
+        await expect(f.transfer("candidate")).rejects.toThrow("STATE_HTTP_412");
+        expect(f.objects.get(object)).toEqual({ generation: "73", bytes: "competing write" });
+        expect(f.objects.has(object + ".lock")).toBe(true);
+        expect(f.http.mock.calls.filter(([, init]) => init.method === "DELETE")).toHaveLength(0);
+    });
+    it("retains the rotated lock if the data write succeeds but its acknowledgment is lost", async () => {
+        const f = orphan();
+        const normal = f.http.getMockImplementation()!;
+        f.http.mockImplementation(async (url, init) => {
+            const response = await normal(url, init);
+            if (init.method === "POST" && url.searchParams.get("name") === object) throw Error("lost response");
+            return response;
+        });
+        await expect(f.transfer("candidate")).rejects.toThrow("lost response");
+        expect(f.objects.get(object)?.bytes).toBe("candidate");
+        expect(f.objects.get(object + ".lock")?.generation).not.toBe(f.oldLock.generation);
+        await expect(f.transfer("other")).rejects.toThrow("STATE_RECOVERY_PIN");
+        expect(f.http.mock.calls.filter(([, init]) => init.method === "DELETE")).toHaveLength(0);
+    });
     it.each(["lock", "data", "release"])("survives throttling during %s across successive updates", async stage => {
         const { call, objects, http, wait } = fixture();
         const first = await call("create-scratch", undefined, "0");
