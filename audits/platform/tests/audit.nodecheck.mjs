@@ -164,3 +164,23 @@ test('generation boolean without actual numeric generation evidence never certif
  p.observedJobGeneration=23;
  assert.equal(gate(evaluate(reg,snap,current),'CLOUD-04').status,'PASS');
 });
+
+test('DB-02 rejects fabricated advisory identities even when the count matches',()=>{
+ const snap=copy(input),s=snap.observations.supabase;
+ const expected=Array.from({length:17},(_,i)=>({lintName:i===0?'anon_security_definer_function_executable':i===16?'auth_leaked_password_protection':'authenticated_security_definer_function_executable',schema:'public',objectId:'actual-'+i,arguments:'sig-'+i}));
+ s.securityWarningIdentities=expected;
+ s.securityWarningDispositions=expected.map((x,i)=>({lintName:x.lintName,schema:x.schema,objectId:'unrelated-'+i,arguments:x.arguments,disposition:'REMEDIATED',evidenceUrl:'https://example.invalid/'+i,evidenceSha256:'a'.repeat(64),independentEvidenceVerified:true}));
+ s.securityWarningsIndependentlyResolved=true;
+ assert.equal(gate(evaluate(reg,snap,current),'DB-02').status,'REVIEW_REQUIRED');
+});
+
+test('CLOUD-05 rejects receipts for unrelated missions even when all structural fields are present',()=>{
+ const snap=copy(input),p=snap.observations.pbos;
+ p.missionsCertified=2;p.missionsRequired=2;p.missionReceiptsValidated=true;
+ p.missionReceipts=['UNRELATED-001','UNRELATED-002'].map((missionId,i)=>({
+   missionId,status:'CERTIFIED',reviewedSourceSha:'a'.repeat(40),nonce:'nonce-'+i,approvalId:'approval-'+i,
+   imageDigest:'b'.repeat(64),executionEvidenceSha256:'c'.repeat(64),
+   independentEvidenceUrl:'https://example.invalid/receipt/'+i,independentEvidenceVerified:true
+ }));
+ assert.equal(gate(evaluate(reg,snap,current),'CLOUD-05').status,'BLOCKED_UNKNOWN');
+});
