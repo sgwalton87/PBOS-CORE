@@ -8,7 +8,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { ProductionMissionRequest } from "../production-runtime/production-mission-runner";
 import type { HostedMissionScope, SignedHostedMissionApproval } from "../production-runtime/hosted-signed-mission-approval";
 import { hostedMissionScopeDigest, verifyHostedMissionApproval } from "../production-runtime/hosted-signed-mission-approval";
@@ -46,6 +46,21 @@ function boundedRegularFile(path: string, maximumBytes: number): string {
         throw new Error("Mission package input must be a regular, canonical file.");
     }
     return readFileSync(full, "utf8");
+}
+
+function trackedFileAtCommit(sourceCheckout: string, commit: string, path: string, maximumBytes: number): string {
+    const full = realpathSync(resolve(sourceCheckout));
+    if (!/^[a-f0-9]{40}$/.test(commit) || path.includes("..") || path.startsWith("/")) {
+        throw new Error("Mission package Git path is invalid.");
+    }
+    const object = `${commit}:${path}`;
+    const type = execFileSync("git", ["-C", full, "cat-file", "-t", object], { encoding: "utf8" }).trim();
+    if (type !== "blob") throw new Error("Mission package before-content is not a regular Git blob.");
+    const bytes = execFileSync("git", ["-C", full, "show", object], { maxBuffer: maximumBytes + 1 });
+    if (bytes.length < 1 || bytes.length > maximumBytes) {
+        throw new Error("Mission package Git blob is outside the permitted size.");
+    }
+    return bytes.toString("utf8");
 }
 
 function sourceHead(sourceCheckout: string): string {
@@ -124,7 +139,7 @@ export function buildProtectedPlaybookMissionFile(
     }, trustedOperatorPublicKeyPem, now)) {
         throw new Error("Signed approval is invalid, expired, or outside the reviewed scope.");
     }
-    const before = boundedRegularFile(join(realpathSync(resolve(sourceCheckout)), scope.path), 256 * 1024);
+    const before = trackedFileAtCommit(sourceCheckout, approval.payload.commit, scope.path, 256 * 1024);
     const after = boundedRegularFile(proposedContentPath, 256 * 1024);
     if (digest(after) !== scope.contentSha256) {
         throw new Error("Proposed content digest does not match the signed mission scope.");
