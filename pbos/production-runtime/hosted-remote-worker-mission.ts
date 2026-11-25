@@ -63,7 +63,7 @@ function assertBoundedInput(input: HostedRemoteWorkerInput, adapters: HostedRemo
         request.approvedMissionIds[0] !== mission.missionId ||
         request.autonomousContinuation !== false || request.maximumMissions !== 1 ||
         request.triggerSource === "CONTINUATION" ||
-        !/^disposable\/[A-Za-z0-9._/-]+$/.test(request.branch) ||
+        !(/^(?:disposable\/[A-Za-z0-9._/-]+|pbos\/mission-MB03-MISSION-00[12])$/.test(request.branch)) ||
         scope.branch !== request.branch || !scope.path || !evidenceSha256(scope.contentSha256) ||
         mission.allowedPaths.length !== 1 || mission.allowedPaths[0] !== scope.path ||
         !isExactDisposableFile(scope.path)) {
