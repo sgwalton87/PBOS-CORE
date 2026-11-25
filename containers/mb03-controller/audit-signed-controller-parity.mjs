@@ -132,7 +132,12 @@ export function audit(readiness, signed) {
     mount(c, "execution-state", "/var/lib/pbos-missions", errors, scope);
     mount(c, "observation-state", "/var/lib/pbos-observation", errors, scope);
     mount(c, "pps-canon", "/var/run/pbos-canon", errors, scope);
-    same(c.volumes.get("execution-state")?.csi?.readOnly, !expectStateWritable, scope + "_STATE_RW_POLICY", errors);
+    const stateReadOnly = c.volumes.get("execution-state")?.csi?.readOnly;
+    // Cloud Run normalizes an explicitly writable CSI volume by omitting
+    // readOnly on read-back. Treat only true as read-only; omission is the
+    // provider's canonical representation of writable state.
+    same(expectStateWritable ? stateReadOnly === true : stateReadOnly !== true,
+      false, scope + "_STATE_RW_POLICY", errors);
     same(c.volumes.get("observation-state")?.csi?.readOnly, true, scope + "_OBSERVATION_READONLY", errors);
     same(c.volumes.get("pps-canon")?.csi?.readOnly, true, scope + "_PPS_READONLY", errors);
     for(const name of Object.keys(GCS_VOLUMES)) validateGcs(c,name,errors,scope);

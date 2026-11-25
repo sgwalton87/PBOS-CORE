@@ -62,6 +62,13 @@ test("matched signed and verified-readiness job specs attest parity without exec
  assert.equal(r.missionExecuted,false);
  assert.equal(r.signedApprovalVerified,false);
 });
+test("Cloud Run read-back omission represents writable signed execution state",()=>{
+ const signed=job(true);
+ delete signed.spec.template.spec.template.spec.volumes.find(v=>v.name==="execution-state").csi.readOnly;
+ const r=audit(job(false),signed);
+ assert.equal(r.status,"PARITY_VERIFIED");
+ assert.deepEqual(r.findings,[]);
+});
 test("historical signed image, direct Node startup and source SHA drift are blocked",()=>{
  const old=job(true);
  const c=old.spec.template.spec.template.spec.containers[0];
