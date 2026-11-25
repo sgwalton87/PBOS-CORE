@@ -84,12 +84,19 @@ export function evaluate(register, snapshot, now = new Date()) {
   },P.cloud);
   g('CLOUD-05','Mission 001 and 002 signed-run completion and receipts','P0','PBOS staging',()=> {
     const receipts=c.missionReceipts;
-    const distinct=Array.isArray(receipts)&&receipts.length===2&&new Set(receipts.map(x=>x.missionId)).size===2;
-    const proven=distinct&&receipts.every(x=>x.status==='CERTIFIED'&&validSha40(x.reviewedSourceSha)&&
-      typeof x.independentEvidenceUrl==='string'&&x.independentEvidenceUrl.startsWith('https://'));
+    const canonicalMissionIds=['MB03-MISSION-001','MB03-MISSION-002'];
+    const ids=Array.isArray(receipts)?receipts.map(x=>x?.missionId):[];
+    const exactIds=Array.isArray(receipts)&&receipts.length===canonicalMissionIds.length&&
+      new Set(ids).size===canonicalMissionIds.length&&canonicalMissionIds.every(id=>ids.includes(id));
+    const proven=exactIds&&receipts.every(x=>x.status==='CERTIFIED'&&validSha40(x.reviewedSourceSha)&&
+      typeof x.nonce==='string'&&x.nonce.length>=16&&
+      typeof x.approvalId==='string'&&x.approvalId.length>=3&&
+      strictDigest(x.imageDigest)&&strictDigest(x.executionEvidenceSha256)&&
+      typeof x.independentEvidenceUrl==='string'&&x.independentEvidenceUrl.startsWith('https://')&&
+      x.independentEvidenceVerified===true);
     return c.missionsCertified===2&&c.missionsRequired===2&&c.missionReceiptsValidated===true&&proven
       ?['PASS',null]:c.missionsCertified===0?['FAIL','0/2 signed missions certified']:
-        ['BLOCKED_UNKNOWN','Signed mission receipts or independent evidence are incomplete'];
+        ['BLOCKED_UNKNOWN','Signed mission receipts must cover exactly MB03-MISSION-001 and MB03-MISSION-002 with independently verified source, nonce, approval, image and evidence bindings'];
   },['SRC-GCP-OPERATOR','SRC-GCP-AUDIT']);
   g('CLOUD-06','Nonmission readiness signal — not signed-job authorization','P2','PBOS staging',()=>
     c.readinessPassed===true&&c.readinessCloudRunExecution==='pbos-mb03-playbook-readiness-vlzxs'&&
@@ -137,12 +144,17 @@ export function evaluate(register, snapshot, now = new Date()) {
     ? ['PASS',null]:['BLOCKED_UNKNOWN','Full per-table public RLS inspection evidence missing'],['SRC-SUPABASE-PROJECT']);
   g('DB-02','All Supabase security advisory objects investigated','P0','Supabase production',()=> {
     const pending=(s.advisorObjectCounts?.anon_security_definer_function_executable||0)+(s.advisorObjectCounts?.authenticated_security_definer_function_executable||0)+(s.advisorObjectCounts?.auth_leaked_password_protection||0);
-    const triaged=Array.isArray(s.securityWarningDispositions)&&s.securityWarningDispositions.length===pending&&
-      new Set(s.securityWarningDispositions.map(x=>x.objectId)).size===pending&&
-      s.securityWarningDispositions.every(x=>x.disposition==='ACCEPTED_BOUNDARY'||x.disposition==='REMEDIATED')&&
-      s.securityWarningDispositions.every(x=>typeof x.evidenceUrl==='string'&&x.evidenceUrl.startsWith('https://'));
+    const identityOf=x=>[x?.lintName||x?.lintClass||x?.className,x?.schema||x?.metadata?.schema,
+      x?.objectId||x?.object||x?.metadata?.name,x?.arguments||x?.signature||x?.metadata?.arguments||''].join('|');
+    const expected=Array.isArray(s.securityWarningIdentities)?s.securityWarningIdentities.map(identityOf):[];
+    const actual=Array.isArray(s.securityWarningDispositions)?s.securityWarningDispositions.map(identityOf):[];
+    const exactIdentitySet=expected.length===pending&&actual.length===pending&&
+      new Set(expected).size===pending&&new Set(actual).size===pending&&expected.every(id=>actual.includes(id));
+    const triaged=exactIdentitySet&&s.securityWarningDispositions.every(x=>x.disposition==='ACCEPTED_BOUNDARY'||x.disposition==='REMEDIATED')&&
+      s.securityWarningDispositions.every(x=>typeof x.evidenceUrl==='string'&&x.evidenceUrl.startsWith('https://')&&
+        strictDigest(x.evidenceSha256)&&x.independentEvidenceVerified===true);
     return s.securityWarningsIndependentlyResolved===true&&triaged&&pending>0
-      ? ['PASS',null]:pending>0?['REVIEW_REQUIRED',`${pending} WARN advisor object findings require distinct, independently documented dispositions`]:['BLOCKED_UNKNOWN','Security advisor disposition unknown'];
+      ? ['PASS',null]:pending>0?['REVIEW_REQUIRED',pending+' WARN advisor object findings require exact identity-matched, independently documented dispositions']:['BLOCKED_UNKNOWN','Security advisor disposition unknown'];
   },['SRC-SUPABASE-ADVISORS']);
   g('DB-03','Exact schema/migrations/RLS source-hosted parity certified','P0','Supabase production',()=> observed(s.hostedMigrationToSourceReconciliationPassed,'Hosted schema not aligned','169 applied migrations inventoried, complete source-to-hosted diff unproven'),['SRC-SUPABASE-PROJECT','SRC-APP-REPO']);
   g('DB-04','Supabase project operational health (limited signal)','P2','Supabase production',()=>s.status==='ACTIVE_HEALTHY'?['PASS',null]:['BLOCKED_UNKNOWN','Project health unverified'],['SRC-SUPABASE-PROJECT']);
