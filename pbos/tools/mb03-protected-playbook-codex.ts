@@ -12,6 +12,7 @@ import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { neon } from "@neondatabase/serverless";
+import { disposableStateObject, probeDisposableWriter } from "../genesis-state/gcs-disposable-state";
 import { GenesisStateRepository } from "../genesis-state";
 import { ProductionRuntimeService } from "../production-runtime/production-runtime-service";
 import { ProductionMissionRunner } from "../production-runtime/production-mission-runner";
@@ -196,20 +197,8 @@ export async function googleRuntimeIdentity(expected: string, env: NodeJS.Proces
     } catch { return false; }
 }
 
-async function googleAccessToken(signal: AbortSignal): Promise<string> {
-    const response = await fetch(
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-        { headers: { "Metadata-Flavor": "Google" }, signal, redirect: "error" }
-    );
-    if (!response.ok || response.headers.get("metadata-flavor") !== "Google") {
-        throw new Error("Scoped GCP journal identity unavailable.");
-    }
-    const record = await response.json() as { access_token?: string; expires_in?: number };
-    if (!record.access_token || !Number.isFinite(record.expires_in) || record.expires_in! < 60) {
-        throw new Error("Scoped GCP journal token is not valid.");
-    }
-    return record.access_token;
-}
+const { googleAccessToken }: { googleAccessToken: (signal: AbortSignal) => Promise<string> } =
+    require("../genesis-state/gcs-state-request.cjs");
 
 function sanitizedFailure(error: unknown): string {
     const raw = error instanceof Error ? error.message : String(error);
@@ -225,12 +214,21 @@ function hostedEvidence(directory: string | undefined) {
     return new GcsHostedEvidence(directory, googleAccessToken);
 }
 
-export async function verifyEvidenceMount(env: NodeJS.ProcessEnv) {
+async function verifyProbeIdentity(env: NodeJS.ProcessEnv) {
     const identity = "pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com";
     if (env.PBOS_MISSION_EXECUTION_APPROVED !== "false" ||
         env.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT !== identity || !await googleRuntimeIdentity(identity, env)) {
-        throw new Error("Evidence probe requires the staging controller with mission execution disabled.");
+        throw new Error("Storage probe requires the staging controller with mission execution disabled.");
     }
+}
+
+export async function verifyStateWriter(env: NodeJS.ProcessEnv) {
+    await verifyProbeIdentity(env);
+    return probeDisposableWriter(await googleAccessToken(AbortSignal.timeout(4000)));
+}
+
+export async function verifyEvidenceMount(env: NodeJS.ProcessEnv) {
+    await verifyProbeIdentity(env);
     const evidenceDigest = await hostedEvidence(env.PBOS_EVIDENCE_DIRECTORY).preserve({
         schema: "pbos.mb03.synthetic-evidence-probe.v1", execution: env.CLOUD_RUN_EXECUTION
     });
@@ -264,11 +262,14 @@ export async function runProtectedMb03PlaybookCodex(
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
     readProtectedMb03File(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "disposable-state");
+    if (!verifyOnly && !await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env)) {
+        throw new Error("Hosted state writer identity unavailable.");
+    }
+    const versionedObject = verifyOnly ? undefined : disposableStateObject(config.PBOS_DISPOSABLE_STATE_FILE);
     const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
-        // Cloud Run's GCSFuse mount is the approved durable boundary. Its
-        // local inode/device cannot equal the source workstation placement;
-        // authority, namespace, integrity and bucket binding remain enforced.
-        { readOnlyRemote: verifyOnly, managedRemote: !verifyOnly });
+        // Readiness inspects the mount. The mission writer fences the same staging
+        // object directly; GCSFuse cannot supply the POSIX lock/rename contract.
+        { readOnlyRemote: verifyOnly, managedRemote: !verifyOnly, versionedObject });
     state.assertDisposableAuthority(config.PBOS_DISPOSABLE_AUTHORITY_ID);
     const runtime = new ProductionRuntimeService(state);
     if (!runtime.verifyIntegrity().valid) throw new Error("Disposable state integrity failed.");
@@ -400,8 +401,9 @@ export async function runProtectedMb03PlaybookCodex(
 if (require.main === module) {
     const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
     const probe = process.argv[2] === "--verify-evidence-mount" && process.argv.length === 3;
-    if (process.argv.length > 2 && !verifyOnly && !probe) throw new Error("Unsupported protected controller argument.");
-    (probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, verifyOnly)).then(result => {
+    const stateProbe = process.argv[2] === "--verify-state-writer" && process.argv.length === 3;
+    if (process.argv.length > 2 && !verifyOnly && !probe && !stateProbe) throw new Error("Unsupported protected controller argument.");
+    (stateProbe ? verifyStateWriter(process.env) : probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, verifyOnly)).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(error => {
         process.stderr.write(JSON.stringify({
