@@ -3,6 +3,7 @@ import { AutonomousBuildGrant } from "../autonomous-authority";
 import { GenesisBuildSession } from "../genesis-console/genesis-control-plane";
 import { GenesisSystemDefinition } from "../genesis-console/system-definition";
 import { SystemBlueprint } from "../system-blueprint";
+import { GenerationObject, GenerationStateStore } from "./generation-state-store";
 import { JsonStateStore } from "./json-state-store";
 import { lstatSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -51,23 +52,29 @@ const revive = <T>(value: unknown): T => JSON.parse(JSON.stringify(value), (key,
     dateKeys.has(key) && typeof item === "string" ? new Date(item) : item) as T;
 
 export class GenesisStateRepository {
-    private readonly store: JsonStateStore<DurableGenesisState>;
+    private readonly store: Pick<JsonStateStore<DurableGenesisState>, "read" | "update">;
     private readonly disposableAuthorityId?: string;
     private readonly disposablePlacement?: DurableGenesisState["disposablePlacement"];
     constructor(path: string, private readonly requireDisposableNamespace?: string,
-        options?: { readonly readOnlyRemote?: boolean; readonly managedRemote?: boolean }) {
+        options?: { readonly readOnlyRemote?: boolean; readonly managedRemote?: boolean; readonly versionedObject?: GenerationObject }) {
         const readOnlyRemote = options?.readOnlyRemote === true;
         const managedRemote = options?.managedRemote === true;
-        this.store = new JsonStateStore(path, () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
-            !requireDisposableNamespace, requireDisposableNamespace ? value => {
-                const current = value as DurableGenesisState;
-                if (current.disposableNamespace !== requireDisposableNamespace ||
-                    (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
-                    (!readOnlyRemote && !managedRemote && this.disposablePlacement &&
-                        JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
-                    throw new Error("Disposable authority changed or is inconsistent.");
-                }
-            } : undefined);
+        const validate = (current: DurableGenesisState) => {
+            if (current.disposableNamespace !== requireDisposableNamespace ||
+                (this.disposableAuthorityId && current.disposableAuthorityId !== this.disposableAuthorityId) ||
+                (!readOnlyRemote && !managedRemote && this.disposablePlacement &&
+                    JSON.stringify(current.disposablePlacement) !== JSON.stringify(disposablePlacement(path)))) {
+                throw new Error("Disposable authority changed or is inconsistent.");
+            }
+        };
+        if (options?.versionedObject) {
+            if (!requireDisposableNamespace || !managedRemote || readOnlyRemote) throw new Error("Invalid hosted writer boundary.");
+            this.store = new GenerationStateStore(options.versionedObject, validate);
+        } else {
+            this.store = new JsonStateStore<DurableGenesisState>(path,
+                () => ({ systems: [], blueprints: [], sessions: [], grants: [], audit: [] }),
+                !requireDisposableNamespace, requireDisposableNamespace ? value => validate(value as DurableGenesisState) : undefined);
+        }
         if (requireDisposableNamespace) {
             const metadata = lstatSync(path);
             if ((!readOnlyRemote && realpathSync(path) !== resolve(path)) || !metadata.isFile() ||

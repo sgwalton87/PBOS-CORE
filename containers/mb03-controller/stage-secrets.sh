@@ -6,10 +6,10 @@ if [ "$(id -u)" -ne 0 ]; then
   echo 'MB03_SECRET_STAGE:wrong-uid' >&2
   exit 2
 fi
-# Exactly the verified read-only command may omit mission-signing material.
+# Isolated storage probes run as node without staging mission secrets.
 if [ "$#" -eq 3 ] && [ "$1" = "./node_modules/.bin/tsx" ] &&
    [ "$2" = "pbos/tools/mb03-protected-playbook-codex.ts" ] &&
-   [ "$3" = "--verify-evidence-mount" ]; then
+   { [ "$3" = "--verify-evidence-mount" ] || [ "$3" = "--verify-state-writer" ]; }; then
   exec gosu node "$@"
 fi
 readiness=0
