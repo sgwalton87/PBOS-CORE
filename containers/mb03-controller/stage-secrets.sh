@@ -7,6 +7,11 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 2
 fi
 # Exactly the verified read-only command may omit mission-signing material.
+if [ "$#" -eq 3 ] && [ "$1" = "./node_modules/.bin/tsx" ] &&
+   [ "$2" = "pbos/tools/mb03-protected-playbook-codex.ts" ] &&
+   [ "$3" = "--verify-evidence-mount" ]; then
+  exec gosu node "$@"
+fi
 readiness=0
 if [ "$#" -eq 3 ] &&
    [ "$1" = "./node_modules/.bin/tsx" ] &&
