@@ -65,7 +65,7 @@ spec:
             - name: PBOS_DISPOSABLE_STATE_FILE
               value: /var/lib/pbos-missions/genesis-state.json
             - name: PBOS_STATE_NAMESPACE
-              value: mb03-stage4-synthetic-20261124
+              value: mb03-stage4-synthetic-20261125
             - name: PBOS_DISPOSABLE_AUTHORITY_ID
               value: 84464dfd-2ada-4292-a15b-99d3fa5f28e2
             - name: PBOS_OBSERVATION_HOME

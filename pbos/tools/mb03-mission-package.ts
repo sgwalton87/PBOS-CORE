@@ -26,7 +26,7 @@ export interface ProtectedPlaybookMissionFile {
 
 export const MB03_PROTECTED_PACKAGE_BINDINGS = Object.freeze({
     systemId: "PLAYBOOK-SYSTEM-001",
-    stateNamespace: "mb03-stage4-synthetic-20261124",
+    stateNamespace: "mb03-stage4-synthetic-20261125",
     workerId: "vercel-pbos-canary-01",
     channelId: "mb03-staging-build-channel",
     operatingSystemId: "PBOS",
