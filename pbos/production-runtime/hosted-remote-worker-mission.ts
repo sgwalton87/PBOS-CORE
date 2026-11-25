@@ -33,7 +33,9 @@ export interface HostedRemoteWorkerAdapters {
     readonly runner: ProductionMissionRunner;
     readonly admission: HostedExecutionDependencies;
     readonly provider: TrustedRemoteWorkerProvider;
-    readonly trust: RemoteWorkerTrust;
+    readonly trust: Omit<RemoteWorkerTrust, "archive"> & {
+        readonly archive: { preserve(value: unknown): string | Promise<string> };
+    };
     readonly trustedWorkerId: string;
     readonly checkpoints: Pick<NeonFencedMissionCheckpoint, "commit">;
     readonly sealCheckpoint: (plaintext: Uint8Array) => Promise<Uint8Array>;
@@ -132,11 +134,13 @@ export async function executeHostedRemoteWorkerMission(
                     Date.parse(remote.completedAt), Date.now());
                 controller.signal.throwIfAborted();
                 if (!(await adapters.admission.assertFencedLease(lease))) throw new Error("Remote worker lease lost.");
-                const evidenceId = adapters.trust.archive.preserve({
+                const evidenceId = await adapters.trust.archive.preserve({
                     schema: "pbos.mb03.hosted-remote-worker.v1",
                     binding, provision: provisionEnvelope, receipt: delivered.receipt,
                     disposal: disposalEnvelope, manifest
                 });
+                controller.signal.throwIfAborted();
+                if (!(await adapters.admission.assertFencedLease(lease))) throw new Error("Remote worker lease lost.");
                 const sealed = await adapters.sealCheckpoint(Buffer.from(JSON.stringify({
                     schema: "pbos.mb03.hosted-remote-output.v1",
                     missionId: input.mission.missionId, repository: input.mission.repository,

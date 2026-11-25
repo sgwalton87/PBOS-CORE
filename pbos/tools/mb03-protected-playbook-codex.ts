@@ -27,7 +27,7 @@ import { checkpointSealer } from "./mb03-hosted-executor";
 import { VercelPlaybookProvider } from "../master-builder/vercel-remote-provider";
 import { GcsRemoteDispatchJournal } from "../master-builder/remote-dispatch-journal";
 import { HttpsModelLeaseIssuer } from "../master-builder/remote-model-credential";
-import { RemoteEvidenceArchive } from "../master-builder/remote-evidence-archive";
+import { GcsHostedEvidence } from "../master-builder/gcs-hosted-evidence";
 import type { ProtectedPlaybookMissionFile } from "./mb03-mission-package";
 
 const REQUIRED = [
@@ -220,6 +220,23 @@ function sanitizedFailure(error: unknown): string {
         .slice(0, 500);
 }
 
+function hostedEvidence(directory: string | undefined) {
+    if (directory !== "/var/lib/pbos-evidence") throw new Error("Unexpected evidence mount.");
+    return new GcsHostedEvidence(directory, googleAccessToken);
+}
+
+export async function verifyEvidenceMount(env: NodeJS.ProcessEnv) {
+    const identity = "pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com";
+    if (env.PBOS_MISSION_EXECUTION_APPROVED !== "false" ||
+        env.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT !== identity || !await googleRuntimeIdentity(identity, env)) {
+        throw new Error("Evidence probe requires the staging controller with mission execution disabled.");
+    }
+    const evidenceDigest = await hostedEvidence(env.PBOS_EVIDENCE_DIRECTORY).preserve({
+        schema: "pbos.mb03.synthetic-evidence-probe.v1", execution: env.CLOUD_RUN_EXECUTION
+    });
+    return { status: "EVIDENCE_MOUNT_VERIFIED", evidenceDigest, missionExecutionAuthorized: false };
+}
+
 export async function runProtectedMb03PlaybookCodex(
     env: NodeJS.ProcessEnv = process.env,
     verifyOnly = false
@@ -352,7 +369,7 @@ export async function runProtectedMb03PlaybookCodex(
         providerId: policy.providerId,
         publicKey: createPublicKey(providerPublicKey),
         isolationProfile: new VercelPlaybookProvider(policy).isolationProfile,
-        archive: new RemoteEvidenceArchive(resolve(config.PBOS_EVIDENCE_DIRECTORY), 90),
+        archive: hostedEvidence(config.PBOS_EVIDENCE_DIRECTORY),
         timeoutMs: 60_000
     };
     const result = await executeHostedPlaybookCodexMission({
@@ -382,8 +399,9 @@ export async function runProtectedMb03PlaybookCodex(
 // Explicit executable only. No automatic dispatch during CI or import.
 if (require.main === module) {
     const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
-    if (process.argv.length > 2 && !verifyOnly) throw new Error("Unsupported protected controller argument.");
-    runProtectedMb03PlaybookCodex(process.env, verifyOnly).then(result => {
+    const probe = process.argv[2] === "--verify-evidence-mount" && process.argv.length === 3;
+    if (process.argv.length > 2 && !verifyOnly && !probe) throw new Error("Unsupported protected controller argument.");
+    (probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, verifyOnly)).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(error => {
         process.stderr.write(JSON.stringify({

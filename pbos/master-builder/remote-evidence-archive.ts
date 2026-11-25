@@ -5,6 +5,12 @@ import { evidenceDigest, evidenceJson, evidenceSha256 } from "./remote-attestati
 
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 
+export function encodeRetainedEvidence(value: unknown, retentionDays: number): Buffer {
+    const bytes = Buffer.from(evidenceJson({ retainUntil: new Date(Date.now() + retentionDays * 86_400_000).toISOString(), value }));
+    if (bytes.length > MAX_ARTIFACT_BYTES) throw new Error("Evidence exceeds archive size limit.");
+    return bytes;
+}
+
 /** Controller-only CAS. A separate retention authority governs backups and any eventual deletion. */
 export class RemoteEvidenceArchive {
     constructor(private readonly directory: string, private readonly retentionDays: number) {
@@ -16,8 +22,7 @@ export class RemoteEvidenceArchive {
     }
 
     preserve(value: unknown): string {
-        const text = evidenceJson({ retainUntil: new Date(Date.now() + this.retentionDays * 86_400_000).toISOString(), value });
-        return this.publish(Buffer.from(text, "utf8"));
+        return this.publish(encodeRetainedEvidence(value, this.retentionDays));
     }
 
     private publish(text: Buffer): string {
