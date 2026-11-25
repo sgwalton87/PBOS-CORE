@@ -11,6 +11,7 @@ import { hostedMissionScopeDigest } from "../hosted-signed-mission-approval";
 import type { HostedExecutionDependencies } from "../hosted-approved-mission";
 import { evidenceDigest, evidenceJson, evidenceSignatureInput } from "../../master-builder/remote-attestation";
 import { RemoteEvidenceArchive } from "../../master-builder/remote-evidence-archive";
+import { inspectMb03Recovery } from "../../master-builder/mb03-disposable-mission";
 import {
     REMOTE_DISPOSAL_DOMAIN, REMOTE_PROVISION_DOMAIN, REMOTE_RETURN_DOMAIN
 } from "../../master-builder/trusted-remote-worker";
@@ -149,6 +150,9 @@ describe("MB-03 hosted signed remote worker boundary", () => {
         expect(f.provider.provision).toHaveBeenCalledOnce();
         expect(f.provider.execute).toHaveBeenCalledOnce();
         expect(f.provider.dispose).toHaveBeenCalledOnce();
+        // Hosted dispatch is journaled outside Genesis. Its local state alone
+        // cannot establish that dispatch never happened, even after a return.
+        expect(inspectMb03Recovery(f.state, result.runs[0].runId).phase).toBe("HOSTED_JOURNAL_REQUIRED");
         expect(f.commit).toHaveBeenCalledOnce();
         const checkpoint = JSON.parse(Buffer.from(f.sealCheckpoint.mock.calls[0][0]).toString("utf8"));
         expect(checkpoint.contentBase64).toBe(Buffer.from(f.content).toString("base64"));

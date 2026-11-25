@@ -6,7 +6,11 @@ function setup() {
  const api={
    getBranchSha:vi.fn(async (_repo:string,branch:string)=>{if(branch==="main")return input.baseSha;throw new Error("GITHUB_BRANCH_NOT_FOUND");}),
    getFileContent:vi.fn(async()=>input.content),
-   createBranch:vi.fn(async()=>{}),createFile:vi.fn(async()=>{}),
+   createBranch:vi.fn(async()=>{}),
+   getTrackedFileBlob:vi.fn(),
+   assertSingleTrackedEdit:vi.fn(),
+   updateTrackedFile:vi.fn(),
+   createFile:vi.fn(async()=>{}),
    createPullRequest:vi.fn(async()=>({url:"https://github.com/sgwalton87/playbook-platform/pull/123",number:123})),
    findPullRequest:vi.fn(async():Promise<{url:string;number:number}|null>=>null)
  };

@@ -88,7 +88,7 @@ export async function executeHostedPlaybookMission(
         const pullRequest = await createFencedPlaybookPr(
           adapters.github, lease, adapters.admission.assertFencedLease, input.proposal
         );
-        const revision = await adapters.github.getBranchSha(input.request.repository, pullRequest.branch);
+        const revision = pullRequest.headSha ?? await adapters.github.getBranchSha(input.request.repository, pullRequest.branch);
         const proposed = await adapters.sealCheckpoint(checkpointPayload("PROPOSED", input, {
           pullRequestUrl: pullRequest.url,
           pullRequestNumber: pullRequest.number,
@@ -109,7 +109,7 @@ export async function executeHostedPlaybookMission(
           },
           evidenceIds: [admittedEvidence, proposedEvidence],
           evidenceNeedsIndependentReview: true,
-          files: { added: [input.proposal.path] },
+          files: { [pullRequest.fileOperation]: [input.proposal.path] },
           commands: [{ command: "github-app:create-bounded-draft-pr", exitCode: 0, durationMs: 0 }],
           validations: [
             { name: "exact signed mission scope", passed: true, durationMs: 0, evidenceId: admittedEvidence },
