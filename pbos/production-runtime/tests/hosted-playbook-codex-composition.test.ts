@@ -1,6 +1,6 @@
 import { createDecipheriv, createHash, randomBytes, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sandbox } from "@vercel/sandbox";
@@ -14,12 +14,13 @@ import { ProductionMissionRunner } from "../production-mission-runner";
 import {
     executeHostedPlaybookCodexMission, prepareHostedPlaybookCodexMission
 } from "../hosted-playbook-codex-composition";
+import { inspectMb03Recovery } from "../../master-builder/mb03-disposable-mission";
 import { hostedMissionScopeDigest } from "../hosted-signed-mission-approval";
 import { VercelPlaybookProvider } from "../../master-builder/vercel-remote-provider";
 import { createRemotePlaybookMission, playbookRemotePath } from "../../master-builder/playbook-remote-mission";
 import type { PlaybookMb03MissionId } from "../../master-builder/playbook-remote-mission";
 import { RemoteEvidenceArchive } from "../../master-builder/remote-evidence-archive";
-import type { HostedExecutionDependencies } from "../hosted-approved-mission";
+import { runHostedApprovedMission, type HostedExecutionDependencies } from "../hosted-approved-mission";
 
 const temporary: string[] = [];
 afterEach(() => {
@@ -58,14 +59,17 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
         issuedAt: new Date(Date.now() - 1000).toISOString(),
         expiresAt: new Date(Date.now() + 60_000).toISOString(), nonce
     };
-    const canonical = JSON.stringify([
-        payload.schema, payload.missionId, payload.repository, payload.commit,
-        payload.operatorId, payload.scopeDigest, payload.issuedAt, payload.expiresAt, payload.nonce
-    ]);
-    const approval = {
-        payload,
-        signatureBase64: sign(null, Buffer.from(canonical), keys.privateKey).toString("base64")
-    };
+    function fixtureApproval(value: typeof payload) {
+        const canonical = JSON.stringify([
+            value.schema, value.missionId, value.repository, value.commit,
+            value.operatorId, value.scopeDigest, value.issuedAt, value.expiresAt, value.nonce
+        ]);
+        return {
+            payload: value,
+            signatureBase64: sign(null, Buffer.from(canonical), keys.privateKey).toString("base64")
+        };
+    }
+    const approval = fixtureApproval(payload);
     const request = {
         actorId: payload.operatorId, systemId, authorizationArtifactId: "hosted-approval:" + nonce,
         repository, branch, commit: sourceSha,
@@ -137,7 +141,7 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
             admission, trust, checkpoints, sealCheckpoint: sealed
         }
     };
-    return { root, composition, state, vm, api, reserve, issued, revoked, sealed, checkpoints };
+    return { root, composition, state, vm, api, reserve, issued, revoked, sealed, checkpoints, fixtureApproval };
 }
 
 describe("MB-03 composed hosted Playbook Codex execution", () => {
@@ -208,6 +212,45 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(f.api.create).not.toHaveBeenCalled();
         expect(admission.recordApprovalNonce).toHaveBeenCalledOnce();
     });
+
+    it("preserves a killed controller's exact run and rejects both replay and fresh admission after lease expiry", async () => {
+        const f = fixture("MB03-MISSION-001");
+        const { request, approval, scope } = f.composition.input;
+        const admission = f.composition.adapters.admission;
+        const child = spawnSync(process.execPath, [
+            "--import", require.resolve("tsx"), join(__dirname, "fixtures/interrupt-hosted-controller.ts")
+        ], {
+            cwd: f.root, encoding: "utf8", timeout: 15_000, env: { PATH: process.env.PATH },
+            input: JSON.stringify({ request, approval, scope, publicKey: admission.trustedPublicKeyPem })
+        });
+        expect(child.error).toBeUndefined();
+        expect(child.signal, child.stderr).toBe("SIGKILL");
+        const file = join(f.root, "state.json");
+        const before = readFileSync(file);
+        const reopened = new GenesisStateRepository(file, admission.disposableNamespace);
+        const runs = reopened.productionRuns();
+        expect(runs).toHaveLength(1);
+        const [run] = runs;
+        expect(run).toMatchObject({ status: "RUNNING", disposableAttempt: { attemptId: approval.payload.nonce } });
+        expect(reopened.productionEvents(run.runId).at(-1)?.type).toBe("EXECUTION_PLAN_READY");
+        expect(reopened.executionLeases()).toHaveLength(1);
+        expect(reopened.executionLeases()[0]).toMatchObject({ runId: run.runId, processId: child.pid, status: "ACTIVE" });
+        expect(inspectMb03Recovery(reopened, run.runId)).toMatchObject({ lease: "EXPIRED", phase: "HOSTED_JOURNAL_REQUIRED" });
+
+        const runner = new ProductionMissionRunner(reopened);
+        const fresh = f.fixtureApproval({ ...approval.payload, nonce: randomUUID() });
+        for (const envelope of [approval, fresh]) {
+            const result = runHostedApprovedMission(runner,
+                { ...request, authorizationArtifactId: "hosted-approval:" + envelope.payload.nonce },
+                envelope, admission, scope, () => { throw Error("Unexpected worker selection"); });
+            await expect(result).rejects.toThrow("already has an active run or lease");
+        }
+        expect(admission.acquireFencedLease).not.toHaveBeenCalled();
+        expect(admission.recordApprovalNonce).not.toHaveBeenCalled();
+        expect(readFileSync(join(f.root, "nonce.fixture"), "utf8")).toBe(approval.payload.nonce);
+        expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
+        expect(readFileSync(file).equals(before)).toBe(true);
+    }, 20_000);
 
     it("publishes the verified tracked-file bytes once even when the draft PR acknowledgment is lost", async () => {
         const f = fixture("MB03-MISSION-001");
