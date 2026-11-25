@@ -1,0 +1,86 @@
+name: MB-03 Historical 5dhzb Forensics - READ ONLY
+# This workflow NEVER deploys, executes, signs, or reads secret contents.
+on:
+  pull_request:
+    paths:
+      - audits/platform/mb03-5dhzb-forensic.mjs
+      - audits/platform/mb03-5dhzb.nodecheck.mjs
+      - .github/workflows/mb03-5dhzb-readonly-forensics.yml
+  push:
+    branches: [main]
+    paths:
+      - audits/platform/mb03-5dhzb-forensic.mjs
+      - audits/platform/mb03-5dhzb.nodecheck.mjs
+      - .github/workflows/mb03-5dhzb-readonly-forensics.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mb03-readonly-5dhzb-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  offline:
+    runs-on: ubuntu-latest
+    name: Negative synthetic forensic regression tests
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node --test audits/platform/mb03-5dhzb.nodecheck.mjs
+  protected-readonly:
+    name: Inspect current signed job and historical failed execution (GET only)
+    needs: offline
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.repository == 'sgwalton87/PBOS-CORE' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    environment: pbos-genesis-staging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Read only job and execution specs, then sanitize reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          project=pbos-genesis-staging
+          region=us-west1
+          dir="$(mktemp -d)"
+          chmod 0700 "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          if ! gcloud run jobs describe pbos-mb03-playbook-codex --project="$project" --region="$region" \
+            --format=json > "$dir/job.json" 2>/dev/null; then
+            echo '{"status":"BLOCKED","findings":["SIGNED_JOB_NOT_READABLE"]}'
+            exit 2
+          fi
+          if ! gcloud run jobs executions describe pbos-mb03-playbook-codex-5dhzb \
+            --project="$project" --region="$region" --format=json > "$dir/execution.json" 2>/dev/null; then
+            echo '{"status":"BLOCKED","findings":["HISTORICAL_EXECUTION_NOT_READABLE"]}'
+            exit 2
+          fi
+          set +e
+          node audits/platform/mb03-5dhzb-forensic.mjs "$dir/job.json" "$dir/execution.json" > "$dir/forensic.json"
+          result=$?
+          set -e
+          # No raw environment, mounted key content, tokens or full gcloud JSON in logs.
+          cat "$dir/forensic.json"
+          echo '### Read-only historical MB-03 5dhzb forensics' >> "$GITHUB_STEP_SUMMARY"
+          echo '- Source commit: '"$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo '- No mission dispatch, job replacement, signing, or secret read' >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~json' >> "$GITHUB_STEP_SUMMARY"
+          cat "$dir/forensic.json" >> "$GITHUB_STEP_SUMMARY"
+          echo '~~~' >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
