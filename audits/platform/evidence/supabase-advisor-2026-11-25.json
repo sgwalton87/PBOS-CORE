@@ -1,0 +1,2543 @@
+{
+  "schema": "pbos.supabase.advisory-evidence.v1",
+  "projectRef": "oexgxnybeixwadgtdtzp",
+  "observedAt": "2026-11-25T00:33:53Z",
+  "source": "Connected Supabase get_advisors: security+performance",
+  "interpretation": "Advisory findings requiring entity-level review; not confirmed exploits nor automatic remediation authorization",
+  "categories": [
+    {
+      "kind": "security",
+      "classes": [
+        {
+          "name": "rls_enabled_no_policy",
+          "level": "INFO",
+          "count": 12,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy",
+          "objects": [
+            {
+              "metadata": {
+                "name": "marketplace_consent_events",
+                "type": "table",
+                "schema": "private"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "community_event_checkin_codes",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "community_verification_notification_outbox",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "curriculum_source_registry",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_outcomes",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_shares",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_opportunities",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "nil_store_campaigns",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "public_profile_publication_consents",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "shared_actions",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "support_messages",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "verification_communications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            }
+          ]
+        },
+        {
+          "name": "anon_security_definer_function_executable",
+          "level": "WARN",
+          "count": 1,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0028_anon_security_definer_function_executable",
+          "objects": [
+            {
+              "metadata": {
+                "name": "get_own_community_verification_documents",
+                "schema": "public",
+                "language": "sql",
+                "arguments": "",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            }
+          ]
+        },
+        {
+          "name": "authenticated_security_definer_function_executable",
+          "level": "WARN",
+          "count": 15,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable",
+          "objects": [
+            {
+              "metadata": {
+                "name": "claim_own_community_verification_notice",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "requested_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "delete_feed_post_owner",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_post_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "finalize_governed_message_delivery",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_message_id uuid, p_provenance jsonb",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "finish_own_community_verification_notice",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "requested_id uuid, requested_claim uuid, requested_status text, requested_error text, requested_message_id text",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "get_active_supporter_avatars",
+                "schema": "public",
+                "language": "sql",
+                "arguments": "",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "get_governed_message_read_receipts",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_conversation_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "get_moderation_feed_posts",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_post_ids uuid[]",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "get_own_community_verification_documents",
+                "schema": "public",
+                "language": "sql",
+                "arguments": "",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "get_own_community_verification_notification_status",
+                "schema": "public",
+                "language": "sql",
+                "arguments": "",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "is_owned_application_document_path",
+                "schema": "public",
+                "language": "sql",
+                "arguments": "requested_path text",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "mark_governed_conversation_read",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_conversation_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "moderate_feed_post",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_post_id uuid, p_action text, p_report_id uuid, p_note text",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "report_governed_message",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_message_id uuid, p_conversation_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "update_feed_post_owner",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_post_id uuid, p_body text, p_post_type text",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            },
+            {
+              "metadata": {
+                "name": "withdraw_own_support_invitation",
+                "schema": "public",
+                "language": "plpgsql",
+                "arguments": "p_invitation_id uuid",
+                "security_definer": true
+              },
+              "observedAt": "2026-11-25T00:36:16.769Z"
+            }
+          ]
+        },
+        {
+          "name": "auth_leaked_password_protection",
+          "level": "WARN",
+          "count": 1,
+          "remediationUrl": "https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection",
+          "objects": [
+            {
+              "metadata": {
+                "type": "auth",
+                "entity": "Auth"
+              },
+              "observedAt": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "performance",
+      "classes": [
+        {
+          "name": "unindexed_foreign_keys",
+          "level": "INFO",
+          "count": 96,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0001_unindexed_foreign_keys",
+          "objects": [
+            {
+              "metadata": {
+                "name": "achievements",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "achievements_created_by_fkey",
+                "fkey_columns": [
+                  13
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "achievements",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "achievements_updated_by_fkey",
+                "fkey_columns": [
+                  14
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "album_media",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "album_media_album_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "album_media",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "album_media_user_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "albums",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "albums_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_support_requests",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "application_support_requests_application_workspace_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_workspace_documents",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "application_workspace_documents_scholar_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_workspace_documents",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "application_workspace_documents_workspace_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_workspace_events",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "application_workspace_events_workspace_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_workspace_tasks",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "application_workspace_tasks_scholar_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_eligibility_requirement_evidence",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "athlete_eligibility_requirement_evidence_ruleset_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_registry_research_events",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "brand_registry_research_events_actor_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_registry_research_events",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "brand_registry_research_events_request_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_registry_review_snapshots",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "brand_registry_review_snapshots_request_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_registry_review_snapshots",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "brand_registry_review_snapshots_reviewer_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "comments",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "comments_author_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "comments",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "comments_post_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "community_event_checkins",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "community_event_checkins_checkin_code_id_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "community_event_networking_optins",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "community_event_networking_optins_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "connection_requests",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "connection_requests_recipient_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "conversation_participants",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "conversation_participants_profile_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_module_responses",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "course_module_responses_course_slug_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "course_progress_course_slug_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "courses",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "courses_instructor_id_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "curriculum_source_registry",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "curriculum_source_registry_target_course_slug_fkey",
+                "fkey_columns": [
+                  7
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "custom_options",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "custom_options_added_by_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "deadlines",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "deadlines_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "earned_badges",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "earned_badges_badge_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "enrollments",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "enrollments_course_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "evidence_created_by_fkey",
+                "fkey_columns": [
+                  14
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "evidence_updated_by_fkey",
+                "fkey_columns": [
+                  15
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence_packs",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "evidence_packs_created_by_fkey",
+                "fkey_columns": [
+                  7
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence_packs",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "evidence_packs_updated_by_fkey",
+                "fkey_columns": [
+                  8
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_post_comments",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_post_comments_post_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_post_comments",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_post_comments_user_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_post_reactions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_post_reactions_user_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_post_shares",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_post_shares_post_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_post_shares",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_post_shares_user_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_posts",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_posts_album_id_fkey",
+                "fkey_columns": [
+                  11
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_posts",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_posts_moderation_updated_by_fkey",
+                "fkey_columns": [
+                  15
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_posts",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "feed_posts_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "group_members",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "group_members_profile_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "groups",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "groups_creator_id_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "learning_module_responses",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "learning_module_responses_course_slug_module_key_fkey",
+                "fkey_columns": [
+                  3,
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "lesson_completions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "lesson_completions_lesson_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "lessons",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "lessons_course_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_outcomes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_application_outcomes_decided_by_fkey",
+                "fkey_columns": [
+                  7
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_outcomes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_application_outcomes_opportunity_id_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_outcomes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_application_outcomes_partner_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_shares",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_application_shares_opportunity_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_opportunities",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_opportunities_campaign_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_opportunities",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_opportunities_created_by_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_opportunities",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "marketplace_opportunities_reviewed_by_fkey",
+                "fkey_columns": [
+                  17
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentor_validation_approvals",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "mentor_validation_approvals_approver_relationship_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentorship_requests",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "mentorship_requests_mentor_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentorship_sessions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "mentorship_sessions_mentorship_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "messages",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "messages_sender_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "milestone_actions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "milestone_actions_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_actions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "moderation_actions_report_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_reports",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "moderation_reports_source_conversation_fkey",
+                "fkey_columns": [
+                  12
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_reports",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "moderation_reports_source_message_fkey",
+                "fkey_columns": [
+                  13
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "onboarding_options",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "onboarding_options_created_by_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "opportunity_matches",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "opportunity_matches_created_by_fkey",
+                "fkey_columns": [
+                  12
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "opportunity_matches",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "opportunity_matches_updated_by_fkey",
+                "fkey_columns": [
+                  13
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "order_items",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "order_items_order_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "order_items",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "order_items_product_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "orders",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "orders_profile_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "outcomes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "outcomes_created_by_fkey",
+                "fkey_columns": [
+                  10
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "outcomes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "outcomes_updated_by_fkey",
+                "fkey_columns": [
+                  11
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pending_verifications",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "pending_verifications_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "playbook_records",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "playbook_records_created_by_fkey",
+                "fkey_columns": [
+                  8
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "playbook_records",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "playbook_records_updated_by_fkey",
+                "fkey_columns": [
+                  9
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "post_likes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "post_likes_profile_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "quiz_attempts",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "quiz_attempts_profile_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "quiz_attempts",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "quiz_attempts_quiz_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "quiz_questions",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "quiz_questions_quiz_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "quizzes",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "quizzes_lesson_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "reflections",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "reflections_created_by_fkey",
+                "fkey_columns": [
+                  7
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "reflections",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "reflections_updated_by_fkey",
+                "fkey_columns": [
+                  8
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_dashboard_projections",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_dashboard_projections_goal_id_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_dashboard_projections",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_dashboard_projections_scholar_record_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_goals",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_goals_scholar_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_milestones",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_milestones_goal_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_milestones",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_milestones_scholar_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_vault_items",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_vault_items_created_by_fkey",
+                "fkey_columns": [
+                  13
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_vault_items",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "scholar_vault_items_updated_by_fkey",
+                "fkey_columns": [
+                  14
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "student_activities",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "student_activities_student_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "timeline_events",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "timeline_events_created_by_fkey",
+                "fkey_columns": [
+                  12
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "timeline_events",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "timeline_events_updated_by_fkey",
+                "fkey_columns": [
+                  13
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "trust_reports",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "trust_reports_created_by_fkey",
+                "fkey_columns": [
+                  9
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "user_badges",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "user_badges_badge_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "user_badges",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "user_badges_user_id_fkey",
+                "fkey_columns": [
+                  2
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "user_connections",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "user_connections_connected_user_id_fkey",
+                "fkey_columns": [
+                  3
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verifications",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "verifications_created_by_fkey",
+                "fkey_columns": [
+                  9
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verifications",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "verifications_updated_by_fkey",
+                "fkey_columns": [
+                  10
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verifications",
+                "type": "table",
+                "schema": "public",
+                "fkey_name": "verifications_verified_by_fkey",
+                "fkey_columns": [
+                  4
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            }
+          ]
+        },
+        {
+          "name": "auth_rls_initplan",
+          "level": "WARN",
+          "count": 31,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0003_auth_rls_initplan",
+          "objects": [
+            {
+              "metadata": {
+                "name": "coin_transactions",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "user_badges",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "certificates",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "albums",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "album_media",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "certificates",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pending_verifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pending_verifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pending_verifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "custom_options",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "achievements",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "reflections",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "outcomes",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence_packs",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "timeline_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "opportunity_matches",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "trust_reports",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_vault_items",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_support_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_support_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            }
+          ]
+        },
+        {
+          "name": "unused_index",
+          "level": "INFO",
+          "count": 59,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0005_unused_index",
+          "objects": [
+            {
+              "metadata": {
+                "name": "support_invitations",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_invitations",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "messages",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "profiles",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pbos_message_attachments",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "academic_journey_evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_target_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_target_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_financial_entries",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "reflections",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "outcomes",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "evidence_packs",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "timeline_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "timeline_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "opportunity_matches",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "trust_reports",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "scholar_vault_items",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "starting_five_invitations",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "active_support_scholar_contexts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "learning_credentials",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_campaign_drafts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_campaign_drafts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "store_redemptions",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "profile_album_photos",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_targets",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "pbos_notifications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "nil_store_campaigns",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "nil_store_campaigns",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "relationship_security_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "relationship_security_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_visits",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_reports",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "application_support_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_evidence_verification_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_eligibility_checks",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_eligibility_rulesets",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_eligibility_requirement_evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "athlete_eligibility_requirement_evidence",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_offers",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_offers",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recruiting_offers",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "community_event_checkin_codes",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_reports",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_posts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "fafsa_tracker",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "marketplace_application_shares",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "college_list",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "college_list",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentor_validation_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentor_validation_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "mentor_validation_approvals",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "brand_verification_document_events",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "verification_communications",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            }
+          ]
+        },
+        {
+          "name": "multiple_permissive_policies",
+          "level": "WARN",
+          "count": 38,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0006_multiple_permissive_policies",
+          "objects": [
+            {
+              "metadata": {
+                "name": "application_support_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "badges",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "certificates",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "feed_posts",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "moderation_reports",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "profile_album_photos",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "profile_albums",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "recommender_requests",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_directory_profiles",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_network_members",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "support_relationships",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            },
+            {
+              "metadata": {
+                "name": "user_badges",
+                "type": "table",
+                "schema": "public"
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            }
+          ]
+        },
+        {
+          "name": "duplicate_index",
+          "level": "WARN",
+          "count": 1,
+          "remediationUrl": "https://supabase.com/docs/guides/database/database-linter?lint=0009_duplicate_index",
+          "objects": [
+            {
+              "metadata": {
+                "name": "course_progress",
+                "type": "table",
+                "schema": "public",
+                "indexes": [
+                  "course_progress_user_course_unique",
+                  "course_progress_user_id_course_slug_key"
+                ]
+              },
+              "observedAt": "2026-11-25T00:36:16.841Z"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

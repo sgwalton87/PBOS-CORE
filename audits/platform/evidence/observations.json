@@ -1,0 +1,177 @@
+{
+  "schema": "pbos.platform.observations.v1",
+  "capturedAt": "2026-11-25T00:34:00Z",
+  "environment": "mixed: pbos-genesis-staging + the-playbook production",
+  "readOnly": true,
+  "limitations": [
+    "Cloud Run direct execution JSON for signed incident 5dhzb not yet independently inspected. The user report is separate from live observed job parity.",
+    "No live user account, email, OAuth, or 15-role production journey was exercised; synthetic production creation prohibited.",
+    "No full Google Cloud IAM/Secret Manager inventory or production GCS state contents were read.",
+    "Provider observations were made via connected Vercel, Supabase, Neon, and GitHub tools. This snapshot is not cryptographically signed by providers.",
+    "Source and deployment snapshots can become stale. Re-run collection and require exact-revision evidence before any release decision."
+  ],
+  "observations": {
+    "pbos": {
+      "sourceProject": "sgwalton87/PBOS-CORE",
+      "readinessCloudRunExecution": "pbos-mb03-playbook-readiness-vlzxs",
+      "readinessPassed": true,
+      "readinessImageSha256": "95161c3080111b6beca1debd3ec251700413940ab1164c4325aee5455bd859e2",
+      "signedJobLiveAuditRun": 45512799680,
+      "signedJobParityStatus": "BLOCKED",
+      "signedJobParityCodes": [
+        "SIGNED_HAS_DUPLICATE_ENV_PRIVATE_SIGNER",
+        "SIGNED_IMAGE_NOT_READINESS_PIN",
+        "SIGNED_PBOS_APPROVAL_PUBLIC_KEY_FILE_PATH",
+        "SIGNED_PBOS_OBSERVATION_KEY_FILE_PATH",
+        "SIGNED_PBOS_PROVIDER_PUBLIC_KEY_FILE_PATH",
+        "SIGNED_PRIVATE_SIGNER_PATH",
+        "SIGNED_SOURCE_PIN",
+        "SIGNED_STATE_RW_POLICY"
+      ],
+      "historyS7mkpImageDiffersFromCurrentJob": true,
+      "history5dhzbReportedCode": "MB03_FILE_BOUNDARY:operator-public-key:exposed-permissions",
+      "history5dhzbEvidenceKind": "user-reported-not-independently-reconciled",
+      "currentJobFullImageDigest": null,
+      "approvedMissionFullImageDigest": null,
+      "execution5dhzbFullImageDigest": null,
+      "execution5dhzbCommandAttested": null,
+      "execution5dhzbOperatorPublicKeyPathAttested": null,
+      "generationObservedMatch": null,
+      "missionsCertified": 0,
+      "missionsRequired": 2,
+      "nonMissionDiagnosticBudgetUsed": 1,
+      "nonMissionDiagnosticBudgetMaximum": 10,
+      "sourceRefs": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-CONTROL"
+      ],
+      "currentJobDigestIndependentlyAttested": null,
+      "currentJobStartupCommandAttested": null,
+      "currentJobOperatorPublicKeyPathAttested": null,
+      "imageHandoffMitigationProven": null
+    },
+    "playbook": {
+      "repo": "sgwalton87/playbook-platform",
+      "mainCommit": "6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea",
+      "productionDeploymentCommit": "cb20dbbf75a875f6fb770d6228d272e75ad43ed0",
+      "productionDeploymentId": "dpl_EUo8nRCbvDx58ywwJdRxcBGiVdEC",
+      "productionDeploymentState": "READY",
+      "productionCustomDomainVerified": true,
+      "productionDomain": "app.playbookseriesinc.org",
+      "mainAutoGitDeployEnabled": false,
+      "productionEnvInventoryHiddenCount": 0,
+      "productionEnvKeys": [
+        "SMTP_USER",
+        "SMTP_PASS",
+        "SMTP_PORT",
+        "SMTP_SECURE",
+        "PLAYBOOK_EMAIL_ONBOARDING",
+        "PLAYBOOK_EMAIL_NOTIFICATIONS",
+        "SMTP_HOST",
+        "NEXT_PUBLIC_HCAPTCHA_SITE_KEY",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        "NEXT_PUBLIC_SUPABASE_URL"
+      ],
+      "previewEnvKeys": [
+        "PBOS_API_URL",
+        "PBOS_ORGANIZATION_ID",
+        "PBOS_CONNECTOR_ID",
+        "PBOS_CONNECTOR_KEY_ID",
+        "PBOS_CONNECTOR_SECRET_BASE64",
+        "PBOS_SCHOLAR_IDENTITY_APPROVAL_ID",
+        "PBOS_SCHOLAR_EXCHANGE_APPROVAL_ID",
+        "PBOS_APPLICATION_JOURNEY_APPROVAL_ID",
+        "PBOS_OPPORTUNITY_JOURNEY_APPROVAL_ID",
+        "PBOS_ACADEMIC_JOURNEY_APPROVAL_ID",
+        "PBOS_SUPPORT_REQUEST_APPROVAL_ID",
+        "PBOS_MESSAGING_JOURNEY_APPROVAL_ID",
+        "PBOS_NOTIFICATION_JOURNEY_APPROVAL_ID",
+        "NEXT_PUBLIC_SUPABASE_URL",
+        "NEXT_PUBLIC_SUPABASE_ANON_KEY"
+      ],
+      "requiredProductionActivationKeys": [
+        "PBOS_API_URL",
+        "PBOS_ORGANIZATION_ID",
+        "PBOS_CONNECTOR_ID",
+        "PBOS_CONNECTOR_KEY_ID",
+        "PBOS_CONNECTOR_SECRET_BASE64",
+        "PBOS_SCHOLAR_IDENTITY_APPROVAL_ID",
+        "PBOS_SCHOLAR_EXCHANGE_APPROVAL_ID",
+        "PBOS_SCHOLAR_ATHLETE_IDENTITY_APPROVAL_ID",
+        "PBOS_SCHOLAR_ATHLETE_EXCHANGE_APPROVAL_ID",
+        "PBOS_TRANSITION_YOUTH_IDENTITY_APPROVAL_ID",
+        "PBOS_TRANSITION_YOUTH_EXCHANGE_APPROVAL_ID"
+      ],
+      "lastProductionRoleQaConfigBlocked": true,
+      "lastProductionRoleQaRun": 45082524864,
+      "localIsolated15RolesPassed": true,
+      "liveAcceptedAll15Roles": null,
+      "fullyCertifiedRoleNames": [],
+      "sourceRefs": [
+        "SRC-APP-REPO",
+        "SRC-APP-QA",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-VERCEL-CONFIG",
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT"
+      ],
+      "explicitReleaseReceiptVerified": null,
+      "productionPbosConnectivityAttested": null,
+      "productionDomainDeploymentShaVerified": null
+    },
+    "supabase": {
+      "projectRef": "oexgxnybeixwadgtdtzp",
+      "status": "ACTIVE_HEALTHY",
+      "publicTableCount": 166,
+      "publicRlsDisabledCount": 0,
+      "publicEmptyTableCount": 102,
+      "appliedMigrationsCount": 169,
+      "deployedEdgeFunctionCount": 0,
+      "advisorObjectCounts": {
+        "rls_enabled_no_policy": 12,
+        "anon_security_definer_function_executable": 1,
+        "authenticated_security_definer_function_executable": 15,
+        "auth_leaked_password_protection": 1,
+        "unindexed_foreign_keys": 96,
+        "auth_rls_initplan": 31,
+        "unused_index": 59,
+        "multiple_permissive_policies": 38,
+        "duplicate_index": 1
+      },
+      "securityWarningsIndependentlyResolved": null,
+      "hostedMigrationToSourceReconciliationPassed": null,
+      "sourceRefs": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "fullAdvisorObjectEvidenceRepositoryFile": "https://github.com/sgwalton87/PBOS-CORE/blob/audit/platform-forensic-certificate-20261124/audits/platform/evidence/supabase-advisor-2026-11-25.json",
+      "publicRlsInspectedTableCount": 166
+    },
+    "neon": {
+      "projectId": "patient-truth-44204591",
+      "projectName": "PBOS Cloud Runner",
+      "defaultBranch": "main",
+      "defaultBranchState": "ready",
+      "fenceAndNonceRecoveryCertified": null,
+      "sourceRefs": [
+        "SRC-NEON"
+      ]
+    },
+    "governance": {
+      "trackerLastUpdated": "2026-07-14",
+      "trackerTaskCount": 207,
+      "trackerAssignedTasks": 0,
+      "trackerRecordedDependencies": 0,
+      "trackerTasksCompleted": 0,
+      "currentReleaseLedgerAccepted": null,
+      "independentHumanLaunchApproval": null,
+      "recoveryDrillCertified": null,
+      "sourceRefs": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE"
+      ]
+    }
+  }
+}

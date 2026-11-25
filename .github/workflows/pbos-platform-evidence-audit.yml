@@ -1,0 +1,56 @@
+name: PBOS Platform Evidence Audit - NO RELEASE AUTHORITY
+on:
+  pull_request:
+    paths:
+      - audits/platform/**
+      - .github/workflows/pbos-platform-evidence-audit.yml
+  push:
+    branches: [main]
+    paths:
+      - audits/platform/**
+      - .github/workflows/pbos-platform-evidence-audit.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pbos-platform-evidence-audit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  audit-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    name: Validate evaluator, preserve blocked status and publish sanitized evidence
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with: {persist-credentials: false}
+      - name: Offline tests and negative cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cd audits/platform
+          node --test tests/audit.nodecheck.mjs mb03-5dhzb.nodecheck.mjs
+      - name: Evaluate supplied dated snapshot - NOT a release certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd audits/platform
+          set +e
+          node audit.mjs --register register.json --observations evidence/observations.json --out "$RUNNER_TEMP/pbos-audit"
+          outcome=$?
+          set -e
+          if [ "$outcome" -ne 2 ]; then
+            echo "INVALID: this recorded evidence must not certify launch; inspect the result and changed inputs." >&2
+            exit 1
+          fi
+          echo '### PBOS system audit evaluated - release remains BLOCKED' >> "$GITHUB_STEP_SUMMARY"
+          echo '- This passing CI job proves only that the auditor ran and rejected a blocked snapshot.' >> "$GITHUB_STEP_SUMMARY"
+          echo '- No cloud jobs, models, secrets, production, Genesis, or data were touched.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pbos-blocked-audit-report-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/pbos-audit.json
+            ${{ runner.temp }}/pbos-audit.md
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,2211 @@
+{
+  "schema": "pbos.platform.gap-register.v2",
+  "asOf": "2026-11-25T00:34:00Z",
+  "sourceName": "PLAYBOOK_PLATFORM_FULL_SYSTEMS_GAP_REGISTER_2026-11-24.md",
+  "sourceSha256": "46ed8d097d39e9360d71dd4b92913f873fe26b0625de16a76fcb92ef4f4f5c72",
+  "count": 106,
+  "statusRule": "No finding may close without exact-scope current evidence, a passing test and release-specific approval. Unknown is not pass.",
+  "evidenceSources": [
+    {
+      "id": "SRC-GAP-BASELINE",
+      "type": "source_document",
+      "locator": "input/PLAYBOOK_PLATFORM_FULL_SYSTEMS_GAP_REGISTER_2026-11-24.md",
+      "observedAt": "2026-11-25T00:33:00Z",
+      "scope": "historic author-provided baseline",
+      "trust": "source_claims_not_automatically_live"
+    },
+    {
+      "id": "SRC-GCP-AUDIT",
+      "type": "independent_cloudrun_readonly_gitlab_gha",
+      "locator": "https://github.com/sgwalton87/PBOS-CORE/actions/runs/45512799680",
+      "observedAt": "2026-11-24T23:49:56Z",
+      "scope": "pbos-genesis-staging, signed + readiness jobs",
+      "trust": "sanitized_observed_live"
+    },
+    {
+      "id": "SRC-GCP-READINESS",
+      "type": "github_actions_cloudrun_log",
+      "locator": "https://github.com/sgwalton87/PBOS-CORE/actions/runs/45504204687",
+      "observedAt": "2026-11-24T23:19:50Z",
+      "scope": "signature_free_readiness_only",
+      "trust": "logged_cloudrun_execution"
+    },
+    {
+      "id": "SRC-GCP-OPERATOR",
+      "type": "operator_incident_report",
+      "locator": "https://github.com/sgwalton87/PBOS-CORE/issues/95#issuecomment-7147807478",
+      "observedAt": "2026-11-24T23:44:00Z",
+      "scope": "execution_5dhzb_gen23",
+      "trust": "reported_not_independently_verified"
+    },
+    {
+      "id": "SRC-GCP-CONTROL",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/PBOS-CORE/blob/main/containers/mb03-controller/stage-secrets.sh",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "source_code_only",
+      "trust": "current_source_not_deployment"
+    },
+    {
+      "id": "SRC-GCP-PR168",
+      "type": "github_pr",
+      "locator": "https://github.com/sgwalton87/PBOS-CORE/pull/168",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "github_pr_review",
+      "trust": "current_state_at_capture"
+    },
+    {
+      "id": "SRC-VERCEL-PROJECT",
+      "type": "connected_vercel_metadata",
+      "locator": "vercel://team_uEIqx3HHy04a9D2ePf3NwRdl/the-playbook",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "project and production READY deployment",
+      "trust": "provider_api"
+    },
+    {
+      "id": "SRC-VERCEL-ENV",
+      "type": "connected_vercel_redacted_env_inventory",
+      "locator": "vercel://prj_mZ74XbviZKKplwVYPU3FLhFNka73/environment-variables?decrypt=false",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "production+preview variable keys and scope ONLY",
+      "trust": "provider_api_no_secret_values"
+    },
+    {
+      "id": "SRC-APP-REPO",
+      "type": "github_commit_and_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/tree/6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "app_repository_main",
+      "trust": "github_provider"
+    },
+    {
+      "id": "SRC-APP-QA",
+      "type": "github_actions",
+      "locator": "https://github.com/sgwalton87/playbook-platform/actions/runs/45082524864",
+      "observedAt": "2026-11-22T23:18:18Z",
+      "scope": "production_branch_qa_config_gate",
+      "trust": "exact_run_job_result"
+    },
+    {
+      "id": "SRC-APP-QA-LOCAL",
+      "type": "github_actions",
+      "locator": "https://github.com/sgwalton87/playbook-platform/actions/runs/44954621707",
+      "observedAt": "2026-11-18T00:00:00Z",
+      "scope": "isolated_local_supabase_15_role_tests",
+      "trust": "exact_run_qa_local_only"
+    },
+    {
+      "id": "SRC-SUPABASE-PROJECT",
+      "type": "connected_supabase_metadata",
+      "locator": "supabase://oexgxnybeixwadgtdtzp",
+      "observedAt": "2026-11-25T00:32:00Z",
+      "scope": "active healthy, 166 public tables, 169 applied migrations",
+      "trust": "provider_api"
+    },
+    {
+      "id": "SRC-SUPABASE-ADVISORS",
+      "type": "connected_supabase_advisor",
+      "locator": "supabase://oexgxnybeixwadgtdtzp/advisors",
+      "observedAt": "2026-11-25T00:33:53Z",
+      "scope": "security+performance advisers",
+      "trust": "provider_api_lint_not_proven_exploit"
+    },
+    {
+      "id": "SRC-NEON",
+      "type": "connected_neon_metadata",
+      "locator": "neon://patient-truth-44204591",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "PBOS Cloud Runner and default main branch",
+      "trust": "provider_api_project_health_only"
+    },
+    {
+      "id": "SRC-ROLE-REGISTRY",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/blob/main/lib/roles/registry.ts",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "15 roles in source",
+      "trust": "source_implementation_only"
+    },
+    {
+      "id": "SRC-ONBOARD-CONTRACT",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/blob/main/lib/onboarding/completionRegistry.ts",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "role completion & authority states",
+      "trust": "source_implementation_only"
+    },
+    {
+      "id": "SRC-APP-CURRENT-STATE",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/blob/main/pbos/readiness/PLAYBOOK_CURRENT_STATE.json",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "historical reconciled 2026-10-21",
+      "trust": "historical_owner_tracking_not_live"
+    },
+    {
+      "id": "SRC-PROJECT-TRACKER",
+      "type": "source_document",
+      "locator": "input/project.json",
+      "observedAt": "2026-11-25T00:33:00Z",
+      "scope": "updated 2026-07-14, stale project tracker",
+      "trust": "uploaded_artifact_history"
+    },
+    {
+      "id": "SRC-APP-VERCEL-CONFIG",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/blob/main/vercel.json",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "main auto deployment disabled",
+      "trust": "current_repository_source"
+    },
+    {
+      "id": "SRC-APP-PLATFORM-QA",
+      "type": "github_repo_file",
+      "locator": "https://github.com/sgwalton87/playbook-platform/blob/main/.github/workflows/platform-qa.yml",
+      "observedAt": "2026-11-25T00:30:00Z",
+      "scope": "trusted qa configuration guard",
+      "trust": "current_repository_source"
+    }
+  ],
+  "findings": [
+    {
+      "id": "G-001",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Signed job has an operator public-key path differing from node-private staging path.",
+      "closureProof": "Deploy signed job with staged 0400 path; verify job and execution specs.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-002",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Provider public-key file path drifted.",
+      "closureProof": "Match reviewed node-private provider-public.pem path.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-003",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Observation-key file path drifted.",
+      "closureProof": "Use staged observation key and attest source/fingerprint.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-004",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Provider private signing-key file path drifted.",
+      "closureProof": "Use stage-secrets and node-owned 0400 private path.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-005",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Duplicate private signing key injected via environment in signed job.",
+      "closureProof": "Remove duplicate env reference; retain narrowly mounted key.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-006",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Signed controller image differs from image certified by readiness.",
+      "closureProof": "Select one approved full SHA-256 and verify job + execution image equality.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [
+        "G-011"
+      ],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-007",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Signed Playbook source SHA differs from readiness/source acceptance.",
+      "closureProof": "Pin exact source SHA in mission, artifact, job and output.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-008",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Signed execution state write-policy differs from approved contract.",
+      "closureProof": "Review bounded synthetic writable GCSFuse scope; deploy and read back.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-009",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Historical execution image differs from current signed job.",
+      "closureProof": "Compare immutable historical execution spec to generation and approval; no retry.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-010",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "REPORTED_NEEDS_INDEPENDENT_VERIFICATION",
+      "finding": "Generation-23 execution 5dhzb rejected overly permissive operator key.",
+      "closureProof": "Confirm startup wrapper/0400 file in the actual signed execution.",
+      "evidenceSourceIds": [
+        "SRC-GCP-OPERATOR"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-011",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Missing gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No proved pre-dispatch equality of signed approval digest, live job digest, reconciled generation and execution template.",
+      "closureProof": "Enforce fail-closed, immutable 4-way comparison before dispatch.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-012",
+      "priority": "P0",
+      "section": "A",
+      "originalEvidenceClass": "Missing gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "PR #167 audit existed independently from a signed-job deployment/repair workflow.",
+      "closureProof": "Implement separately approved atomic signed-job release and read-back gate.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-013",
+      "priority": "P1",
+      "section": "A",
+      "originalEvidenceClass": "In progress",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Forensic audit accepted absent observedGeneration before PR #168 fix.",
+      "closureProof": "Merge only reviewed tested change; require valid generation and observedGeneration.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-014",
+      "priority": "P1",
+      "section": "A",
+      "originalEvidenceClass": "In progress",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Audit-only changes triggered staging image publication workflow.",
+      "closureProof": "Stop publication on audit-only changes; verify main-push trigger rules.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-015",
+      "priority": "P1",
+      "section": "A",
+      "originalEvidenceClass": "Review needed",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Readiness and signed mission job use same privileged runtime service account.",
+      "closureProof": "Evaluate dedicated reduced-permission readiness identity; no broad IAM grants.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-016",
+      "priority": "P1",
+      "section": "A",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No completed signed mission PR, independent checkpoint or execution receipt for Mission 001/002.",
+      "closureProof": "Produce one complete governed disposable cycle after all P0 gates, never during diagnosis.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [
+        "G-001",
+        "G-002",
+        "G-003",
+        "G-004",
+        "G-005",
+        "G-006",
+        "G-007",
+        "G-008",
+        "G-011",
+        "G-018"
+      ],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-017",
+      "priority": "P1",
+      "section": "A",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Live Cloud Run runtime identity, secret versions and execution logs are not centrally available in the project tracker.",
+      "closureProof": "Expose sanitized job/exec metadata and audit ledger in one dashboard.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-CONTROL",
+        "SRC-GCP-OPERATOR",
+        "SRC-GCP-READINESS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Cloud Runtime",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-018",
+      "priority": "P0",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Signed nonce/signature was repeatedly used to discover ordinary deployment defects.",
+      "closureProof": "Introduce signature-free exact signed-mode config preflight before approval.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-019",
+      "priority": "P0",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Image build, Artifact Registry push, job replace, job reconcile and actual execution are not one fail-closed release transaction.",
+      "closureProof": "Use protected immutable manifest, read-back, reconciliation check and approve-specific digest.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-020",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Mission 001 can reach pre-admission but Vercel Codex worker remains unproven in a successful live run.",
+      "closureProof": "Isolated disposable worker and evidence attestation test.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-021",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Vercel Sandbox team/project/token and Codex binary digest live parity are not fully proven in signed execution.",
+      "closureProof": "Attest execution-only bindings without consuming mission signature.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-022",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Model ingress and model-admin service reachability, scoped lease issuance and revocation lack successful live signed-run evidence.",
+      "closureProof": "Exercise separate safe credential test and evidence-ledger receipt.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-023",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Neon fencing, nonces, durable run state and journal recovery have no successful end-to-end live mission receipt.",
+      "closureProof": "Verify integrity with disposable mission and independent read-only evidence.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-024",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "GCS journal and evidence archiving must be proved after actual worker dispatch.",
+      "closureProof": "Require journal write, read back, checkpoint, recovery and evidence sealing.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-025",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Mission 002 has no successful isolated execution or review record.",
+      "closureProof": "Independent signed authorization and separate disposable target after Mission 001 acceptance.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-026",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Review needed",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Artifact/version source of truth diverges across approvals, GitHub SHA, image digest, Cloud Run generation and Vercel worker image.",
+      "closureProof": "Single immutable release manifest and machine-readable evidence join keys.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-027",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Read-only audit is not an execution-mode dry run and currently reports BLOCKED.",
+      "closureProof": "Require signed-mode preflight that proves environment without executing mission business logic.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-028",
+      "priority": "P1",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Privileged deployer's Service Account User grant and separation-of-duties policy should be re-attested.",
+      "closureProof": "Record scoped IAM attestation and approval ownership.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-029",
+      "priority": "P2",
+      "section": "B",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No current system-wide failure prediction matrix tied to each deployment boundary.",
+      "closureProof": "Turn every historic failure into automatic regression/gate and preserve counterexamples.",
+      "evidenceSourceIds": [
+        "SRC-GCP-AUDIT",
+        "SRC-GCP-READINESS",
+        "SRC-GCP-CONTROL",
+        "SRC-NEON"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "PBOS Runtime/Governance",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-030",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Application automatic deployment from GitHub main is disabled.",
+      "closureProof": "Explicit approved release/promotion process with exact production SHA.",
+      "evidenceSourceIds": [
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-031",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Production READY deployment is behind GitHub main.",
+      "closureProof": "Deploy accepted release revision; prove /api/deployment SHA and domain alias.",
+      "evidenceSourceIds": [
+        "SRC-APP-REPO",
+        "SRC-VERCEL-PROJECT"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-032",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "PBOS_API_URL is not present in production Vercel environment inventory.",
+      "closureProof": "Set approved production endpoint and verify reachable signed transport.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-033",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "PBOS connector identity, key ID and server secret are preview-only, missing from production.",
+      "closureProof": "Provision distinct production credentials; verify signing/authorization.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-034",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "PBOS journey approval IDs are preview-only, missing from production.",
+      "closureProof": "Approve production-specific authority IDs per supported journey.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-035",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Live main-branch Scholar/Scholar-Athlete/Family E2E stops at pre-test configuration.",
+      "closureProof": "Split isolated localhost tests from safe live read-only/synthetic staging acceptance.",
+      "evidenceSourceIds": [
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-036",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Production QA config internally requires localhost while targeting remote Vercel/Supabase URLs.",
+      "closureProof": "Remove contradictory targets without creating synthetic production users.",
+      "evidenceSourceIds": [
+        "SRC-APP-PLATFORM-QA"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-037",
+      "priority": "P0",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No certified end-to-end production activation through PBOS after environment repair.",
+      "closureProof": "Complete authenticated signup→activate→dashboard→logout→return proof.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [
+        "G-032",
+        "G-033",
+        "G-034",
+        "G-031"
+      ],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-038",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Production custom domain verified but current login/activation/redirect health not independently browser-certified.",
+      "closureProof": "Test host, HTTPS, /api/deployment, login, callback and session across devices.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-039",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Email verification, password reset and Google OAuth provider configuration are not currently live-certified.",
+      "closureProof": "Controlled human/provider acceptance without real user-data mutation.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-040",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Vercel environment changes are not version-joined with app release and database migration.",
+      "closureProof": "Require environment manifest and exact-release receipt.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-041",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Preview has PBOS credentials that Production does not; promotion would not automatically carry safe production authority.",
+      "closureProof": "Separate per-environment approvals and promotion check.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-042",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No proved safe rollback drill combining app code, data schema and PBOS connector state.",
+      "closureProof": "Execute non-destructive rollback simulation in isolated staging.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-043",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Unknown",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "PBOS API production endpoint reachable and authorized from Vercel runtime has not been verified.",
+      "closureProof": "Check metadata-safe signed request, response and denial behavior.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-044",
+      "priority": "P1",
+      "section": "C",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No one live run proves exact deployed revision plus all 15 role journeys and their permissions.",
+      "closureProof": "Run trusted staged E2E matrix after production revision and hosted migration convergence.",
+      "evidenceSourceIds": [
+        "SRC-VERCEL-ENV",
+        "SRC-VERCEL-PROJECT",
+        "SRC-APP-QA",
+        "SRC-APP-VERCEL-CONFIG"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Release Engineering",
+      "dependenciesProposed": [
+        "G-037",
+        "G-035",
+        "G-036"
+      ],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-045",
+      "priority": "P0",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "All 15 role account tests succeeded in isolated localhost environment, not current deployed production.",
+      "closureProof": "Independent 15-role live staging/accepted-revision certification.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [
+        "G-031",
+        "G-032",
+        "G-033",
+        "G-034",
+        "G-035"
+      ],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-046",
+      "priority": "P0",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Profile is saved pending PBOS activation while authority remains unavailable; incomplete user activation journey.",
+      "closureProof": "Proof of durable pending→retry→activated transition with authorization.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-047",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Scholar identity activation depends on PBOS role and approval IDs absent from production.",
+      "closureProof": "Per-role production config readiness on Scholar/Scholar-Athlete/TAY.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-048",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No current browser acceptance for all 15 role dashboards, logout, return-login and persistent editable fields.",
+      "closureProof": "Browser, mobile, tablet and accessibility acceptance for each role.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-049",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Cross-role data denial/revocation has local tests but not complete live 15-role trust matrix.",
+      "closureProof": "Prove owner, relationship, consent, revocation and denial across live backend.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-050",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Mentor invitation validation threshold and revoke lifecycle remain uncertified in browser.",
+      "closureProof": "Review→invite→accept→support→revoke E2E with negative cases.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-051",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "High-trust roles have verification foundations but not full production role authority and meaningful actions.",
+      "closureProof": "Complete and certify approved role action, denial and return state.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-052",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Scholar-Athlete/athlete abroad sport-specialty menus suffered a documented regression; full released parity remains unverified.",
+      "closureProof": "Compare live fields against original 17-sport/spec controls and current 15-role contracts.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-053",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Google OAuth branding, authorized-domain and callback success still lack current end-to-end evidence.",
+      "closureProof": "Verify OAuth provider settings and redirect URIs against accepted app release.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-054",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Admin verification approval email links and document access not certified in production.",
+      "closureProof": "Run approval→invitation/email→profile activation with audit trail.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-055",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Need-additional-verification reasons/templates and communication logs exist, but delivery acceptance is not proven.",
+      "closureProof": "Use disposable staging request and verify reason, email, notes, immutable audit.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-056",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "72-hour review SLA, permanent admin archive and decline notices lack production operational acceptance.",
+      "closureProof": "Verify queue deadlines, escalations, notifications, permanent access and retention.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-057",
+      "priority": "P1",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Automated Secretary of State verification is optional and no CA_SOS_API_KEY exists in production inventory.",
+      "closureProof": "Decide whether automated official API is required; configure legal API access or certify manual fallback.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-058",
+      "priority": "P2",
+      "section": "D",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Community Partner uses canonical internal role `other`, requiring alias consistency across integrations.",
+      "closureProof": "Prove identity mapping, reporting, onboarding and permissions work under public Community Partner label.",
+      "evidenceSourceIds": [
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT",
+        "SRC-APP-QA-LOCAL",
+        "SRC-APP-CURRENT-STATE"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Playbook Identity and Product",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-059",
+      "priority": "P0",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Supabase leaked-password protection is disabled.",
+      "closureProof": "Enable in Auth settings and verify behavior.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-060",
+      "priority": "P0",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Anonymous-callable SECURITY DEFINER functions flagged for review.",
+      "closureProof": "Inventory grant/function, revoke unnecessary EXECUTE or verify bounded controls; don't blanket alter.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-061",
+      "priority": "P0",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Authenticated-callable SECURITY DEFINER functions flagged for review.",
+      "closureProof": "Per-function least-privilege/identity audit.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-062",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Advisor info",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "At least one RLS-enabled table has no policy.",
+      "closureProof": "Confirm intentional deny-all vs missing policy.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-063",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "RLS auth initialization-plan performance warnings.",
+      "closureProof": "Optimize verified policy expressions without weakening RLS.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-064",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Multiple permissive policies for same role and action.",
+      "closureProof": "Review overlap and simplify while preserving effective restrictions.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-065",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Advisor warning",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Duplicate indexes persist.",
+      "closureProof": "Compare index usage and safely consolidate.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-066",
+      "priority": "P2",
+      "section": "E",
+      "originalEvidenceClass": "Advisor info",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Foreign keys without covering index.",
+      "closureProof": "Profile high-traffic relationships, add justified indexes.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-067",
+      "priority": "P2",
+      "section": "E",
+      "originalEvidenceClass": "Advisor info",
+      "evidenceStatus": "ADVISORY_REVIEW_REQUIRED",
+      "finding": "Unused indexes exist.",
+      "closureProof": "Observe representative workload before dropping.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "provider_advisor_followup",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-068",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "169 hosted migrations are present, but source-to-hosted full migration parity not recertified with current main.",
+      "closureProof": "Compare source revisions to hosted applied list, schema/roles/RLS proofs.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-069",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Local QA renumbers legacy migration versions for disposable runs.",
+      "closureProof": "Repair canonical migration IDs or document/reconcile transformation contract.",
+      "evidenceSourceIds": [
+        "SRC-APP-PLATFORM-QA"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-070",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "102 of 166 public tables contain zero rows; content/catalog readiness not certified.",
+      "closureProof": "Separate intentionally empty tables from required launch catalogs and seed approved content.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-071",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Production Storage file upload, evidence access, virus checking, retention and cross-role download acceptance remain open.",
+      "closureProof": "Review per-bucket policies and browser/document lifecycle.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-072",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No current independent recovery drill for production Supabase schema/data and Neon execution journals.",
+      "closureProof": "Record restore-point coverage and run isolated restoration check.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-073",
+      "priority": "P1",
+      "section": "E",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Neon and Supabase are separate trust/data planes; no end-to-end lineage receipt joins them with app release.",
+      "closureProof": "Use stable correlation IDs and signed evidence joining state/transaction/PR.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-074",
+      "priority": "P2",
+      "section": "E",
+      "originalEvidenceClass": "Review needed",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Neon PBOS Cloud Runner main branch is currently unprotected.",
+      "closureProof": "Assess protection appropriate to disposable state and reject risky writes.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-075",
+      "priority": "P2",
+      "section": "E",
+      "originalEvidenceClass": "Architecture note",
+      "evidenceStatus": "DESCRIPTIVE_NOT_RELEASE_PROOF",
+      "finding": "Zero Supabase Edge Functions deployed, although Next.js API handlers exist; not inherently a defect.",
+      "closureProof": "Document chosen server-side ownership and verify required background tasks execute elsewhere.",
+      "evidenceSourceIds": [
+        "SRC-SUPABASE-PROJECT",
+        "SRC-SUPABASE-ADVISORS"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Database and Security",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-076",
+      "priority": "P0",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Messaging: Close Data API revocation gap, attachment governance/storage permissions, and browser recovery.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-077",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Network and Feed: Certify moderation, pagination, blocking, privacy, sharing and data projections.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-078",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Scholar Record / Achievements: Wire atomic achievement command, provenance, idempotent events, downstream refresh.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-079",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Opportunities→Application: Prove discover/save/apply/support/documents/submission/outcome workflow.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-080",
+      "priority": "P0",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Academic Intelligence: Finish transcript→readiness/FAFSA→guidance→human decision→durable outcome.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-081",
+      "priority": "P0",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Recruiting: Finish eligibility→targets/visits/offers→reviewed outcomes.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-082",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Learning/Courses: Prove course/module/progress/credential/badge flow and recovery.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-083",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Store/Rewards: Prove fulfillment, anti-abuse, ledger reconciliation and refunds/recovery.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-084",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Events: Finish reminders, check-in, attendance validation and outcome.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-085",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Mentorship Circles: Prove circle/session/attendance/outcome/revocation lifecycle.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-086",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Notifications/Attention: Certify queued delivery, retries, preferences, suppression and recovery.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-087",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Brand Partner campaigns: Prove verification→campaign→compliance approval→release/outcome.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-088",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Employer opportunity workflow: Prove opportunity posting→matching→application→hire/outcome under allowed scope.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-089",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Counselor/Educator/Coach/District: Prove meaningful bounded support actions and revocation.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-090",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Athlete Abroad/Community Partner: Prove jurisdiction/service scope, identity and downstream action.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-091",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Compass AI/Intelligence: Explainability, source/provenance, access, confidence, human-decision and impact measurement.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-092",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Outbound email: Template selection, delivery receipts, bounce/suppression, retry and live confirmation.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-093",
+      "priority": "P1",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Analytics/observability: Define event taxonomy, correlation IDs, error alerts, response owners and privacy safeguards.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-094",
+      "priority": "P0",
+      "section": "F",
+      "originalEvidenceClass": "Open certification",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Compliance and launch: Retention, legal, safety, child protection, incident response, rollback, release notes and launch signoff.",
+      "closureProof": "Exact-revision staging and user-facing browser acceptance, positive and negative cases.",
+      "evidenceSourceIds": [
+        "SRC-APP-CURRENT-STATE",
+        "SRC-ROLE-REGISTRY",
+        "SRC-ONBOARD-CONTRACT"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Product/Engineering",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-095",
+      "priority": "P0",
+      "section": "G",
+      "originalEvidenceClass": "Confirmed",
+      "evidenceStatus": "OBSERVED_NONCOMPLIANT_AT_SNAPSHOT",
+      "finding": "Uploaded project.json tracker is stale: updated July 14; 207 tasks, 206 not started, 1 testing, zero assigned/dependency/completion records.",
+      "closureProof": "Replace with current evidence-backed living task register.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER"
+      ],
+      "evidenceSpecificity": "DIRECT",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "read_only_provider_or_ci",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-096",
+      "priority": "P0",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "PBOS issue #95, app docs, Playbook project.json, workflow conclusions and runtime states do not reconcile into a single current source of truth.",
+      "closureProof": "One reconciled machine-readable release ledger across GitHub/GCP/Vercel/Supabase/Neon.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-097",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "PR approval, CI green, Vercel READY and release certification have been repeatedly conflated.",
+      "closureProof": "Separate status signals: CODE_READY, CONFIG_READY, DEPLOYED, E2E_CERTIFIED.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-098",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No global dependency DAG prevents downstream mission signing while upstream config is BLOCKED.",
+      "closureProof": "Encode typed prerequisites and prohibit out-of-order transitions.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-099",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "A release cannot be reconstructed from one record of approved code/config/image/database state.",
+      "closureProof": "Signed immutable release manifest + rollback provenance.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-100",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Deployment approvals are manual and sometimes hidden behind separate GitHub reviewer identity.",
+      "closureProof": "Show reviewer/approval state and fail closed with direct actionable owner.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-101",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Operational incident ownership, paging, notification and error budgets lack current verified evidence.",
+      "closureProof": "Correlated errors, on-call contact, automated incident template.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-102",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "System-wide release regression suite doesn't exercise live dependencies at matching revisions.",
+      "closureProof": "Add protected end-to-end release candidate environment (not prod synthetic).",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-103",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Current technical debt and launch readiness snapshot is dated October 21 versus November 24 changes.",
+      "closureProof": "Refresh from exact commit/deployment/advisors/role acceptance.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-104",
+      "priority": "P2",
+      "section": "G",
+      "originalEvidenceClass": "Review needed",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Main product README remains generic create-next-app boilerplate.",
+      "closureProof": "Document boot, environments, ownership, system map and operational playbooks.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-105",
+      "priority": "P2",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "Developer recovery workflow can depend on local Docker despite inability to use it on the user's computer.",
+      "closureProof": "Run all disposable diagnostics in hosted, approved test environments.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    },
+    {
+      "id": "G-106",
+      "priority": "P1",
+      "section": "G",
+      "originalEvidenceClass": "Open gate",
+      "evidenceStatus": "UNCERTIFIED_OR_UNVERIFIED",
+      "finding": "No final 15-role/staging/database/security/rollback acceptance pack approved by a human before broad launch.",
+      "closureProof": "Require launch readiness packet with denial tests and rollback evidence.",
+      "evidenceSourceIds": [
+        "SRC-PROJECT-TRACKER",
+        "SRC-APP-CURRENT-STATE",
+        "SRC-APP-QA"
+      ],
+      "evidenceSpecificity": "SECTION_CONTEXT_ONLY_NOT_ITEM_PROOF",
+      "proposedOwnerRole": "Governance/Operations",
+      "dependenciesProposed": [
+        "G-016",
+        "G-037",
+        "G-044",
+        "G-059",
+        "G-060",
+        "G-061",
+        "G-072",
+        "G-099"
+      ],
+      "executionModeForClosure": "approved_staging_or_human_review",
+      "closureStatus": "NOT_CLOSED"
+    }
+  ]
+}
