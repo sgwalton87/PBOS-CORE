@@ -1,5 +1,6 @@
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Sandbox } from "@vercel/sandbox";
@@ -22,7 +23,7 @@ afterEach(() => {
     for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
-function fixture(missionId: PlaybookMb03MissionId) {
+function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepository.createDisposable) {
     const keys = generateKeyPairSync("ed25519");
     const providerKeys = generateKeyPairSync("ed25519");
     const root = realpathSync(mkdtempSync(join(tmpdir(), "mb03-playbook-hosted-")));
@@ -30,7 +31,7 @@ function fixture(missionId: PlaybookMb03MissionId) {
     const archiveRoot = join(root, "archive");
     mkdirSync(archiveRoot, { mode: 0o700 });
     const namespace = "mb03-hosted-staging-fixture";
-    const state = GenesisStateRepository.createDisposable(join(root, "state.json"), namespace);
+    const state = openState(join(root, "state.json"), namespace);
     const runtime = new ProductionRuntimeService(state);
     const systemId = "PLAYBOOK-SYSTEM-001";
     runtime.reconcileQueue(systemId, [{
@@ -134,6 +135,35 @@ function fixture(missionId: PlaybookMb03MissionId) {
 }
 
 describe("MB-03 composed hosted Playbook Codex execution", () => {
+    it("passes the plan-ready state write under 429 throttling and hands off exactly once", async () => {
+        let injected = false;
+        const f = fixture("MB03-MISSION-001", (path, namespace) => {
+            GenesisStateRepository.createDisposable(path, namespace);
+            let current = { bytes: readFileSync(path, "utf8"), generation: "1" };
+            return new GenesisStateRepository(path, namespace, { managedRemote: true, versionedObject: {
+                read: () => current,
+                replace(expected, bytes) {
+                    const previous = JSON.parse(current.bytes);
+                    const throttle = !injected && previous.productionRuns?.[0]?.status === "RUNNING" &&
+                        previous.productionEvents?.at(-1)?.type === "EXECUTION_PLAN_READY";
+                    const reply = execFileSync(process.execPath, [join(__dirname, "fixtures/throttled-state-replace.cjs")], {
+                        input: JSON.stringify({ current, expected, bytes, throttle }), encoding: "utf8"
+                    });
+                    const receipt = JSON.parse(reply);
+                    current = receipt.current;
+                    if (receipt.throttled) injected = true;
+                }
+            } });
+        });
+        const result = await executeHostedPlaybookCodexMission(f.composition, f.api);
+        expect(injected).toBe(true);
+        expect(f.composition.adapters.admission.recordApprovalNonce).toHaveBeenCalledOnce();
+        expect(f.reserve).toHaveBeenCalledOnce();
+        expect(f.api.create).toHaveBeenCalledOnce();
+        expect(f.checkpoints.commit).toHaveBeenCalledOnce();
+        expect(f.state.executionLeases().at(-1)?.status).toBe("RELEASED");
+        expect(result.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
+    }, 45_000);
     it.each(["MB03-MISSION-001", "MB03-MISSION-002"] as const)(
         "adopts one signed %s provider return, then stops before independent certification",
         async missionId => {
