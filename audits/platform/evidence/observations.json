@@ -117,7 +117,9 @@
         "SRC-VERCEL-ENV",
         "SRC-VERCEL-PROJECT"
       ],
-      "explicitReleaseReceiptVerified": null
+      "explicitReleaseReceiptVerified": null,
+      "productionPbosConnectivityAttested": null,
+      "productionDomainDeploymentShaVerified": null
     },
     "supabase": {
       "projectRef": "oexgxnybeixwadgtdtzp",
@@ -144,7 +146,8 @@
         "SRC-SUPABASE-PROJECT",
         "SRC-SUPABASE-ADVISORS"
       ],
-      "fullAdvisorObjectEvidenceRepositoryFile": "https://github.com/sgwalton87/PBOS-CORE/blob/audit/platform-forensic-certificate-20261124/audits/platform/evidence/supabase-advisor-2026-11-25.json"
+      "fullAdvisorObjectEvidenceRepositoryFile": "https://github.com/sgwalton87/PBOS-CORE/blob/audit/platform-forensic-certificate-20261124/audits/platform/evidence/supabase-advisor-2026-11-25.json",
+      "publicRlsInspectedTableCount": 166
     },
     "neon": {
       "projectId": "patient-truth-44204591",
