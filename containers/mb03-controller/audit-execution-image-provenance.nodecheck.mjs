@@ -40,6 +40,20 @@ test("Cloud Run job reconciliation not finished must block mission admission",()
  const result=inspectFailedExecution(job(good,20,19),newExec());
  assert.ok(result.findings.includes("SIGNED_JOB_GENERATION_NOT_RECONCILED"));
 });
+test("missing or invalid Cloud Run reconciliation generation evidence fails closed",()=>{
+ const missingObserved=job(good,23,undefined);
+ delete missingObserved.status.observedGeneration;
+ const a=inspectFailedExecution(missingObserved,newExec());
+ assert.ok(a.findings.includes("SIGNED_JOB_GENERATION_EVIDENCE_MISSING"));
+ const missingBoth=job(good,undefined,undefined);
+ delete missingBoth.metadata.generation;
+ delete missingBoth.status.observedGeneration;
+ assert.ok(inspectFailedExecution(missingBoth,newExec()).findings.includes("SIGNED_JOB_GENERATION_EVIDENCE_MISSING"));
+ const invalid=job(good,"unknown",23);
+ assert.ok(inspectFailedExecution(invalid,newExec()).findings.includes("SIGNED_JOB_GENERATION_EVIDENCE_MISSING"));
+ const valid=job(good,23,23);
+ assert.ok(!inspectFailedExecution(valid,newExec()).findings.includes("SIGNED_JOB_GENERATION_EVIDENCE_MISSING"));
+});
 test("wrong execution parent and identity are rejected",()=>{
  const bad=oldExec();
  bad.metadata.name="pbos-mb03-playbook-codex-OTHER";

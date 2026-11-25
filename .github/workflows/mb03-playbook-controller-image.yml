@@ -8,9 +8,11 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
-      - containers/mb03-controller/**
+      # Runtime-owned inputs only; audit-only scripts must not republish or rerun readiness.
+      - containers/mb03-controller/stage-secrets.sh
+      - containers/mb03-controller/staging-smoke.sh
+      - containers/mb03-controller/pin-readiness.sh
       - job.mb03-readiness.yaml
-      - .github/workflows/mb03-playbook-controller-image.yml
       - pbos/tools/mb03-protected-playbook-codex.ts
       - pbos/production-runtime/**
       - pbos/master-builder/**
@@ -20,7 +22,9 @@ on:
     paths:
       - Dockerfile.mb03-playbook-controller
       - containers/mb03-playbook/controller-smoke.sh
-      - containers/mb03-controller/**
+      - containers/mb03-controller/stage-secrets.sh
+      - containers/mb03-controller/staging-smoke.sh
+      - containers/mb03-controller/pin-readiness.sh
       - job.mb03-readiness.yaml
       - infra/mb03/**
       - pbos/tools/mb03-protected-playbook-codex.ts
