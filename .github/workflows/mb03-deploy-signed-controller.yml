@@ -84,6 +84,8 @@ jobs:
           grep -Fq -- '- pbos/tools/mb03-protected-playbook-codex.ts' "$manifest"
           grep -Fq 'value: "true"' "$manifest"
           grep -Fq 'bucketName: pbos-genesis-staging-mb03-execution-state' "$manifest"
+          grep -Fq 'mountPath: /var/lib/pbos-evidence' "$manifest"
+          grep -Fq 'only-dir=synthetic/evidence' "$manifest"
           grep -Fq 'bucketName: pbos-genesis-staging-mb03-observation-state' "$manifest"
           grep -Fq 'readOnly: true' "$manifest"
           grep -Fq 'serviceAccountName: pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com' "$manifest"
