@@ -133,7 +133,7 @@ test("review-only mission YAML remains undeployable and does not auto-dispatch",
  assert.match(preview,/name: pbos-mb03-playbook-codex/);
  assert.match(preview,/name: PBOS_MISSION_EXECUTION_APPROVED\n\s+value: "true"/);
  assert.match(preview,/name: PBOS_PROVIDER_SIGNING_KEY_FILE\n\s+value: \/var\/lib\/pbos-private\/provider-private\.pem/);
- assert.match(preview,/name: PBOS_PLAYBOOK_SOURCE_SHA\n\s+value: 6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea/);
+ assert.match(preview,/name: PBOS_PLAYBOOK_SOURCE_SHA\n\s+value: b2c2259d67f30ca068f32cd1889542991f294e42/);
  assert.doesNotMatch(preview,/name: PBOS_PROVIDER_SIGNING_KEY_PEM/);
  assert.match(readiness,/name: PBOS_MISSION_EXECUTION_APPROVED\n\s+value: "false"/);
  assert.doesNotMatch(workflow,/job\.signed-mission\.review-only\.yaml/);

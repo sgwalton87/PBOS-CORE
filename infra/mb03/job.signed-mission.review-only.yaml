@@ -91,7 +91,7 @@ spec:
             - name: PBOS_DISPATCH_JOURNAL_BUCKET
               value: pbos-genesis-staging-mb03-dispatch-journal
             - name: PBOS_PLAYBOOK_SOURCE_SHA
-              value: 6bfa55c69f50b8872f8509a2e8f4e1fe8e415fea
+              value: b2c2259d67f30ca068f32cd1889542991f294e42
             - name: PBOS_PLAYBOOK_IMAGE
               value: vcr.vercel.com/pbos-genesis/the-playbook/pbos-mb03-playbook-worker@sha256:16f0f932bf78ae440ba00f5e1541bfa056740fe6b7013886e1bc1131f5572e95
             - name: PBOS_CODEX_BINARY_SHA256
