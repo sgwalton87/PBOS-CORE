@@ -3,17 +3,18 @@ import type { RemoteWorkerBinding } from "./trusted-remote-worker";
 
 type AccessToken = (signal: AbortSignal) => Promise<string>;
 
-/** Give this identity object-create access only. Keep the bucket independent of controller-state backups. */
+/** Requires bucket metadata read and create-only object access on the independent journal. */
 export class GcsRemoteDispatchJournal {
     constructor(private readonly bucket: string, private readonly token: AccessToken, private readonly http = fetch) {
         if (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(bucket)) throw new Error("A dedicated dispatch journal bucket is required.");
     }
 
-    async reserve(binding: RemoteWorkerBinding, signal: AbortSignal): Promise<void> {
-        const { mission } = binding;
-        const key = evidenceDigest(evidenceJson([mission.repository.toLowerCase(), mission.missionId]));
-        const endpoint = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${this.bucket}/o`);
-        endpoint.search = new URLSearchParams({ uploadType: "media", name: `pbos-dispatch/${key}`, ifGenerationMatch: "0" }).toString();
+    /** Read bucket policy with the same credential used at dispatch, without reserving a mission. */
+    async verifyProtection(signal: AbortSignal): Promise<void> {
+        await this.verifiedAccessToken(signal);
+    }
+
+    private async verifiedAccessToken(signal: AbortSignal): Promise<string> {
         const token = await this.token(signal);
         if (!token || /\s/.test(token)) throw new Error("Dispatch journal credential unavailable.");
         const properties = new URL(`https://storage.googleapis.com/storage/v1/b/${this.bucket}`);
@@ -22,7 +23,7 @@ export class GcsRemoteDispatchJournal {
             headers: { authorization: `Bearer ${token}` } });
         if (!metadata.ok) {
             await metadata.body?.cancel();
-            throw new Error("Independent dispatch journal protection could not be verified.");
+            throw new Error(`Independent dispatch journal protection could not be verified (HTTP ${metadata.status}).`);
         }
         const protection = await metadata.json() as {
             retentionPolicy?: { isLocked?: boolean; retentionPeriod?: string };
@@ -34,6 +35,15 @@ export class GcsRemoteDispatchJournal {
             protection.iamConfiguration.uniformBucketLevelAccess?.enabled !== true || protection.lifecycle?.rule?.length) {
             throw new Error("Independent dispatch journal bucket does not match the protected retention policy.");
         }
+        return token;
+    }
+
+    async reserve(binding: RemoteWorkerBinding, signal: AbortSignal): Promise<void> {
+        const { mission } = binding;
+        const key = evidenceDigest(evidenceJson([mission.repository.toLowerCase(), mission.missionId]));
+        const endpoint = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${this.bucket}/o`);
+        endpoint.search = new URLSearchParams({ uploadType: "media", name: `pbos-dispatch/${key}`, ifGenerationMatch: "0" }).toString();
+        const token = await this.verifiedAccessToken(signal);
         const response = await this.http(endpoint, { method: "POST", redirect: "error", signal,
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
             body: evidenceJson({ bindingDigest: evidenceDigest(evidenceJson(binding)), sourceSha: mission.sourceSha }) });
