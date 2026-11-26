@@ -13,8 +13,8 @@ PROJECT = "pbos-genesis-staging"
 REGION = "us-west1"
 JOB = "pbos-mb03-playbook-readiness"
 UID = "950acb8f-48ec-428d-ae67-087ed5b61a9d"
-PREVIOUS = JOB + "-vlzxs"
-MANIFEST_SHA = "7bac3a340408c11dcd89bf63883304e7981d8477a560bc0f3219bb4d5eefc7be"
+PREVIOUS = JOB + "-6gscn"
+MANIFEST_SHA = "2b4299d010b2e09772b3c9a31da3c02a28f6e605ec2c8ef77bcb3e618c32968f"
 SOURCE = "b2c2259d67f30ca068f32cd1889542991f294e42"
 LOCATION = f"projects/{PROJECT}/locations/{REGION}"
 LOCATION_PATTERN = rf"projects/(?:{PROJECT}|211508256780)/locations/{REGION}"
@@ -53,16 +53,16 @@ def cloud_request(method, path, body=None):
 def update_and_start(manifest, request, pause=time.sleep):
     job = request("GET", V1)
     meta, status = job["metadata"], job["status"]
-    require(meta["uid"] == UID and int(meta["generation"]) == 1 and int(status["observedGeneration"]) == 1
-            and int(status["executionCount"]) == 1 and status["latestCreatedExecution"]["name"] == PREVIOUS,
+    require(meta["uid"] == UID and int(meta["generation"]) == 2 and int(status["observedGeneration"]) == 2
+            and int(status["executionCount"]) == 2 and status["latestCreatedExecution"]["name"] == PREVIOUS,
             "Readiness job has moved; reconcile existing execution")
     # Only transport metadata is added to the digest-verified document. Match the last live read.
     manifest["metadata"].update(namespace=meta["namespace"], resourceVersion=meta["resourceVersion"])
     request("PUT", V1, manifest)
     for _ in range(60):
         updated = request("GET", V2)
-        require(updated["uid"] == UID and int(updated["generation"]) in (1, 2), "Unexpected readiness generation")
-        if int(updated.get("observedGeneration", 0)) == 2 and int(updated["generation"]) == 2 and not updated.get("reconciling"):
+        require(updated["uid"] == UID and int(updated["generation"]) in (2, 3), "Unexpected readiness generation")
+        if int(updated.get("observedGeneration", 0)) == 3 and int(updated["generation"]) == 3 and not updated.get("reconciling"):
             break
         pause(2)
     else:
@@ -75,7 +75,7 @@ def update_and_start(manifest, request, pause=time.sleep):
     env = {entry["name"]: entry.get("value") for entry in container["env"]}
     require(updated["terminalCondition"]["state"] == "CONDITION_SUCCEEDED"
             and updated["latestCreatedExecution"]["name"].split("/")[-1] == PREVIOUS
-            and int(updated["executionCount"]) == 1 and int(template["taskCount"]) == 1
+            and int(updated["executionCount"]) == 2 and int(template["taskCount"]) == 1
             and int(task["maxRetries"]) == 0 and task["serviceAccount"] == spec["serviceAccountName"]
             and all(container[k] == expected[k] for k in ("image", "command", "args"))
             and env["PBOS_MISSION_EXECUTION_APPROVED"] == "false" and env["PBOS_PLAYBOOK_SOURCE_SHA"] == SOURCE
@@ -115,11 +115,10 @@ def read_receipt(execution):
                     record = json.loads(entry.get("textPayload", ""))
                 except ValueError:
                     continue
-            if (isinstance(record, dict) and record.get("schema") == "pbos.mb03.protected-bindings.v1"
-                    and record.get("status") == "READY_FOR_SEPARATE_SIGNED_APPROVAL"
-                    and record.get("sourceSha") == SOURCE and record.get("missionExecutionAuthorized") is False
-                    and record.get("journalProtectionVerified") is True):
-                return {key: record[key] for key in ("status", "sourceSha", "journalProtectionVerified", "missionExecutionAuthorized")}
+            if (isinstance(record, dict) and record.get("status") == "MISSION_001_JOURNAL_READ_VERIFIED"
+                    and record.get("missionId") == "MB03-MISSION-001" and record.get("missionExecutionAuthorized") is False
+                    and record.get("reservationHttp") == 404 and record.get("siblingHttp") == 403):
+                return {key: record[key] for key in ("status", "missionId", "reservationHttp", "siblingHttp", "missionExecutionAuthorized")}
         time.sleep(5)
     raise RuntimeError("Expected execution-specific readiness receipt unavailable")
 

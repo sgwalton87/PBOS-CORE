@@ -94,11 +94,11 @@ jobs:
           fi
 
   update-existing-readiness:
-    name: Apply pinned existing readiness job and run verify-bindings once
+    name: Apply pinned existing readiness job and check Mission 001 journal access once
     if: >-
       github.event_name == 'workflow_dispatch' && github.run_attempt == '1' &&
       github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/main' &&
-      inputs.readiness_manifest_sha256 == '7bac3a340408c11dcd89bf63883304e7981d8477a560bc0f3219bb4d5eefc7be'
+      inputs.readiness_manifest_sha256 == '2b4299d010b2e09772b3c9a31da3c02a28f6e605ec2c8ef77bcb3e618c32968f'
     runs-on: ubuntu-latest
     environment: pbos-genesis-staging
     timeout-minutes: 25
@@ -111,19 +111,25 @@ jobs:
           persist-credentials: false
       - name: Check one-shot update and execution guards
         run: python3 -m unittest discover -s containers/mb03-controller/tests -p test_existing_readiness.py
+      - name: Render and verify the authorized journal probe manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:ba665785657c6ce715e9cc91cbbe9e92ea1667039ca5b4e936e18d935ebc3ca4
+          manifest="$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          sh containers/mb03-controller/pin-readiness.sh "$image" "$RUNNER_TEMP/mb03-bindings.yaml"
+          sed 's/^            - --verify-bindings$/            - --verify-mission-001-journal-read/' "$RUNNER_TEMP/mb03-bindings.yaml" > "$manifest"
+          echo "2b4299d010b2e09772b3c9a31da3c02a28f6e605ec2c8ef77bcb3e618c32968f  $manifest" | shasum -a 256 --check
       - uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Verify manifest, update the existing readiness job, and capture its execution ID
+      - name: Update existing readiness job and capture the single execution ID
         shell: bash
         run: |
           set -euo pipefail
-          image=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:1eceb0b4499d263a1a4da1902228ce59c29963c0b017431434bf0134133942e2
-          manifest="$RUNNER_TEMP/mb03-readiness-pinned.yaml"
-          sh containers/mb03-controller/pin-readiness.sh "$image" "$manifest"
-          python3 -u containers/mb03-controller/verify-existing-readiness.py "$manifest" | tee -a "$GITHUB_STEP_SUMMARY"
+          python3 -u containers/mb03-controller/verify-existing-readiness.py "$RUNNER_TEMP/mb03-readiness-pinned.yaml" | tee -a "$GITHUB_STEP_SUMMARY"
 
   publish-staging-image:
     name: Publish controller image to existing pbos-executor — no Cloud Run deploy
