@@ -30,24 +30,33 @@ on:
       - pbos/tools/mb03-protected-playbook-codex.ts
       - pbos/tools/tests/mb03-*.test.ts
       - .github/workflows/mb03-playbook-controller-image.yml
+      - containers/mb03-controller/verify-existing-readiness.py
+      - containers/mb03-controller/tests/test_existing_readiness.py
   workflow_dispatch:
+    inputs:
+      readiness_manifest_sha256:
+        description: Exact authorized manifest for one update and check of the existing staging readiness job (blank for build only)
+        required: false
+        type: string
 
 permissions:
   contents: read
 concurrency:
-  group: mb03-cloudrun-controller-image-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ inputs.readiness_manifest_sha256 && 'mb03-existing-readiness' || format('mb03-cloudrun-controller-image-{0}', github.ref) }}
+  cancel-in-progress: ${{ !inputs.readiness_manifest_sha256 }}
 
 jobs:
   offline-build:
     name: Build and test protected controller image — no mission
-    if: github.repository == 'sgwalton87/PBOS-CORE'
+    if: github.repository == 'sgwalton87/PBOS-CORE' && !inputs.readiness_manifest_sha256
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Exercise the one-shot readiness guards without cloud credentials
+        run: python3 -m unittest discover -s containers/mb03-controller/tests -p test_existing_readiness.py
       - name: Verify source and build non-root controller
         shell: bash
         run: |
@@ -83,6 +92,38 @@ jobs:
             echo "invalid image accepted" >&2
             exit 1
           fi
+
+  update-existing-readiness:
+    name: Apply pinned existing readiness job and run verify-bindings once
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.run_attempt == '1' &&
+      github.repository == 'sgwalton87/PBOS-CORE' && github.ref == 'refs/heads/main' &&
+      inputs.readiness_manifest_sha256 == '7bac3a340408c11dcd89bf63883304e7981d8477a560bc0f3219bb4d5eefc7be'
+    runs-on: ubuntu-latest
+    environment: pbos-genesis-staging
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Check one-shot update and execution guards
+        run: python3 -m unittest discover -s containers/mb03-controller/tests -p test_existing_readiness.py
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Verify manifest, update the existing readiness job, and capture its execution ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=us-west1-docker.pkg.dev/pbos-genesis-staging/pbos-executor/mb03-playbook-controller@sha256:1eceb0b4499d263a1a4da1902228ce59c29963c0b017431434bf0134133942e2
+          manifest="$RUNNER_TEMP/mb03-readiness-pinned.yaml"
+          sh containers/mb03-controller/pin-readiness.sh "$image" "$manifest"
+          python3 -u containers/mb03-controller/verify-existing-readiness.py "$manifest" | tee -a "$GITHUB_STEP_SUMMARY"
 
   publish-staging-image:
     name: Publish controller image to existing pbos-executor — no Cloud Run deploy
