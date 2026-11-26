@@ -1,4 +1,11 @@
-import { randomUUID } from "crypto";
+import { hostname } from "node:os";
+import type { HostedExecutionDependencies, HostedExecutionLease } from "./hosted-approved-mission";
+import {
+    verifyHostedMissionApproval, verifyPlanReadyRecoveryApproval, type PlanReadyRecoveryAuthorization,
+    type HostedMissionScope, type SignedHostedMissionApproval
+} from "./hosted-signed-mission-approval";
+import type { GitHubAppPlaybookPrApi } from "./github-app-playbook-pr-api";
+import { createHash, randomUUID } from "crypto";
 import { GenesisStateRepository } from "../genesis-state";
 import { GovernedMissionQueue } from "./mission-queue";
 import { ApplicationAcceptanceEvidence, DisposableProductionAttempt, FunctionalAcceptancePlan, MissionQueueItem, ProductionExecutionPlan, ProductionRun } from "./contracts";
@@ -75,8 +82,83 @@ export class ProductionMissionRunner {
         }
     }
 
+    /** Only for the process that already owns a verified, CAS-transferred plan-ready
+     * lease. Never reacquire admission or replace the original run/nonce. */
+    async continueHostedPlanReady(request: ProductionMissionRequest, original: SignedHostedMissionApproval,
+        scope: HostedMissionScope, recovery: PlanReadyRecoveryAuthorization, dependencies: HostedExecutionDependencies,
+        fence: HostedExecutionLease, github: Pick<GitHubAppPlaybookPrApi, "assertRecoveryPublicationBase">,
+        executor: ProductionMissionExecutor): Promise<ProductionMissionSequence> {
+        const { pin, approval } = recovery;
+        const expected = { missionId: pin.missionId, repository: request.repository, commit: request.commit,
+            operatorId: request.actorId, scope };
+        const signed = () => verifyPlanReadyRecoveryApproval(recovery, expected, dependencies.trustedPublicKeyPem);
+        // Historical verification is solely to authenticate the consumed envelope recorded
+        // at admission. Only the separate recovery signature is checked against current time.
+        if (!signed() || !verifyHostedMissionApproval(original, expected, dependencies.trustedPublicKeyPem,
+            new Date(original.payload.issuedAt)) || original.payload.nonce !== pin.nonce ||
+            request.authorizationArtifactId !== "hosted-approval:" + pin.nonce || scope.branch !== request.branch ||
+            request.maximumMissions !== 1 || request.autonomousContinuation !== false ||
+            request.approvedMissionIds?.length !== 1 || request.approvedMissionIds[0] !== pin.missionId ||
+            request.disposableAttempt || request.triggerSource === "CONTINUATION") throw Error("RECOVERY_AUTHORIZATION");
+        if (!await dependencies.hostAttested() || !await dependencies.canonicalStateVerified() ||
+            !await dependencies.durableStateVerified?.()) throw Error("RECOVERY_HOST_BINDINGS");
+        this.state.assertDisposableNamespace(dependencies.disposableNamespace);
+        const inspect = () => {
+            const run = this.runtime.run(pin.runId);
+            const attempt = run?.disposableAttempt;
+            const plan = run?.executionPlan;
+            const event = this.state.productionEvents(pin.runId).at(-1);
+            const mission = new GovernedMissionQueue().next(this.state.missionQueue(request.systemId));
+            const leases = this.state.executionLeases().filter(l => l.repository.toLowerCase() === pin.repository.toLowerCase() && l.status === "ACTIVE");
+            const [lease] = leases;
+            const prior = lease?.recoveryMetadata;
+            if (!run || !attempt || !plan || run.status !== "RUNNING" || run.activeStageId || run.stageIds.length ||
+                this.state.productionStages(pin.runId).length || run.autonomousContinuation || run.systemId !== request.systemId ||
+                run.actorId !== request.actorId || run.repository !== pin.repository || run.startingCommit !== pin.commit ||
+                run.currentCommit !== pin.commit || run.currentBranch !== request.branch || run.startingBranch !== request.branch ||
+                run.authorizationArtifactId !== request.authorizationArtifactId || plan.runId !== pin.runId ||
+                plan.missionId !== pin.missionId || event?.type !== "EXECUTION_PLAN_READY" || event.payload.planId !== plan.planId ||
+                !mission?.approvalRequired || mission.missionId !== pin.missionId || mission.title !== run.selectedMission ||
+                attempt.namespace !== dependencies.disposableNamespace || attempt.missionId !== pin.missionId ||
+                attempt.attemptId !== pin.nonce || attempt.scopeDigest !== pin.scopeDigest || attempt.workerStartedAt ||
+                attempt.workerFinishedAt || attempt.quarantine ||
+                attempt.approvalDigest !== createHash("sha256").update(original.signatureBase64).digest("hex")) {
+                throw Error("RECOVERY_CHECKPOINT");
+            }
+            const historical = this.state.executionLeases().find(l => l.leaseId === pin.oldLeaseId);
+            if (historical?.runId !== pin.runId || historical.status !== "STALE" || historical.releaseMethod !== "RECOVERED" ||
+                historical.actorId !== run.actorId || historical.commit !== pin.commit || historical.repository !== run.repository ||
+                historical.branch !== scope.branch || leases.length !== 1 || lease.runId !== pin.runId || lease.actorId !== run.actorId ||
+                lease.commit !== pin.commit || lease.branch !== request.branch || lease.host !== hostname() ||
+                lease.processId !== process.pid || !(Date.parse(lease.expiresAt) > Date.now()) ||
+                !prior || prior.previousLeaseId !== pin.oldLeaseId || prior.previousStateGeneration !== pin.stateGeneration ||
+                prior.previousLockGeneration !== pin.lockGeneration || prior.previousStateSha256 !== pin.stateSha256 ||
+                fence.resource !== "pbos:mission:" + pin.repository + ":" + pin.missionId || fence.fencingToken < 1n ||
+                prior.ownerId !== fence.ownerId || prior.fencingToken !== fence.fencingToken.toString()) throw Error("RECOVERY_FENCE");
+            return { run, plan, mission, attempt };
+        };
+        inspect();
+        await github.assertRecoveryPublicationBase(pin.repository, pin.commit, recovery.publicationBase);
+        if (!await dependencies.assertFencedLease(fence) || !signed()) throw Error("RECOVERY_FENCE_OR_EXPIRY");
+        if (!await dependencies.recordApprovalNonce(approval.payload.nonce, pin.missionId, pin.repository,
+            approval.payload.expiresAt)) throw Error("RECOVERY_NONCE_USED");
+        if (!await dependencies.assertFencedLease(fence) || !signed()) throw Error("RECOVERY_FENCE_OR_EXPIRY");
+        const selected = inspect();
+        return this.runSequence({ ...request, disposableAttempt: selected.attempt }, () => executor, {
+            ...selected, evidence: { recoveryNonce: approval.payload.nonce, recoveryDigest: approval.payload.scopeDigest,
+                originalNonce: pin.nonce, publicationBase: recovery.publicationBase }
+        });
+    }
+
     async run(request: ProductionMissionRequest,
         executorFor: (mission: MissionQueueItem) => ProductionMissionExecutor | undefined): Promise<ProductionMissionSequence> {
+        return this.runSequence(request, executorFor);
+    }
+
+    private async runSequence(request: ProductionMissionRequest,
+        executorFor: (mission: MissionQueueItem) => ProductionMissionExecutor | undefined,
+        recovered?: { run: ProductionRun; plan: ProductionExecutionPlan; mission: MissionQueueItem;
+            evidence: Readonly<Record<string, string>> }): Promise<ProductionMissionSequence> {
         const maximumMissions = request.maximumMissions ?? 10;
         const disposable = request.disposableAttempt;
         if (disposable) {
@@ -85,7 +167,7 @@ export class ProductionMissionRunner {
                 request.approvedMissionIds?.length !== 1 || request.approvedMissionIds[0] !== disposable.missionId) {
                 throw new Error("Disposable admission requires one explicitly authorized mission and no continuation.");
             }
-            if (this.state.productionRuns().some(run => run.disposableAttempt?.missionId === disposable.missionId &&
+            if (!recovered && this.state.productionRuns().some(run => run.disposableAttempt?.missionId === disposable.missionId &&
                 run.repository.toLowerCase() === request.repository.toLowerCase())) {
                 throw new Error("Disposable mission or signed attempt has already been claimed.");
             }
@@ -105,9 +187,9 @@ export class ProductionMissionRunner {
         let parentRunId: string | undefined;
         for (let index = 0; index < maximumMissions; index += 1) {
             const recovering = this.runtime.activeRun(request.repository);
-            const mission = recovering?.status === "RECOVERING"
+            const mission = recovered?.mission ?? (recovering?.status === "RECOVERING"
                 ? this.state.missionQueue(request.systemId).find(item => item.title === recovering.selectedMission)
-                : new GovernedMissionQueue().next(this.state.missionQueue(request.systemId));
+                : new GovernedMissionQueue().next(this.state.missionQueue(request.systemId)));
             if (!mission || (disposable && mission.missionId !== disposable.missionId)) {
                 return { runs: completed, stopReason: "NO_ELIGIBLE_MISSION" };
             }
@@ -120,7 +202,10 @@ export class ProductionMissionRunner {
             this.report("MISSION_SELECTED", `${mission.title} — ${mission.rationale}`);
             let run: ProductionRun;
             let plan: ProductionExecutionPlan;
-            if (recovering?.status === "RECOVERING") {
+            if (recovered) {
+                run = recovered.run;
+                plan = recovered.plan;
+            } else if (recovering?.status === "RECOVERING") {
                 if (disposable || recovering.disposableAttempt) {
                     throw new Error("Disposable attempts do not permit automatic worker restart.");
                 }
@@ -156,7 +241,7 @@ export class ProductionMissionRunner {
                 this.runtime.transition(run.runId, "RUNNING", "Mission execution started.");
             }
             this.runtime.updateMissionStatus(request.systemId, mission.missionId, "ACTIVE");
-            const stage = this.runtime.startStage(run.runId, "EXECUTION", mission.title, { planId: plan.planId, missionId: mission.missionId });
+            const stage = this.runtime.startStage(run.runId, "EXECUTION", mission.title, { planId: plan.planId, missionId: mission.missionId, ...recovered?.evidence });
             this.report("RUNNING", `${mission.title} is active (run ${run.runId}).`);
 
             try {

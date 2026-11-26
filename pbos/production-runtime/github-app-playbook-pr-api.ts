@@ -44,6 +44,21 @@ export class GitHubAppPlaybookPrApi implements GitHubPrApi {
     if(typeof sha!=="string"||!/^[a-f0-9]{40}$/i.test(sha))throw new Error("GitHub ref SHA invalid.");
     return sha;
   }
+  /** The interrupted source stays pinned. A different reviewed draft base must
+   * be its direct child with an identical complete Git tree. */
+  async assertRecoveryPublicationBase(repository: string, source: string, publicationBase: string): Promise<void> {
+    if (![source, publicationBase].every(sha => /^[a-f0-9]{40}$/.test(sha)) ||
+        await this.getBranchSha(repository, "main") !== publicationBase) throw Error("RECOVERY_PUBLICATION_BASE");
+    if (source === publicationBase) return;
+    const commit = (sha: string) => this.api("GET", this.repo(repository) + "/git/commits/" + sha);
+    const [old, current] = await Promise.all([commit(source), commit(publicationBase)]);
+    const tree = (old.tree as Json | undefined)?.sha;
+    if (old.sha !== source || current.sha !== publicationBase || typeof tree !== "string" ||
+        !/^[a-f0-9]{40}$/.test(tree) || (current.tree as Json | undefined)?.sha !== tree ||
+        !Array.isArray(current.parents) || !current.parents.some(parent => parent?.sha === source)) {
+      throw Error("RECOVERY_PUBLICATION_LINEAGE");
+    }
+  }
   async getFileContent(repository:string,branch:string,path:string):Promise<string> {
     if(!/^pbos\/mission-[a-zA-Z0-9_-]{1,90}$/.test(branch)||
       !/^docs\/pbos-missions\/[a-zA-Z0-9_-]+\.md$/.test(path))throw new Error("GitHub file read is not allowlisted.");
