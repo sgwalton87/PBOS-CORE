@@ -1,3 +1,6 @@
+import { continueHostedRemoteWorkerMission } from "../hosted-remote-worker-mission";
+import { publishPlanReadyOutput } from "../hosted-plan-ready-publication";
+import type { ProductionMissionSequence } from "../production-mission-runner";
 import { createDecipheriv, createHash, randomBytes, generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, realpathSync, rmSync } from "node:fs";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -19,7 +22,7 @@ import { inspectHostedPlanReady, prepareHostedPlanReadyHandoff } from "../hosted
 import type { NeonLeaseSql } from "../neon-fenced-lease-provider";
 import { preparePlanReadyLeaseHandoff } from "../plan-ready-lease-handoff";
 import { inspectMb03Recovery } from "../../master-builder/mb03-disposable-mission";
-import { hostedMissionScopeDigest } from "../hosted-signed-mission-approval";
+import { hostedMissionScopeDigest, planReadyRecoveryDigest, type PlanReadyRecoveryAuthorization, type SignedPlanReadyApproval } from "../hosted-signed-mission-approval";
 import { VercelPlaybookProvider } from "../../master-builder/vercel-remote-provider";
 import { createRemotePlaybookMission, playbookRemotePath } from "../../master-builder/playbook-remote-mission";
 import type { PlaybookMb03MissionId } from "../../master-builder/playbook-remote-mission";
@@ -28,6 +31,7 @@ import { runHostedApprovedMission, type HostedExecutionDependencies } from "../h
 
 const temporary: string[] = [];
 afterEach(() => {
+    vi.useRealTimers();
     for (const path of temporary.splice(0)) rmSync(path, { recursive: true, force: true });
 });
 
@@ -63,7 +67,7 @@ function fixture(missionId: PlaybookMb03MissionId, openState = GenesisStateRepos
         issuedAt: new Date(Date.now() - 1000).toISOString(),
         expiresAt: new Date(Date.now() + 60_000).toISOString(), nonce
     };
-    function fixtureApproval(value: typeof payload) {
+    function fixtureApproval<T extends typeof payload | SignedPlanReadyApproval["payload"]>(value: T) {
         const canonical = JSON.stringify([
             value.schema, value.missionId, value.repository, value.commit,
             value.operatorId, value.scopeDigest, value.issuedAt, value.expiresAt, value.nonce
@@ -217,7 +221,7 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(admission.recordApprovalNonce).toHaveBeenCalledOnce();
     });
 
-    it("preserves a killed controller's exact run and rejects both replay and fresh admission after lease expiry", async () => {
+    it("recovers the killed controller through verified worker output and one draft after a lost acknowledgment", async () => {
         const f = fixture("MB03-MISSION-001");
         const { request, approval, scope } = f.composition.input;
         const admission = f.composition.adapters.admission;
@@ -255,6 +259,11 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
         expect(readFileSync(file).equals(before)).toBe(true);
 
+        // Advance wall time only. The consumed signature is now historical;
+        // a current recovery signature must independently authorize the same run.
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(Date.parse(approval.payload.expiresAt) + 1_000);
+        const window = { issuedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 60_000).toISOString() };
         const old = reopened.executionLeases()[0];
         const pin = { runId: run.runId, missionId: approval.payload.missionId, repository: run.repository,
             commit: run.startingCommit, nonce: approval.payload.nonce, scopeDigest: approval.payload.scopeDigest,
@@ -324,109 +333,98 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
             owner.expiresAt.toISOString(), prepared.lease.leaseId).runId).toBe(run.runId);
         expect(readFileSync(join(f.root, "nonce.fixture"), "utf8")).toBe(pin.nonce);
         expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
+
+        // Re-enter through the normal hosted composition after verified scratch handoff.
+        // A transferred lease alone must never admit a second run or consume a fresh nonce.
+        f.composition.adapters.runner = new ProductionMissionRunner(recovered);
+        const snapshotAfterHandoff = readFileSync(file);
+        for (const envelope of [approval, f.fixtureApproval({ ...fresh.payload, ...window })]) {
+            const nonce = envelope.payload.nonce;
+            const target = f.composition.policy.playbook;
+            const mission = createRemotePlaybookMission(request.commit, f.composition.policy.workerId,
+                admission.disposableNamespace, nonce, target);
+            const input = { ...f.composition.input, approval: envelope, mission,
+                request: { ...request, authorizationArtifactId: "hosted-approval:" + nonce } };
+            await expect(executeHostedPlaybookCodexMission({ ...f.composition, input }, f.api))
+                .rejects.toThrow(envelope === approval ? "signature or lineage invalid" : "already has an active run or lease");
+        }
+        expect(readFileSync(file)).toEqual(snapshotAfterHandoff);
+        expect(recovered.productionRuns().map(r => r.runId)).toEqual([pin.runId]);
+        expect(admission.acquireFencedLease).not.toHaveBeenCalled();
+        expect(admission.recordApprovalNonce).not.toHaveBeenCalled();
+        expect(f.reserve).not.toHaveBeenCalled();
+        expect(f.api.create).not.toHaveBeenCalled();
+        expect(f.checkpoints.commit).not.toHaveBeenCalled();
+
+        const publicationBase = "d".repeat(40);
+        const recoveryPayload = { ...approval.payload, ...window, schema: "pbos.hosted-plan-ready-recovery.v1" as const,
+            nonce: randomUUID(), scopeDigest: planReadyRecoveryDigest(pin, publicationBase) };
+        const recovery = { pin, publicationBase, approval: f.fixtureApproval(recoveryPayload) };
+        const adapters = prepareHostedPlaybookCodexMission(f.composition, f.api);
+        const readGit = vi.fn(async (url: string | URL | Request) => {
+            const route = new URL(String(url)).pathname;
+            if (route.endsWith("/git/ref/heads/main")) return Response.json({object:{sha:publicationBase}});
+            if (route.endsWith("/git/commits/" + pin.commit) || route.endsWith("/git/commits/" + publicationBase)) {
+                return Response.json({sha:route.split("/").at(-1),tree:{sha:"e".repeat(40)},parents:[{sha:pin.commit}]});
+            }
+            throw Error("Unexpected Git read");
+        });
+        const branchReads = new GitHubAppPlaybookPrApi("fixture", readGit);
+        const resume = (auth = recovery, fence = owner.fence) => continueHostedRemoteWorkerMission(f.composition.input,
+            adapters, auth, fence, branchReads);
+        await expect(resume({ ...recovery, publicationBase: request.commit })).rejects.toThrow("RECOVERY_AUTHORIZATION");
+        await expect(resume({ ...recovery, pin: { ...pin, stateGeneration: "101" } })).rejects.toThrow("RECOVERY_AUTHORIZATION");
+        await expect(resume({ ...recovery, approval: f.fixtureApproval({ ...recoveryPayload, nonce: pin.nonce }) }))
+            .rejects.toThrow("RECOVERY_AUTHORIZATION");
+        await expect(resume({ ...recovery, approval: f.fixtureApproval({ ...recoveryPayload,
+            issuedAt: new Date(0).toISOString(), expiresAt: new Date(60_000).toISOString() }) })).rejects.toThrow("RECOVERY_AUTHORIZATION");
+        await expect(resume()).rejects.toThrow("RECOVERY_HOST_BINDINGS");
+        Object.assign(admission, { durableStateVerified: vi.fn(async () => true) });
+        await expect(resume(recovery, { ...owner.fence, fencingToken: 1n })).rejects.toThrow("RECOVERY_FENCE");
+        readGit.mockResolvedValueOnce(Response.json({object:{sha:"f".repeat(40)}}));
+        await expect(resume()).rejects.toThrow("RECOVERY_PUBLICATION_BASE");
+        vi.mocked(admission.assertFencedLease).mockResolvedValueOnce(false);
+        await expect(resume()).rejects.toThrow("RECOVERY_FENCE_OR_EXPIRY");
+        expect(admission.recordApprovalNonce).not.toHaveBeenCalled();
+        vi.mocked(admission.recordApprovalNonce).mockResolvedValueOnce(false);
+        await expect(resume()).rejects.toThrow("RECOVERY_NONCE_USED");
+        expect(readFileSync(file)).toEqual(snapshotAfterHandoff);
+        expect(f.api.create).not.toHaveBeenCalled();
+        const result = await verifyPublicationFixture(f, resume, recovery);
+        const archive = f.composition.adapters.trust.archive.read(result.runs[0].evidenceIds.find(id => /^[a-f0-9]{64}$/.test(id))!);
+        expect(archive).toMatchObject({ recovery, binding: { mission: { attemptId: pin.nonce },
+            approvalDigest: createHash("sha256").update(recovery.approval.signatureBase64).digest("hex") } });
+        expect(result.runs.map(r => r.runId)).toEqual([pin.runId]);
+        expect(recovered.productionRuns()).toHaveLength(1);
+        expect(result.runs[0].disposableAttempt).toEqual(run.disposableAttempt);
+        expect(recovered.productionStages(pin.runId).find(s => s.type === "EXECUTION")?.inputs).toMatchObject({
+            planId: run.executionPlan!.planId, originalNonce: pin.nonce, recoveryNonce: recoveryPayload.nonce, publicationBase });
+        await expect(resume()).rejects.toThrow("RECOVERY_CHECKPOINT");
+        expect(f.reserve).toHaveBeenCalledOnce();
+        expect(admission.acquireFencedLease).not.toHaveBeenCalled();
+        expect(admission.recordApprovalNonce).toHaveBeenLastCalledWith(recoveryPayload.nonce, pin.missionId, pin.repository, recoveryPayload.expiresAt);
     }, 20_000);
 
     it("publishes the verified tracked-file bytes once even when the draft PR acknowledgment is lost", async () => {
         const f = fixture("MB03-MISSION-001");
-        const checkpointFile = join(f.root, "worker-output.sealed");
-        const testKey = randomBytes(32);
-        f.sealed.mockImplementation(checkpointSealer(testKey.toString("base64")));
-        f.checkpoints.commit.mockImplementation(async (_lease, missionId, repo, version, bytes) => {
-            expect(missionId).toBe("MB03-MISSION-001");
-            expect(repo).toBe(f.composition.input.request.repository);
-            expect(version).toBe(0n);
-            writeFileSync(checkpointFile, bytes, { flag: "wx", mode: 0o600 });
-            return 1n;
-        });
-        const workerResult = await executeHostedPlaybookCodexMission(f.composition, f.api);
-        expect(workerResult.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
-        const { mission, scope, request, approval } = f.composition.input;
-        expect(workerResult.runs[0].disposableAttempt).toMatchObject({
-            missionId: mission.missionId, attemptId: approval.payload.nonce, scopeDigest: approval.payload.scopeDigest
-        });
-        function openCheckpoint(bytes: Buffer) {
-            expect(bytes[0]).toBe(1);
-            const decipher = createDecipheriv("aes-256-gcm", testKey, bytes.subarray(1, 13));
-            decipher.setAuthTag(bytes.subarray(13, 29));
-            return Buffer.concat([decipher.update(bytes.subarray(29)), decipher.final()]);
-        }
-        const ciphertext = readFileSync(checkpointFile);
-        const tampered = Buffer.from(ciphertext);
-        tampered[13] ^= 1;
-        expect(() => openCheckpoint(tampered)).toThrow();
-        const output = JSON.parse(openCheckpoint(ciphertext).toString("utf8"));
-        expect(workerResult.runs[0].evidenceIds).toContain(output.remoteEvidenceDigest);
-        expect(workerResult.runs[0].evidenceIds).toContain("hosted-remote-checkpoint:v1");
-        expect(f.composition.adapters.trust.archive.read(output.remoteEvidenceDigest)).toMatchObject({
-            binding: {mission: {missionId: mission.missionId, attemptId: approval.payload.nonce}},
-            manifest: [{path: scope.path, digest: scope.contentSha256}]
-        });
-        const content = Buffer.from(output.contentBase64, "base64");
-        expect(output).toMatchObject({ missionId: mission.missionId, repository: request.repository,
-            revision: request.commit, path: scope.path });
-        expect(createHash("sha256").update(content).digest("hex")).toBe(scope.contentSha256);
-        const proposal = { repository: "sgwalton87/playbook-platform" as const, baseSha: request.commit,
-            branch: scope.branch, path: scope.path, missionId: mission.missionId, content: content.toString("utf8"),
-            title: "Review fixture change", body: "Fixture proposal from the verified worker output" };
-        const blob = (bytes: Buffer) => createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
-        const original = blob(Buffer.from(f.composition.policy.playbook.before));
-        const changed = blob(content);
-        const newHead = "c".repeat(40);
-        let head: string | undefined;
-        let draft = false;
-        const writes: string[] = [];
-        const repoInfo = { full_name: proposal.repository };
-        const pr = { number: 1, html_url: "https://github.com/sgwalton87/playbook-platform/pull/1", draft: true,
-            head: { ref: scope.branch, sha: newHead, repo: repoInfo },
-            base: { ref: "main", sha:request.commit, repo: repoInfo }, state: "open" };
-        const github = new GitHubAppPlaybookPrApi("fixture", async (url, options) => {
-            const route = new URL(String(url)).pathname.replace("/repos/" + proposal.repository, "");
-            const method = options?.method ?? "GET";
-            if (method !== "GET") writes.push(method + " " + route);
-            const body = options?.body ? JSON.parse(String(options.body)) : {};
-            if (method === "GET" && route === "/git/ref/heads/main") return Response.json({object:{sha:request.commit}});
-            if (method === "GET" && route === "/git/ref/heads/" + scope.branch) return head ?
-                Response.json({object:{sha:head}}) : new Response(null, {status:404});
-            if (method === "GET" && route === "/pulls") return Response.json(draft ? [pr] : []);
-            if (method === "GET" && route.startsWith("/git/trees/")) {
-                const rev = route.slice("/git/trees/".length);
-                expect([request.commit, newHead]).toContain(rev);
-                return Response.json({truncated:false, tree:[{type:"blob", mode:"100644", path:scope.path,
-                    sha: rev === request.commit ? original : changed}]});
-            }
-            if (method === "POST" && route === "/git/refs") {
-                expect(body).toEqual({ref:"refs/heads/" + scope.branch, sha:request.commit});
-                head = request.commit;
-                return Response.json({});
-            }
-            if (method === "POST" && route === "/graphql") {
-                const patch = body.variables.input;
-                expect(patch.branch).toEqual({repositoryNameWithOwner:request.repository, branchName:scope.branch});
-                expect(patch.expectedHeadOid).toBe(request.commit);
-                if (patch.expectedHeadOid !== head) return Response.json({errors:[{message:"stale branch"}]});
-                expect(patch.fileChanges).toEqual({additions:[{path:scope.path, contents:output.contentBase64}]});
-                head = newHead;
-                return Response.json({data:{createCommitOnBranch:{commit:{oid:head}}}});
-            }
-            if (method === "GET" && route === "/commits/" + newHead) return Response.json({
-                sha:newHead, parents:[{sha:request.commit}], files:[{filename:scope.path, status:"modified", sha:changed}] });
-            if (method === "GET" && route === "/contents/" + scope.path) return Response.json({encoding:"base64",content:output.contentBase64});
-            if (method === "POST" && route === "/pulls") {
-                expect(body).toMatchObject({head:scope.branch, base:"main", draft:true});
-                draft = true;
-                throw Error("fixture lost response after GitHub created draft");
-            }
-            throw Error("Unexpected fixture request: " + method + " " + route);
-        });
-        const lease = {resource:"pbos:mission:" + request.repository + ":" + mission.missionId,
-            ownerId:"fixture-publisher", fencingToken:2n};
-        const publish = () => createFencedPlaybookPr(github, lease, async () => true, proposal);
-        await expect(publish()).rejects.toThrow("lost response");
-        await expect(publish()).resolves.toMatchObject({number:1, branch:scope.branch, headSha:newHead, fileOperation:"modified"});
-        expect(writes).toEqual(["POST /git/refs", "POST /graphql", "POST /pulls"]);
-        expect(f.api.create).toHaveBeenCalledOnce();
-        expect(f.checkpoints.commit).toHaveBeenCalledOnce();
+        await verifyPublicationFixture(f, () => executeHostedPlaybookCodexMission(f.composition, f.api));
     });
+
+    it.each(["different tree", "unrelated parent", "wrong SHA", "missing tree"])(
+        "rejects a recovery publication base with %s through read-only Git requests", async defect => {
+            const source = "a".repeat(40), base = "b".repeat(40), tree = "c".repeat(40);
+            const api = new GitHubAppPlaybookPrApi("fixture", async (url, options) => {
+                expect(options?.method).toBe("GET");
+                const path = new URL(String(url)).pathname;
+                if (path.endsWith("/heads/main")) return Response.json({ object: { sha: base } });
+                if (path.endsWith(source)) return Response.json({ sha: source, tree: { sha: tree } });
+                return Response.json({ sha: defect === "wrong SHA" ? source : base,
+                    tree: defect === "missing tree" ? {} : { sha: defect === "different tree" ? base : tree },
+                    parents: [{ sha: defect === "unrelated parent" ? tree : source }] });
+            });
+            await expect(api.assertRecoveryPublicationBase("sgwalton87/playbook-platform", source, base))
+                .rejects.toThrow("RECOVERY_PUBLICATION_LINEAGE");
+        });
 
     it.each(["MB03-MISSION-001", "MB03-MISSION-002"] as const)(
         "adopts one signed %s provider return, then stops before independent certification",
@@ -508,3 +506,130 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         expect(() => prepareHostedPlaybookCodexMission(altered, f.api)).toThrow("isolation profile");
     });
 });
+
+async function verifyPublicationFixture(f: ReturnType<typeof fixture>, execute: () => Promise<ProductionMissionSequence>,
+    recovery?: PlanReadyRecoveryAuthorization) {
+    const checkpointFile = join(f.root, "worker-output.sealed");
+    const testKey = randomBytes(32);
+    f.sealed.mockImplementation(checkpointSealer(testKey.toString("base64")));
+    f.checkpoints.commit.mockImplementation(async (_lease, missionId, repo, version, bytes) => {
+        expect(missionId).toBe("MB03-MISSION-001");
+        expect(repo).toBe(f.composition.input.request.repository);
+        expect(version).toBe(0n);
+        writeFileSync(checkpointFile, bytes, { flag: "wx", mode: 0o600 });
+        return 1n;
+    });
+    const workerResult = await execute();
+    expect(workerResult.stopReason).toBe("INDEPENDENT_VERIFICATION_REQUIRED");
+    const { mission, scope, request, approval } = f.composition.input;
+    expect(workerResult.runs[0].disposableAttempt).toMatchObject({
+        missionId: mission.missionId, attemptId: approval.payload.nonce, scopeDigest: approval.payload.scopeDigest
+    });
+    function openCheckpoint(bytes: Buffer) {
+        expect(bytes[0]).toBe(1);
+        const decipher = createDecipheriv("aes-256-gcm", testKey, bytes.subarray(1, 13));
+        decipher.setAuthTag(bytes.subarray(13, 29));
+        return Buffer.concat([decipher.update(bytes.subarray(29)), decipher.final()]);
+    }
+    const ciphertext = readFileSync(checkpointFile);
+    const tampered = Buffer.from(ciphertext);
+    tampered[13] ^= 1;
+    expect(() => openCheckpoint(tampered)).toThrow();
+    const plaintext = openCheckpoint(ciphertext);
+    const output = JSON.parse(plaintext.toString("utf8"));
+    expect(workerResult.runs[0].evidenceIds).toContain(output.remoteEvidenceDigest);
+    expect(workerResult.runs[0].evidenceIds).toContain("hosted-remote-checkpoint:v1");
+    expect(f.composition.adapters.trust.archive.read(output.remoteEvidenceDigest)).toMatchObject({
+        binding: {mission: {missionId: mission.missionId, attemptId: approval.payload.nonce}},
+        manifest: [{path: scope.path, digest: scope.contentSha256}]
+    });
+    const content = Buffer.from(output.contentBase64, "base64");
+    expect(output).toMatchObject({ missionId: mission.missionId, repository: request.repository,
+        revision: request.commit, path: scope.path });
+    expect(createHash("sha256").update(content).digest("hex")).toBe(scope.contentSha256);
+    const publicationBase = recovery?.publicationBase ?? request.commit;
+    const proposal = { repository: "sgwalton87/playbook-platform" as const, baseSha: publicationBase,
+        branch: scope.branch, path: scope.path, missionId: mission.missionId, content: content.toString("utf8"),
+        title: "Review fixture change", body: "Fixture proposal from the verified worker output" };
+    const blob = (bytes: Buffer) => createHash("sha1").update("blob " + bytes.length + "\0").update(bytes).digest("hex");
+    const original = blob(Buffer.from(f.composition.policy.playbook.before));
+    const changed = blob(content);
+    const newHead = "c".repeat(40);
+    let head: string | undefined;
+    let draft = false;
+    const writes: string[] = [];
+    const repoInfo = { full_name: proposal.repository };
+    const pr = { number: 1, html_url: "https://github.com/sgwalton87/playbook-platform/pull/1", draft: true,
+        head: { ref: scope.branch, sha: newHead, repo: repoInfo },
+        base: { ref: "main", sha:publicationBase, repo: repoInfo }, state: "open" };
+    let mainHead = publicationBase;
+    const github = new GitHubAppPlaybookPrApi("fixture", async (url, options) => {
+        const route = new URL(String(url)).pathname.replace("/repos/" + proposal.repository, "");
+        const method = options?.method ?? "GET";
+        if (method !== "GET") writes.push(method + " " + route);
+        const body = options?.body ? JSON.parse(String(options.body)) : {};
+        if (method === "GET" && route === "/git/ref/heads/main") return Response.json({object:{sha:mainHead}});
+        if (method === "GET" && route === "/git/ref/heads/" + scope.branch) return head ?
+            Response.json({object:{sha:head}}) : new Response(null, {status:404});
+        if (method === "GET" && route.startsWith("/git/commits/")) {
+            const sha = route.slice("/git/commits/".length);
+            expect([request.commit, publicationBase]).toContain(sha);
+            return Response.json({ sha, tree: { sha: "e".repeat(40) }, parents: [{ sha: request.commit }] });
+        }
+        if (method === "GET" && route === "/pulls") return Response.json(draft ? [pr] : []);
+        if (method === "GET" && route.startsWith("/git/trees/")) {
+            const rev = route.slice("/git/trees/".length);
+            expect([publicationBase, newHead]).toContain(rev);
+            return Response.json({truncated:false, tree:[{type:"blob", mode:"100644", path:scope.path,
+                sha: rev === publicationBase ? original : changed}]});
+        }
+        if (method === "POST" && route === "/git/refs") {
+            expect(body).toEqual({ref:"refs/heads/" + scope.branch, sha:publicationBase});
+            head = publicationBase;
+            return Response.json({});
+        }
+        if (method === "POST" && route === "/graphql") {
+            const patch = body.variables.input;
+            expect(patch.branch).toEqual({repositoryNameWithOwner:request.repository, branchName:scope.branch});
+            expect(patch.expectedHeadOid).toBe(publicationBase);
+            if (patch.expectedHeadOid !== head) return Response.json({errors:[{message:"stale branch"}]});
+            expect(patch.fileChanges).toEqual({additions:[{path:scope.path, contents:output.contentBase64}]});
+            head = newHead;
+            return Response.json({data:{createCommitOnBranch:{commit:{oid:head}}}});
+        }
+        if (method === "GET" && route === "/commits/" + newHead) return Response.json({
+            sha:newHead, parents:[{sha:publicationBase}], files:[{filename:scope.path, status:"modified", sha:changed}] });
+        if (method === "GET" && route === "/contents/" + scope.path) return Response.json({encoding:"base64",content:output.contentBase64});
+        if (method === "POST" && route === "/pulls") {
+            expect(body).toMatchObject({head:scope.branch, base:"main", draft:true});
+            draft = true;
+            throw Error("fixture lost response after GitHub created draft");
+        }
+        throw Error("Unexpected fixture request: " + method + " " + route);
+    });
+    const lease = {resource:"pbos:mission:" + request.repository + ":" + mission.missionId,
+        ownerId:"fixture-publisher", fencingToken:2n};
+    if (recovery) {
+        const attemptPublish = (checkpoint: unknown, current: boolean) => publishPlanReadyOutput(github, lease, async () => current,
+            workerResult.runs[0], recovery, scope, f.composition.adapters.admission.trustedPublicKeyPem, Buffer.from(JSON.stringify(checkpoint)));
+        await expect(attemptPublish({ ...output, publicationBase: request.commit }, true)).rejects.toThrow("RECOVERY_CHECKPOINT_DIGEST");
+        await expect(attemptPublish({ ...output, recoveryNonce: randomUUID() }, true)).rejects.toThrow("RECOVERY_CHECKPOINT_DIGEST");
+        await expect(attemptPublish({ ...output, contentBase64: Buffer.from("different").toString("base64") }, true))
+            .rejects.toThrow("RECOVERY_CHECKPOINT_DIGEST");
+        await expect(attemptPublish(output, false)).rejects.toThrow("Fenced lease lost");
+        expect(writes).toEqual([]);
+    }
+    const publish = () => recovery ? publishPlanReadyOutput(github, lease, async () => true, workerResult.runs[0],
+        recovery, scope, f.composition.adapters.admission.trustedPublicKeyPem, plaintext) : createFencedPlaybookPr(github, lease, async () => true, proposal);
+    // The file and proposed bytes are unchanged, but an advanced main fails before the first write.
+    mainHead = "b".repeat(40);
+    await expect(publish()).rejects.toThrow(/Playbook main advanced|RECOVERY_PUBLICATION_BASE/);
+    expect(writes).toEqual([]);
+    mainHead = publicationBase;
+    await expect(publish()).rejects.toThrow("lost response");
+    await expect(publish()).resolves.toMatchObject({number:1, branch:scope.branch, headSha:newHead, fileOperation:"modified"});
+    expect(writes).toEqual(["POST /git/refs", "POST /graphql", "POST /pulls"]);
+    expect(f.api.create).toHaveBeenCalledOnce();
+    expect(f.checkpoints.commit).toHaveBeenCalledOnce();
+    return workerResult;
+}
