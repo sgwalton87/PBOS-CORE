@@ -133,6 +133,20 @@ describe("MB-03.2 concrete SDK provider with synthetic transport", () => {
 });
 
 describe("independent replay anchor and narrow model leases", () => {
+    it("checks journal protection without creating an object and rechecks before reservation", async () => {
+        const transport = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce(Response.json({
+                retentionPolicy: { isLocked: true, retentionPeriod: "31536000" },
+                iamConfiguration: { publicAccessPrevention: "enforced", uniformBucketLevelAccess: { enabled: true } }
+            }))
+            .mockResolvedValueOnce(new Response(null, { status: 403 }));
+        const journal = new GcsRemoteDispatchJournal("fixture-pbos-only", async () => "fixture-token", transport);
+        const signal = new AbortController().signal;
+        await journal.verifyProtection(signal);
+        await expect(journal.reserve(makeBinding(), signal)).rejects.toThrow(/HTTP 403/);
+        expect(transport.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "GET"]);
+    });
+
     it("uses an immutable cloud write precondition across controller restores and reassignments", async () => {
         const used = new Set<string>();
         const transport = vi.fn<typeof fetch>(async (input, init) => {

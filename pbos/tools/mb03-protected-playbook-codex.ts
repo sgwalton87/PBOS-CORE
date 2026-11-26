@@ -50,13 +50,13 @@ type Key = typeof REQUIRED[number];
 export type ProtectedMb03Environment = Record<Key, string> & NodeJS.ProcessEnv;
 
 // Readiness proves the immutable, read-only boundary only. Execution-only
-// bindings (provider authority, journal, model lease and evidence sinks) are
+// bindings (provider authority, model lease and evidence sinks) are
 // deliberately not required until a separately authorized mission run.
 const READINESS_REQUIRED = REQUIRED.filter(name => ![
     "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE", "PBOS_PROVIDER_SIGNING_KEY_PEM",
     "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
     "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
-    "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
+    "PBOS_MODEL_ADMIN_CREDENTIAL",
     "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64",
     "PBOS_VERCEL_SANDBOX_TOKEN"
 ].includes(name));
@@ -92,8 +92,10 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOn
         !/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
         throw new Error("Unreviewed Playbook source, disposable state, or sandbox image identity.");
     }
-    if ((!verifyOnly && (!/^[a-z0-9][a-z0-9-]{8,61}[a-z0-9]$/.test(config.PBOS_DISPATCH_JOURNAL_BUCKET) ||
-        !/^[A-Za-z0-9._-]+$/.test(config.PBOS_WORKER_ID) ||
+    if (config.PBOS_DISPATCH_JOURNAL_BUCKET !== "pbos-genesis-staging-mb03-dispatch-journal") {
+        throw new Error("Unreviewed staging dispatch journal.");
+    }
+    if ((!verifyOnly && (!/^[A-Za-z0-9._-]+$/.test(config.PBOS_WORKER_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_AUTHORITY_ID) ||
         !/^[A-Za-z0-9._-]+$/.test(config.PBOS_PROVIDER_ID) ||
         !/^[a-zA-Z0-9][a-zA-Z0-9.-]+$/.test(config.PBOS_WORKER_MODEL))) ||
@@ -240,6 +242,11 @@ export async function runProtectedMb03PlaybookCodex(
     verifyOnly = false
 ): Promise<Readonly<Record<string, unknown>>> {
     const config = requireProtectedMb03Environment(env, verifyOnly);
+    if (!await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env, verifyOnly)) {
+        throw new Error("Protected Cloud Run worker identity is not attested.");
+    }
+    const dispatchJournal = new GcsRemoteDispatchJournal(config.PBOS_DISPATCH_JOURNAL_BUCKET, googleAccessToken);
+    await dispatchJournal.verifyProtection(AbortSignal.timeout(5000));
     const operatorPublicKey = readPublicKeyForReadiness(
         config.PBOS_APPROVAL_PUBLIC_KEY_FILE, "PBOS_APPROVAL_PUBLIC_KEY_PEM", env, verifyOnly);
     const providerPublicKey = readPublicKeyForReadiness(
@@ -262,9 +269,6 @@ export async function runProtectedMb03PlaybookCodex(
     // The private writable state must exist. Neither the observer nor this
     // entrypoint is allowed to initialize or silently recover Genesis.
     readProtectedMb03File(config.PBOS_DISPOSABLE_STATE_FILE, 32 * 1024 * 1024, "disposable-state");
-    if (!verifyOnly && !await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env)) {
-        throw new Error("Hosted state writer identity unavailable.");
-    }
     const versionedObject = verifyOnly ? undefined : disposableStateObject(config.PBOS_DISPOSABLE_STATE_FILE);
     const state = new GenesisStateRepository(config.PBOS_DISPOSABLE_STATE_FILE, config.PBOS_STATE_NAMESPACE,
         // Readiness inspects the mount. The mission writer fences the same staging
@@ -287,9 +291,6 @@ export async function runProtectedMb03PlaybookCodex(
     }
     const canon = await verifyPpsCanon(config.PBOS_PPS_DIRECTORY, config.PBOS_PPS_MANIFEST_SHA256);
     if (!canon.valid) throw new Error("The reviewed Playbook PPS Canon is invalid.");
-    if (!(await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env, verifyOnly))) {
-        throw new Error("Protected Cloud Run worker identity is not attested.");
-    }
 
     // Read-only database readiness must succeed before the nonce or lease
     // can ever be written. No in-memory fallback is available.
@@ -311,6 +312,7 @@ export async function runProtectedMb03PlaybookCodex(
             sourceSha: config.PBOS_PLAYBOOK_SOURCE_SHA,
             stateNamespace: config.PBOS_STATE_NAMESPACE,
             neonRole: config.PBOS_EXPECTED_NEON_ROLE,
+            journalProtectionVerified: true,
             operatorPublicKeySha256: config.PBOS_APPROVAL_PUBLIC_KEY_SHA256,
             providerPublicKeySha256: config.PBOS_PROVIDER_PUBLIC_KEY_SHA256
         };
@@ -361,7 +363,7 @@ export async function runProtectedMb03PlaybookCodex(
         }),
         signer: providerSigningKey,
         playbook: mission!.target,
-        dispatch: new GcsRemoteDispatchJournal(config.PBOS_DISPATCH_JOURNAL_BUCKET, googleAccessToken),
+        dispatch: dispatchJournal,
         modelLeases: new HttpsModelLeaseIssuer(config.PBOS_MODEL_ADMIN_ORIGIN, config.PBOS_MODEL_ORIGIN,
             async () => config.PBOS_MODEL_ADMIN_CREDENTIAL)
     };

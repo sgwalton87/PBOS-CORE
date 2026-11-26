@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { allowsManagedSecretAlias, googleRuntimeIdentity, protectedMb03FileBoundaryCode, readProtectedMb03File, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
+import { allowsManagedSecretAlias, googleRuntimeIdentity, protectedMb03FileBoundaryCode, readProtectedMb03File, runProtectedMb03PlaybookCodex, requireProtectedMb03Environment } from "../mb03-protected-playbook-codex";
 
 const SHA = "a".repeat(64);
 function fixture(): NodeJS.ProcessEnv {
@@ -39,7 +39,7 @@ function fixture(): NodeJS.ProcessEnv {
         PBOS_MODEL_ORIGIN: "https://model.example.invalid",
         PBOS_MODEL_ADMIN_ORIGIN: "https://model-control.example.invalid",
         PBOS_MODEL_ADMIN_CREDENTIAL: "synthetic-control-secret",
-        PBOS_DISPATCH_JOURNAL_BUCKET: "pbos-staging-journal-fixture",
+        PBOS_DISPATCH_JOURNAL_BUCKET: "pbos-genesis-staging-mb03-dispatch-journal",
         PBOS_EVIDENCE_DIRECTORY: "/var/lib/pbos-evidence",
         PBOS_CHECKPOINT_KEY_BASE64: Buffer.alloc(32, 1).toString("base64"),
         PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT:
@@ -59,7 +59,7 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
             "PBOS_MISSION_INPUT_FILE", "PBOS_PROVIDER_SIGNING_KEY_FILE",
             "PBOS_PROVIDER_AUTHORITY_ID", "PBOS_PROVIDER_ID", "PBOS_WORKER_ID",
             "PBOS_WORKER_MODEL", "PBOS_MODEL_ORIGIN", "PBOS_MODEL_ADMIN_ORIGIN",
-            "PBOS_MODEL_ADMIN_CREDENTIAL", "PBOS_DISPATCH_JOURNAL_BUCKET",
+            "PBOS_MODEL_ADMIN_CREDENTIAL",
             "PBOS_EVIDENCE_DIRECTORY", "PBOS_CHECKPOINT_KEY_BASE64",
             "PBOS_VERCEL_SANDBOX_TOKEN"
         ]) delete config[key];
@@ -68,6 +68,37 @@ describe("MB-03 separate protected remote Codex job configuration", () => {
         expect(requireProtectedMb03Environment(config, true).PBOS_STATE_NAMESPACE)
             .toBe("mb03-private-staging");
         expect(() => requireProtectedMb03Environment(config)).toThrow("configuration missing");
+    });
+    it.each([true, false])("rejects denied journal metadata before accessing mission inputs or admission (readiness=%s)", async readiness => {
+        const config = fixture();
+        if (readiness) {
+            config.CLOUD_RUN_JOB = "pbos-mb03-playbook-readiness";
+            config.PBOS_MISSION_EXECUTION_APPROVED = "false";
+        }
+        const urls: string[] = [];
+        vi.stubGlobal("fetch", async (input: URL | string, init?: RequestInit) => {
+            const url = new URL(input);
+            urls.push(url.pathname);
+            expect(init?.method ?? "GET").toBe("GET");
+            if (url.hostname === "metadata.google.internal") {
+                const headers = { "metadata-flavor": "Google" };
+                return url.pathname.endsWith("/email") ? new Response(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, { headers }) :
+                    Response.json({ access_token: "test-only", expires_in: 600 }, { headers });
+            }
+            expect(url.origin).toBe("https://storage.googleapis.com");
+            return new Response(null, { status: 403 });
+        });
+        try {
+            await expect(runProtectedMb03PlaybookCodex(config, readiness)).rejects.toThrow(/journal.*403/i);
+            expect(urls).toEqual(["/computeMetadata/v1/instance/service-accounts/default/email",
+                "/computeMetadata/v1/instance/service-accounts/default/token",
+                "/storage/v1/b/pbos-genesis-staging-mb03-dispatch-journal"]);
+        } finally { vi.unstubAllGlobals(); }
+    });
+    it.each([undefined, "another-valid-bucket"])("fails closed on a missing or substituted staging journal (%s)", bucket => {
+        const config = { ...fixture(), CLOUD_RUN_JOB: "pbos-mb03-playbook-readiness",
+            PBOS_MISSION_EXECUTION_APPROVED: "false", PBOS_DISPATCH_JOURNAL_BUCKET: bucket };
+        expect(() => requireProtectedMb03Environment(config, true)).toThrow(/journal/i);
     });
     it("enforces separate identities for signed missions and non-mission readiness", () => {
         expect(() => requireProtectedMb03Environment({
