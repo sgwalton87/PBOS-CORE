@@ -77,15 +77,7 @@ async function stateRequest({ object, op, generation, bytes, token, recovery }, 
         if (content.length !== size) throw Error("STATE_SIZE");
         return { generation: version, bytes: content.toString("utf8") };
     }
-    if (op === "read") return read(object);
-    if (op === "remove-scratch" && scratch.test(object) && validGeneration(generation)) {
-        await remove(object, generation);
-        return {};
-    }
-    if (typeof bytes !== "string" || !bytes || Buffer.byteLength(bytes) > maxBytes) throw Error("STATE_SIZE");
-    if (op === "create-scratch" && scratch.test(object)) return { generation: await put(object, "0", bytes) };
-    // A scratch-only rehearsal. Normal and live mission writes cannot enter this path.
-    if (op === "recover-scratch" && scratch.test(object)) {
+    async function readPinnedPair() {
         if (typeof recovery?.stateSha256 !== "string") throw Error("STATE_RECOVERY_PIN");
         if (!validGeneration(generation) || !validGeneration(recovery?.lockGeneration) ||
             !/^[0-9a-f]{64}$/.test(recovery.stateSha256)) throw Error("STATE_RECOVERY_PIN");
@@ -96,6 +88,23 @@ async function stateRequest({ object, op, generation, bytes, token, recovery }, 
         const previousLock = await read(lock);
         if (previousLock.generation !== recovery.lockGeneration ||
             previousLock.bytes !== JSON.stringify({ expectedGeneration: generation })) throw Error("STATE_RECOVERY_LOCK");
+        return { previous, previousLock };
+    }
+    if (op === "inspect-recovery") {
+        const { previous } = await readPinnedPair();
+        return previous;
+    }
+    if (op === "read") return read(object);
+    if (op === "remove-scratch" && scratch.test(object) && validGeneration(generation)) {
+        await remove(object, generation);
+        return {};
+    }
+    if (typeof bytes !== "string" || !bytes || Buffer.byteLength(bytes) > maxBytes) throw Error("STATE_SIZE");
+    if (op === "create-scratch" && scratch.test(object)) return { generation: await put(object, "0", bytes) };
+    // A scratch-only rehearsal. Normal and live mission writes cannot enter this path.
+    if (op === "recover-scratch" && scratch.test(object)) {
+        const { previousLock } = await readPinnedPair();
+        const lock = object + ".lock";
         // Never delete the prior lock to obtain ownership. Only one claimant can
         // rotate that exact version. Stale data writes remain generation-fenced.
         const claimed = await put(lock, previousLock.generation, JSON.stringify({

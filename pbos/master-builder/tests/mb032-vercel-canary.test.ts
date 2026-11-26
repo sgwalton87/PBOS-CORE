@@ -147,10 +147,26 @@ describe("independent replay anchor and narrow model leases", () => {
         expect(transport.mock.calls.map(([, init]) => init?.method)).toEqual(["GET", "GET"]);
     });
 
+    it.each([403, 404, 500])("rejects an ambiguous reservation lookup (%s)", async status => {
+        const transport = vi.fn<typeof fetch>()
+            .mockResolvedValueOnce(Response.json({ retentionPolicy: { isLocked: true, retentionPeriod: "31536000" },
+                iamConfiguration: { publicAccessPrevention: "enforced", uniformBucketLevelAccess: { enabled: true } } }))
+            .mockResolvedValueOnce(Response.json({ error: { code: status, message: "No such bucket" } }, { status }));
+        const journal = new GcsRemoteDispatchJournal("fixture-pbos-only", async () => "fixture", transport);
+        await expect(journal.assertUnreserved("owner/repo", "mission", new AbortController().signal))
+            .rejects.toThrow(/RECOVERY_DISPATCH/);
+        expect(transport.mock.calls.every(([, init]) => init?.method === "GET")).toBe(true);
+    });
+
     it("uses an immutable cloud write precondition across controller restores and reassignments", async () => {
         const used = new Set<string>();
         const transport = vi.fn<typeof fetch>(async (input, init) => {
             const url = new URL(String(input));
+            if (init?.method === "GET" && url.pathname.includes("/o/")) {
+                const name = decodeURIComponent(url.pathname.split("/o/")[1]);
+                if (used.has(name)) return Response.json({ generation: "1" });
+                return Response.json({ error: { code: 404, message: "No such object: fixture-pbos-only/" + name } }, { status: 404 });
+            }
             if (init?.method === "GET") return Response.json({ retentionPolicy: { isLocked: true, retentionPeriod: "31536000" },
                 iamConfiguration: { publicAccessPrevention: "enforced", uniformBucketLevelAccess: { enabled: true } } });
             expect(url.origin).toBe("https://storage.googleapis.com");
@@ -165,7 +181,10 @@ describe("independent replay anchor and narrow model leases", () => {
         const restored = new GcsRemoteDispatchJournal("fixture-pbos-only", token, transport);
         const input = makeBinding();
         const signal = new AbortController().signal;
+        const lookup = () => restored.assertUnreserved(input.mission.repository, input.mission.missionId, signal);
+        await lookup();
         await first.reserve(input, signal);
+        await expect(lookup()).rejects.toThrow("RECOVERY_DISPATCH_RESERVED");
         await expect(restored.reserve({ ...input, authorityId: randomUUID(), fence: randomUUID() }, signal)).rejects.toThrow(/already reserved/);
         expect(used.size).toBe(1);
     });

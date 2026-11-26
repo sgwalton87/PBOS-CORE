@@ -24,6 +24,7 @@ import type { NeonLeaseSql } from "../production-runtime/neon-fenced-lease-provi
 import {
     executeHostedPlaybookCodexMission
 } from "../production-runtime/hosted-playbook-codex-composition";
+import { inspectHostedPlanReady, interruptedPlan } from "../production-runtime/hosted-plan-ready-inspection";
 import { checkpointSealer } from "./mb03-hosted-executor";
 import { VercelPlaybookProvider } from "../master-builder/vercel-remote-provider";
 import { GcsRemoteDispatchJournal } from "../master-builder/remote-dispatch-journal";
@@ -239,8 +240,9 @@ export async function verifyEvidenceMount(env: NodeJS.ProcessEnv) {
 
 export async function runProtectedMb03PlaybookCodex(
     env: NodeJS.ProcessEnv = process.env,
-    verifyOnly = false
+    mode: boolean | "inspect-plan-ready" = false
 ): Promise<Readonly<Record<string, unknown>>> {
+    const verifyOnly = mode !== false;
     const config = requireProtectedMb03Environment(env, verifyOnly);
     if (!await googleRuntimeIdentity(config.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT, env, verifyOnly)) {
         throw new Error("Protected Cloud Run worker identity is not attested.");
@@ -303,6 +305,14 @@ export async function runProtectedMb03PlaybookCodex(
     };
     if (!(await verifyHostedNeonReadiness(readOnlyDb, "pbos_runner", config.PBOS_EXPECTED_NEON_ROLE))) {
         throw new Error("Protected Neon worker catalog or role is unavailable.");
+    }
+    if (mode === "inspect-plan-ready") {
+        if (config.PBOS_PLAYBOOK_SOURCE_SHA !== interruptedPlan.commit ||
+            config.PBOS_MISSION_EXECUTION_APPROVED !== "false") throw Error("RECOVERY_INSPECTION_BINDING");
+        const { stateRequest } = require("../genesis-state/gcs-state-request.cjs");
+        return inspectHostedPlanReady({ accessToken: googleAccessToken, db: readOnlyDb, journal: dispatchJournal,
+            readPinnedPair: async pin => stateRequest({ object: "synthetic/genesis-state.json", op: "inspect-recovery",
+                generation: pin.stateGeneration, recovery: pin, token: await googleAccessToken(AbortSignal.timeout(4000)) }) });
     }
     if (verifyOnly) {
         return {
@@ -402,10 +412,11 @@ export async function runProtectedMb03PlaybookCodex(
 // Explicit executable only. No automatic dispatch during CI or import.
 if (require.main === module) {
     const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
+    const inspect = process.argv[2] === "--inspect-plan-ready" && process.argv.length === 3;
     const probe = process.argv[2] === "--verify-evidence-mount" && process.argv.length === 3;
     const stateProbe = process.argv[2] === "--verify-state-writer" && process.argv.length === 3;
-    if (process.argv.length > 2 && !verifyOnly && !probe && !stateProbe) throw new Error("Unsupported protected controller argument.");
-    (stateProbe ? verifyStateWriter(process.env) : probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, verifyOnly)).then(result => {
+    if (process.argv.length > 2 && !verifyOnly && !inspect && !probe && !stateProbe) throw new Error("Unsupported protected controller argument.");
+    (stateProbe ? verifyStateWriter(process.env) : probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, inspect ? "inspect-plan-ready" : verifyOnly)).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(error => {
         process.stderr.write(JSON.stringify({

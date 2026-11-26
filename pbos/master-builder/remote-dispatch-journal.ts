@@ -38,11 +38,33 @@ export class GcsRemoteDispatchJournal {
         return token;
     }
 
+    private reservationName(repository: string, missionId: string): string {
+        return "pbos-dispatch/" + evidenceDigest(evidenceJson([repository.toLowerCase(), missionId]));
+    }
+
+    /** Recovery requires an authenticated absence check on the same protected object used by reserve. */
+    async assertUnreserved(repository: string, missionId: string, signal: AbortSignal): Promise<void> {
+        const token = await this.verifiedAccessToken(signal);
+        const name = this.reservationName(repository, missionId);
+        const url = new URL(`https://storage.googleapis.com/storage/v1/b/${this.bucket}/o/${encodeURIComponent(name)}`);
+        url.searchParams.set("fields", "generation");
+        const response = await this.http(url, { method: "GET", redirect: "error", signal,
+            headers: { authorization: `Bearer ${token}` } });
+        if (response.status === 404) {
+            const body = await response.json().catch(() => null) as { error?: { code?: number; message?: string } } | null;
+            if (body?.error?.code === 404 && body.error.message === `No such object: ${this.bucket}/${name}`) return;
+            throw Error("RECOVERY_DISPATCH_ABSENCE_UNVERIFIED");
+        }
+        await response.body?.cancel();
+        if (response.ok) throw Error("RECOVERY_DISPATCH_RESERVED");
+        throw Error(`RECOVERY_DISPATCH_LOOKUP_HTTP_${response.status}`);
+    }
+
     async reserve(binding: RemoteWorkerBinding, signal: AbortSignal): Promise<void> {
         const { mission } = binding;
-        const key = evidenceDigest(evidenceJson([mission.repository.toLowerCase(), mission.missionId]));
+        const name = this.reservationName(mission.repository, mission.missionId);
         const endpoint = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${this.bucket}/o`);
-        endpoint.search = new URLSearchParams({ uploadType: "media", name: `pbos-dispatch/${key}`, ifGenerationMatch: "0" }).toString();
+        endpoint.search = new URLSearchParams({ uploadType: "media", name, ifGenerationMatch: "0" }).toString();
         const token = await this.verifiedAccessToken(signal);
         const response = await this.http(endpoint, { method: "POST", redirect: "error", signal,
             headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

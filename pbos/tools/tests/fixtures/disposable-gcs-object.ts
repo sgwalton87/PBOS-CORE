@@ -38,5 +38,7 @@ export function orphan(bytes = "original fixture state") {
     const pin = { lockGeneration: "72", stateSha256: createHash("sha256").update(previous.bytes).digest("hex") };
     const transfer = (bytes: string, name = object) => stateRequest({ token: "fixture", object: name,
         op: "recover-scratch", generation: previous.generation, recovery: pin, bytes }, f.http, f.wait);
-    return { ...f, previous, oldLock, pin, transfer };
+    const inspect = () => stateRequest({ token: "fixture", object,
+        op: "inspect-recovery", generation: previous.generation, recovery: pin }, f.http, f.wait);
+    return { ...f, previous, oldLock, pin, transfer, inspect };
 }
