@@ -46,10 +46,18 @@ export class GcsRemoteDispatchJournal {
     async assertUnreserved(repository: string, missionId: string, signal: AbortSignal): Promise<void> {
         const token = await this.verifiedAccessToken(signal);
         const name = this.reservationName(repository, missionId);
+        await this.assertObjectAbsent(name, token, signal);
+    }
+
+    private readObjectGeneration(name: string, token: string, signal: AbortSignal) {
         const url = new URL(`https://storage.googleapis.com/storage/v1/b/${this.bucket}/o/${encodeURIComponent(name)}`);
         url.searchParams.set("fields", "generation");
-        const response = await this.http(url, { method: "GET", redirect: "error", signal,
+        return this.http(url, { method: "GET", redirect: "error", signal,
             headers: { authorization: `Bearer ${token}` } });
+    }
+
+    private async assertObjectAbsent(name: string, token: string, signal: AbortSignal): Promise<void> {
+        const response = await this.readObjectGeneration(name, token, signal);
         if (response.status === 404) {
             const body = await response.json().catch(() => null) as { error?: { code?: number; message?: string } } | null;
             if (body?.error?.code === 404 && body.error.message === `No such object: ${this.bucket}/${name}`) return;
@@ -58,6 +66,27 @@ export class GcsRemoteDispatchJournal {
         await response.body?.cancel();
         if (response.ok) throw Error("RECOVERY_DISPATCH_RESERVED");
         throw Error(`RECOVERY_DISPATCH_LOOKUP_HTTP_${response.status}`);
+    }
+
+    /** Read the reservation and a neighboring negative control with the same workload token. */
+    async verifyReservationReadBoundary(repository: string, missionId: string, signal: AbortSignal): Promise<void> {
+        const token = await this.token(signal);
+        if (!token || /\s/.test(token)) throw Error("RECOVERY_JOURNAL_IDENTITY");
+        const name = this.reservationName(repository, missionId);
+        await this.assertObjectAbsent(name, token, signal);
+        const sibling = await this.readObjectGeneration(name + "-other", token, signal);
+        if (sibling.status === 403) {
+            const body = await sibling.json().catch(() => null) as {
+                error?: { code?: number; message?: string; errors?: { reason?: string }[] }
+            } | null;
+            const error = body?.error;
+            if (error?.code === 403 && typeof error.message === "string" &&
+                error.message.includes("storage.objects.get") && Array.isArray(error.errors) &&
+                error.errors.some(entry => entry?.reason === "forbidden")) return;
+        } else {
+            await sibling.body?.cancel();
+        }
+        throw Error(`RECOVERY_JOURNAL_SIBLING_UNVERIFIED_HTTP_${sibling.status}`);
     }
 
     async reserve(binding: RemoteWorkerBinding, signal: AbortSignal): Promise<void> {

@@ -66,6 +66,7 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const SHA40 = /^[a-f0-9]{40}$/;
 const CANONICAL_WORKER_JOB = "pbos-mb03-playbook-codex";
 const CANONICAL_READINESS_JOB = "pbos-mb03-playbook-readiness";
+const JOURNAL_BUCKET = "pbos-genesis-staging-mb03-dispatch-journal";
 
 export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOnly = false): ProtectedMb03Environment {
     const required = verifyOnly ? READINESS_REQUIRED : REQUIRED;
@@ -93,7 +94,7 @@ export function requireProtectedMb03Environment(env: NodeJS.ProcessEnv, verifyOn
         !/^vcr\.vercel\.com\/pbos-genesis\/the-playbook\/pbos-mb03-playbook-worker@sha256:[a-f0-9]{64}$/.test(config.PBOS_PLAYBOOK_IMAGE)) {
         throw new Error("Unreviewed Playbook source, disposable state, or sandbox image identity.");
     }
-    if (config.PBOS_DISPATCH_JOURNAL_BUCKET !== "pbos-genesis-staging-mb03-dispatch-journal") {
+    if (config.PBOS_DISPATCH_JOURNAL_BUCKET !== JOURNAL_BUCKET) {
         throw new Error("Unreviewed staging dispatch journal.");
     }
     if ((!verifyOnly && (!/^[A-Za-z0-9._-]+$/.test(config.PBOS_WORKER_ID) ||
@@ -193,7 +194,7 @@ export async function googleRuntimeIdentity(expected: string, env: NodeJS.Proces
     try {
         const response = await fetch(
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/email",
-            { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(4000) }
+            { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(4000), redirect: "error" }
         );
         return response.ok && response.headers.get("metadata-flavor") === "Google" &&
             (await response.text()).trim() === expected;
@@ -217,12 +218,22 @@ function hostedEvidence(directory: string | undefined) {
     return new GcsHostedEvidence(directory, googleAccessToken);
 }
 
-async function verifyProbeIdentity(env: NodeJS.ProcessEnv) {
+async function verifyProbeIdentity(env: NodeJS.ProcessEnv, readinessJob = false) {
     const identity = "pbos-mb03-playbook-codex@pbos-genesis-staging.iam.gserviceaccount.com";
     if (env.PBOS_MISSION_EXECUTION_APPROVED !== "false" ||
-        env.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT !== identity || !await googleRuntimeIdentity(identity, env)) {
+        env.PBOS_EXPECTED_RUNTIME_SERVICE_ACCOUNT !== identity || !await googleRuntimeIdentity(identity, env, readinessJob)) {
         throw new Error("Storage probe requires the staging controller with mission execution disabled.");
     }
+}
+
+export async function verifyMission001JournalRead(env: NodeJS.ProcessEnv) {
+    if (env.PBOS_DISPATCH_JOURNAL_BUCKET !== JOURNAL_BUCKET ||
+        env.PBOS_PLAYBOOK_SOURCE_SHA !== interruptedPlan.commit) throw Error("RECOVERY_JOURNAL_BINDING");
+    await verifyProbeIdentity(env, true);
+    await new GcsRemoteDispatchJournal(JOURNAL_BUCKET, googleAccessToken).verifyReservationReadBoundary(
+        interruptedPlan.repository, interruptedPlan.missionId, AbortSignal.timeout(10_000));
+    return { status: "MISSION_001_JOURNAL_READ_VERIFIED", missionId: interruptedPlan.missionId,
+        reservationHttp: 404, siblingHttp: 403, missionExecutionAuthorized: false };
 }
 
 export async function verifyStateWriter(env: NodeJS.ProcessEnv) {
@@ -415,8 +426,10 @@ if (require.main === module) {
     const inspect = process.argv[2] === "--inspect-plan-ready" && process.argv.length === 3;
     const probe = process.argv[2] === "--verify-evidence-mount" && process.argv.length === 3;
     const stateProbe = process.argv[2] === "--verify-state-writer" && process.argv.length === 3;
-    if (process.argv.length > 2 && !verifyOnly && !inspect && !probe && !stateProbe) throw new Error("Unsupported protected controller argument.");
-    (stateProbe ? verifyStateWriter(process.env) : probe ? verifyEvidenceMount(process.env) : runProtectedMb03PlaybookCodex(process.env, inspect ? "inspect-plan-ready" : verifyOnly)).then(result => {
+    const journalProbe = process.argv[2] === "--verify-mission-001-journal-read" && process.argv.length === 3;
+    if (process.argv.length > 2 && !verifyOnly && !inspect && !probe && !stateProbe && !journalProbe) throw new Error("Unsupported protected controller argument.");
+    const checkStorage = journalProbe ? verifyMission001JournalRead : stateProbe ? verifyStateWriter : probe ? verifyEvidenceMount : undefined;
+    (checkStorage ? checkStorage(process.env) : runProtectedMb03PlaybookCodex(process.env, inspect ? "inspect-plan-ready" : verifyOnly)).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(error => {
         process.stderr.write(JSON.stringify({

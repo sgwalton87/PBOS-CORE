@@ -2,6 +2,14 @@
 # Offline synthetic secrets only; no Cloud Run or mission execution.
 set -eu
 umask 077
+# Exercise the real readiness command with no mounts or identity. It must reach
+# its own binding check without creating the private secret staging directory.
+code=0
+/usr/local/bin/mb03-stage-secrets ./node_modules/.bin/tsx pbos/tools/mb03-protected-playbook-codex.ts \
+    --verify-mission-001-journal-read 2>/tmp/mb03-journal-read.err || code=$?
+test "$code" -eq 2
+grep -q RECOVERY_JOURNAL_BINDING /tmp/mb03-journal-read.err
+test ! -e /var/lib/pbos-private
 for directory in operator provider-public provider observation; do
     mkdir -p "/run/secrets/mb03/$directory"
 done
