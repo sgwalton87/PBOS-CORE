@@ -1,12 +1,15 @@
-import { createPrivateKey, createPublicKey, randomUUID, sign } from "node:crypto";
-import { lstatSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { createHash, createPrivateKey, createPublicKey, randomUUID, sign } from "node:crypto";
+import { closeSync, constants, fstatSync, openSync, readFileSync, realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
-import { stdin as input, stdout as output } from "node:process";
+import { stdin as input, stderr as output } from "node:process";
 import {
-  hostedMissionScopeDigest, verifyHostedMissionApproval,
+  hostedApprovalSigningBytes, hostedMissionScopeDigest, planReadyRecoveryDigest, verifyHostedMissionApproval, verifyPlanReadyRecoveryApproval,
+  type SignedPlanReadyApproval,
   type SignedHostedMissionApproval, type HostedMissionLineage
 } from "../production-runtime/hosted-signed-mission-approval";
+
+import { interruptedPlan } from "../production-runtime/hosted-plan-ready-inspection";
 
 export const MB03_PLAYBOOK_SOURCE_SHA = "b2c2259d67f30ca068f32cd1889542991f294e42";
 export const MB03_PLAYBOOK_REPOSITORY = "sgwalton87/playbook-platform";
@@ -26,22 +29,53 @@ export function makeUnsignedMissionPayload(missionId: keyof typeof MISSIONS, ope
     commit: SOURCE, operatorId, scopeDigest: hostedMissionScopeDigest(scope), issuedAt, expiresAt, nonce };
 }
 
-function canonical(payload: ReturnType<typeof makeUnsignedMissionPayload>): Buffer {
-  return Buffer.from(JSON.stringify([payload.schema, payload.missionId, payload.repository, payload.commit,
-    payload.operatorId, payload.scopeDigest, payload.issuedAt, payload.expiresAt, payload.nonce]), "utf8");
+export const recoveryPublicationBase = "c556c418ec453a866cbec266922f394edeab6fb6";
+export const recoveryKeyFingerprint = "db04246cbc743ba2c75652de473ea3aba8e558f954826dd6e30d8bd0425bcff0";
+export const recoveryLineage = Object.freeze({
+  missionId: interruptedPlan.missionId, repository: REPOSITORY, commit: SOURCE,
+  operatorId: "viveca-walton", scope: MISSIONS["MB03-MISSION-001"]
+});
+
+export function recoveryPreview() {
+  if (interruptedPlan.commit !== SOURCE || interruptedPlan.repository !== REPOSITORY ||
+      hostedMissionScopeDigest(recoveryLineage.scope) !== interruptedPlan.scopeDigest) throw Error("RECOVERY_SCOPE_PIN");
+  return { schema: "pbos.hosted-plan-ready-recovery.v1" as const, lineage: recoveryLineage,
+    pin: interruptedPlan, publicationBase: recoveryPublicationBase, operatorPublicKeySha256: recoveryKeyFingerprint,
+    scopeDigest: planReadyRecoveryDigest(interruptedPlan, recoveryPublicationBase) };
 }
 
 function readProtected(path: string, max = 64 * 1024): Buffer {
-  const full = resolve(path), meta = lstatSync(full), parent = dirname(full);
-  if (!meta.isFile() || meta.isSymbolicLink() || meta.size < 1 || meta.size > max ||
-      (meta.mode & 0o077) !== 0 || resolve(parent) !== parent) throw new Error("Signing key path must be a private, non-symlink file with mode 0600 or stricter.");
-  return readFileSync(full);
+  const full = resolve(path);
+  if (realpathSync(full) !== full) throw Error("Signing file path contains an alias.");
+  const fd = openSync(full, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const meta = fstatSync(fd);
+    if (!meta.isFile() || meta.size < 1 || meta.size > max || (meta.mode & 0o077) !== 0 ||
+        meta.uid !== process.getuid?.()) throw Error("Signing file ownership, permissions or size failed verification.");
+    return readFileSync(fd);
+  } finally { closeSync(fd); }
+}
+
+export function makeRecoveryPayload(now = new Date(), nonce = randomUUID()): SignedPlanReadyApproval["payload"] {
+  const preview = recoveryPreview();
+  return { ...makeUnsignedMissionPayload("MB03-MISSION-001", recoveryLineage.operatorId, now, nonce),
+    schema: preview.schema, scopeDigest: preview.scopeDigest };
+}
+
+export function signRecoveryPayload(payload: SignedPlanReadyApproval["payload"], privatePem: Buffer,
+    passphrase: string, publicPem: string, now = new Date()) {
+  const privateKey = createPrivateKey({ key: privatePem, format: "pem", passphrase });
+  if (privateKey.asymmetricKeyType !== "ed25519") throw Error("Recovery requires an Ed25519 key.");
+  const approval = { payload, signatureBase64: sign(null, hostedApprovalSigningBytes(payload), privateKey).toString("base64") };
+  const recovery = { pin: interruptedPlan, publicationBase: recoveryPublicationBase, approval };
+  if (!verifyPlanReadyRecoveryApproval(recovery, recoveryLineage, publicPem, now)) throw Error("RECOVERY_SIGNATURE_INVALID");
+  return recovery;
 }
 
 export function signMissionPayload(payload: ReturnType<typeof makeUnsignedMissionPayload>, privatePem: Buffer, passphrase: string, publicPem: string): SignedHostedMissionApproval {
   const privateKey = createPrivateKey({ key: privatePem, format: "pem", passphrase });
   if (privateKey.asymmetricKeyType !== "ed25519") throw new Error("The custodian key must be Ed25519.");
-  const envelope: SignedHostedMissionApproval = { payload, signatureBase64: sign(null, canonical(payload), privateKey).toString("base64") };
+  const envelope: SignedHostedMissionApproval = { payload, signatureBase64: sign(null, hostedApprovalSigningBytes(payload), privateKey).toString("base64") };
   const expected: HostedMissionLineage = { missionId: payload.missionId, repository: REPOSITORY, commit: SOURCE, operatorId: payload.operatorId,
     scope: MISSIONS[payload.missionId as keyof typeof MISSIONS] };
   if (!verifyHostedMissionApproval(envelope, expected, publicPem, new Date(Date.parse(payload.issuedAt) + 1000))) throw new Error("Generated signature failed independent verification.");
@@ -58,18 +92,41 @@ async function hidden(prompt: string): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  const [missionId, operatorId, privatePath, publicPath] = process.argv.slice(2);
-  if (!(missionId in MISSIONS) || !operatorId || !privatePath || !publicPath) throw new Error("Usage: mb03-sign-mission <mission-id> <operator-id> <private-key.pem> <public-key.pem>");
-  const mission = MISSIONS[missionId as keyof typeof MISSIONS];
-  const payload = makeUnsignedMissionPayload(missionId as keyof typeof MISSIONS, operatorId);
-  console.log(JSON.stringify({ reviewRequired: true, missionId, repository: REPOSITORY, commit: SOURCE, branch: mission.branch, path: mission.path, contentSha256: mission.contentSha256, scopeDigest: payload.scopeDigest, issuedAt: payload.issuedAt, expiresAt: payload.expiresAt }, null, 2));
-  const rl = createInterface({ input, output });
-  const confirm = await rl.question(`Type SIGN ${missionId} to continue: `); rl.close();
-  if (confirm !== `SIGN ${missionId}`) throw new Error("Signing cancelled.");
-  const passphrase = await hidden("Private-key passphrase (hidden): ");
+  const args = process.argv.slice(2);
+  if (args.length === 1 && args[0] === "--preview-plan-ready") {
+    console.log(JSON.stringify(recoveryPreview(), null, 2));
+    return;
+  }
+  const recovery = args[0] === "--recover-plan-ready";
+  if (recovery) args.shift();
+  const [missionId, operatorId, privatePath, publicPath] = args;
+  if (args.length !== 4 || !Object.hasOwn(MISSIONS, missionId) || !operatorId || !privatePath || !publicPath)
+    throw Error("Expected a supported mission, operator ID, private-key path and public-key path.");
+  if (recovery && (missionId !== recoveryLineage.missionId || operatorId !== recoveryLineage.operatorId)) throw Error("RECOVERY_OPERATOR_OR_MISSION");
+  if (!input.isTTY || !output.isTTY) throw Error("Signing requires the custodian's interactive terminal.");
   const publicPem = readProtected(publicPath).toString("utf8");
-  const envelope = signMissionPayload(payload, readProtected(privatePath), passphrase, publicPem);
-  console.log(JSON.stringify(envelope));
+  if (recovery) {
+    const key = createPublicKey(publicPem);
+    if (key.asymmetricKeyType !== "ed25519" ||
+        createHash("sha256").update(key.export({ type: "spki", format: "der" })).digest("hex") !== recoveryKeyFingerprint)
+      throw Error("RECOVERY_PUBLIC_KEY_PIN");
+  }
+  const id = missionId as keyof typeof MISSIONS;
+  const payload = recovery ? makeRecoveryPayload() : makeUnsignedMissionPayload(id, operatorId);
+  console.error(JSON.stringify({ reviewRequired: true, ...MISSIONS[id], ...(recovery ? recoveryPreview() : {}), ...payload }, null, 2));
+  const phrase = recovery ? `RECOVER ${interruptedPlan.runId} ${missionId}` : `SIGN ${missionId}`;
+  const rl = createInterface({ input, output });
+  let confirm: string;
+  try { confirm = await rl.question(`Type ${phrase} to continue: `); } finally { rl.close(); }
+  if (confirm !== phrase) throw Error("Signing cancelled.");
+  const passphrase = await hidden("Private-key passphrase (hidden): ");
+  const privatePem = readProtected(privatePath);
+  try {
+    const signed = payload.schema === "pbos.hosted-plan-ready-recovery.v1"
+      ? signRecoveryPayload(payload, privatePem, passphrase, publicPem)
+      : signMissionPayload(payload, privatePem, passphrase, publicPem);
+    console.log(JSON.stringify(signed));
+  } finally { privatePem.fill(0); }
 }
 
 if (require.main === module) main().catch(error => { console.error(error instanceof Error ? error.message : "Signing failed."); process.exitCode = 1; });

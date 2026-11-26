@@ -9,12 +9,15 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { chmodSync, lstatSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { PlanReadyHandoff } from "../production-runtime/plan-ready-lease-handoff";
+import type { ProductionRun } from "../production-runtime/contracts";
+import type { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playbook-pr-api";
 import type { ProductionMissionRequest } from "../production-runtime/production-mission-runner";
-import type { HostedMissionScope, SignedHostedMissionApproval } from "../production-runtime/hosted-signed-mission-approval";
+import type { HostedMissionLineage, HostedMissionScope, SignedHostedMissionApproval } from "../production-runtime/hosted-signed-mission-approval";
 import { hostedMissionScopeDigest, verifyHostedMissionApproval } from "../production-runtime/hosted-signed-mission-approval";
 import { createRemotePlaybookMission, assertPlaybookRemoteTarget, isApprovedPlaybookMissionBranch, type PlaybookRemoteTarget } from "../master-builder/playbook-remote-mission";
 import type { Mb03Mission } from "../master-builder/mb03-disposable-mission";
-import { MB03_MISSION_SCOPES, MB03_PLAYBOOK_REPOSITORY, MB03_PLAYBOOK_SOURCE_SHA } from "./mb03-sign-mission";
+import { recoveryPreview, MB03_MISSION_SCOPES, MB03_PLAYBOOK_REPOSITORY, MB03_PLAYBOOK_SOURCE_SHA } from "./mb03-sign-mission";
 
 export interface ProtectedPlaybookMissionFile {
     readonly request: ProductionMissionRequest;
@@ -111,6 +114,27 @@ export function validateProtectedPlaybookMissionFile(
     }, trustedOperatorPublicKeyPem, now)) {
         throw new Error("Protected mission package signature or lineage is invalid.");
     }
+}
+
+/** Check the historical input against the observed interrupted run. This never
+ * grants current execution authority, even when the original signature is valid. */
+export async function inspectOriginalRecoveryPackage(file: ProtectedPlaybookMissionFile, run: ProductionRun,
+    operatorPublicKey: string, github: Pick<GitHubAppPlaybookPrApi, "assertRecoveryPublicationBase" | "getTrackedFileBlob">,
+    { pin, lineage, publicationBase }: { pin: PlanReadyHandoff; lineage: HostedMissionLineage; publicationBase: string } = recoveryPreview()) {
+    const original = file.approval;
+    if (pin.scopeDigest !== hostedMissionScopeDigest(lineage.scope) || pin.commit !== lineage.commit ||
+        pin.repository !== lineage.repository || pin.missionId !== lineage.missionId ||
+        run.runId !== pin.runId || run.actorId !== lineage.operatorId || run.startingBranch !== lineage.scope.branch ||
+        original?.payload?.nonce !== pin.nonce || original.payload.missionId !== pin.missionId ||
+        original.payload.operatorId !== lineage.operatorId || original.payload.commit !== pin.commit ||
+        original.payload.scopeDigest !== pin.scopeDigest || run.disposableAttempt?.approvalDigest !== digest(original.signatureBase64))
+        throw Error("RECOVERY_ORIGINAL_APPROVAL_LINEAGE");
+    validateProtectedPlaybookMissionFile(file, operatorPublicKey, new Date(original.payload.issuedAt));
+    await github.assertRecoveryPublicationBase(pin.repository, pin.commit, publicationBase);
+    const before = Buffer.from(file.target.before, "utf8");
+    const expectedBlob = createHash("sha1").update("blob " + before.length + "\0").update(before).digest("hex");
+    if (await github.getTrackedFileBlob(pin.repository, publicationBase, lineage.scope.path) !== expectedBlob)
+        throw Error("RECOVERY_TARGET_PREIMAGE");
 }
 
 export function buildProtectedPlaybookMissionFile(

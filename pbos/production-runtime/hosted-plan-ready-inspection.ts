@@ -1,5 +1,6 @@
 import { inspectPlanReadyCheckpoint, preparePlanReadyLeaseHandoff, type PlanReadyHandoff } from "./plan-ready-lease-handoff";
 import { hostname } from "node:os";
+import type { ProductionRun } from "./contracts";
 import type { HostedExecutionLease } from "./hosted-approved-mission";
 import type { NeonLeaseSql } from "./neon-fenced-lease-provider";
 import type { GcsRemoteDispatchJournal } from "../master-builder/remote-dispatch-journal";
@@ -80,10 +81,12 @@ async function observe(deps: RecoveryReads, review: ReviewedRecovery, fence?: Ho
     return state;
 }
 
-export async function inspectHostedPlanReady(deps: RecoveryReads, review: ReviewedRecovery = reviewedRecovery) {
+export async function inspectHostedPlanReady(deps: RecoveryReads, review: ReviewedRecovery = reviewedRecovery,
+    inspectPackage?: (run: ProductionRun) => Promise<void>) {
     const { pin } = review;
     const state = await observe(deps, review);
-    inspectPlanReadyCheckpoint(state.bytes, pin, new Date());
+    const { run } = inspectPlanReadyCheckpoint(state.bytes, pin, new Date());
+    if (inspectPackage) await inspectPackage(run);
     return { status: "PLAN_READY_CHECKPOINT_OBSERVED", runId: pin.runId, previousExecution: review.execution.name,
         stateGeneration: state.generation, lockGeneration: pin.lockGeneration, stateSha256: pin.stateSha256,
         missionExecutionAuthorized: false, leaseAcquired: false };
