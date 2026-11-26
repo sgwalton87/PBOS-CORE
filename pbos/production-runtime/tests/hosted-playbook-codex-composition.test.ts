@@ -324,6 +324,28 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
             owner.expiresAt.toISOString(), prepared.lease.leaseId).runId).toBe(run.runId);
         expect(readFileSync(join(f.root, "nonce.fixture"), "utf8")).toBe(pin.nonce);
         expect(existsSync(join(f.root, "worker-started.fixture"))).toBe(false);
+
+        // Re-enter through the normal hosted composition after verified scratch handoff.
+        // A transferred lease alone must never admit a second run or consume a fresh nonce.
+        f.composition.adapters.runner = new ProductionMissionRunner(recovered);
+        const snapshotAfterHandoff = readFileSync(file);
+        for (const envelope of [approval, fresh]) {
+            const nonce = envelope.payload.nonce;
+            const target = f.composition.policy.playbook;
+            const mission = createRemotePlaybookMission(request.commit, f.composition.policy.workerId,
+                admission.disposableNamespace, nonce, target);
+            const input = { ...f.composition.input, approval: envelope, mission,
+                request: { ...request, authorizationArtifactId: "hosted-approval:" + nonce } };
+            await expect(executeHostedPlaybookCodexMission({ ...f.composition, input }, f.api))
+                .rejects.toThrow("already has an active run or lease");
+        }
+        expect(readFileSync(file)).toEqual(snapshotAfterHandoff);
+        expect(recovered.productionRuns().map(r => r.runId)).toEqual([pin.runId]);
+        expect(admission.acquireFencedLease).not.toHaveBeenCalled();
+        expect(admission.recordApprovalNonce).not.toHaveBeenCalled();
+        expect(f.reserve).not.toHaveBeenCalled();
+        expect(f.api.create).not.toHaveBeenCalled();
+        expect(f.checkpoints.commit).not.toHaveBeenCalled();
     }, 20_000);
 
     it("publishes the verified tracked-file bytes once even when the draft PR acknowledgment is lost", async () => {
@@ -379,12 +401,13 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         const pr = { number: 1, html_url: "https://github.com/sgwalton87/playbook-platform/pull/1", draft: true,
             head: { ref: scope.branch, sha: newHead, repo: repoInfo },
             base: { ref: "main", sha:request.commit, repo: repoInfo }, state: "open" };
+        let mainHead = request.commit;
         const github = new GitHubAppPlaybookPrApi("fixture", async (url, options) => {
             const route = new URL(String(url)).pathname.replace("/repos/" + proposal.repository, "");
             const method = options?.method ?? "GET";
             if (method !== "GET") writes.push(method + " " + route);
             const body = options?.body ? JSON.parse(String(options.body)) : {};
-            if (method === "GET" && route === "/git/ref/heads/main") return Response.json({object:{sha:request.commit}});
+            if (method === "GET" && route === "/git/ref/heads/main") return Response.json({object:{sha:mainHead}});
             if (method === "GET" && route === "/git/ref/heads/" + scope.branch) return head ?
                 Response.json({object:{sha:head}}) : new Response(null, {status:404});
             if (method === "GET" && route === "/pulls") return Response.json(draft ? [pr] : []);
@@ -421,6 +444,11 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
         const lease = {resource:"pbos:mission:" + request.repository + ":" + mission.missionId,
             ownerId:"fixture-publisher", fencingToken:2n};
         const publish = () => createFencedPlaybookPr(github, lease, async () => true, proposal);
+        // The file and proposed bytes are unchanged, but an advanced main fails before the first write.
+        mainHead = "b".repeat(40);
+        await expect(publish()).rejects.toThrow("Playbook main advanced");
+        expect(writes).toEqual([]);
+        mainHead = request.commit;
         await expect(publish()).rejects.toThrow("lost response");
         await expect(publish()).resolves.toMatchObject({number:1, branch:scope.branch, headSha:newHead, fileOperation:"modified"});
         expect(writes).toEqual(["POST /git/refs", "POST /graphql", "POST /pulls"]);
