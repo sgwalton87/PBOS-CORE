@@ -18,7 +18,7 @@ class TestExistingReadiness(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.path = Path(temp.name) / "job.yaml"
         spec = {"serviceAccountName": "fixture-account", "containers": [{
-            "image": "fixture-pinned-image", "command": ["fixture-launcher"], "args": ["--verify-bindings"],
+            "image": "fixture-pinned-image", "command": ["fixture-launcher"], "args": ["--verify-mission-001-journal-read"],
             "env": [{"name": "PBOS_MISSION_EXECUTION_APPROVED", "value": "false"},
                     {"name": "PBOS_PLAYBOOK_SOURCE_SHA", "value": r.SOURCE}]}]}
         self.path.write_text(json.dumps({"metadata": {"name": r.JOB},
@@ -27,10 +27,10 @@ class TestExistingReadiness(unittest.TestCase):
         self.enter_context_patch.start()
         self.addCleanup(self.enter_context_patch.stop)
         self.manifest = r.load_manifest(self.path)
-        self.old = {"metadata": {"generation": 1, "uid": r.UID, "namespace": "211508256780", "resourceVersion": "rv1"},
-                    "status": {"observedGeneration": 1, "executionCount": 1, "latestCreatedExecution": {"name": r.PREVIOUS}}}
-        self.ready = {"uid": r.UID, "generation": "2", "observedGeneration": "2", "etag": "etag2",
-                      "terminalCondition": {"state": "CONDITION_SUCCEEDED"}, "executionCount": 1,
+        self.old = {"metadata": {"generation": 2, "uid": r.UID, "namespace": "211508256780", "resourceVersion": "rv1"},
+                    "status": {"observedGeneration": 2, "executionCount": 2, "latestCreatedExecution": {"name": r.PREVIOUS}}}
+        self.ready = {"uid": r.UID, "generation": "3", "observedGeneration": "3", "etag": "etag2",
+                      "terminalCondition": {"state": "CONDITION_SUCCEEDED"}, "executionCount": 2,
                       "latestCreatedExecution": {"name": r.PREVIOUS}, "template": {"taskCount": 1, "template": {
                           "maxRetries": 0, "serviceAccount": spec["serviceAccountName"], "containers": spec["containers"]}}}
         self.operation = {"name": r.LOCATION + "/operations/fixture"}
@@ -53,13 +53,13 @@ class TestExistingReadiness(unittest.TestCase):
             r.load_manifest(self.path)
 
     def test_updated_generation_cannot_be_replayed(self):
-        self.old["metadata"]["generation"] = 2
+        self.old["metadata"]["generation"] = 3
         with self.assertRaisesRegex(ValueError, "has moved"):
             self.start()
         self.assertEqual(self.request.call_count, 1)
 
     def test_concurrent_execution_blocks_launch(self):
-        self.ready["executionCount"] = 2
+        self.ready["executionCount"] = 3
         with self.assertRaisesRegex(ValueError, "read-back mismatch"):
             self.start()
         self.assertEqual(self.request.call_count, 3)
@@ -82,12 +82,14 @@ class TestExistingReadiness(unittest.TestCase):
         get = Mock(return_value={**self.operation, "done": True, "response": response})
         self.assertEqual(r.verify_execution(self.operation, get, lambda _: None), execution)
         get.assert_called_once_with("GET", "/v2/" + self.operation["name"])
-        receipt = dict(schema="pbos.mb03.protected-bindings.v1", status="READY_FOR_SEPARATE_SIGNED_APPROVAL",
-                       sourceSha=r.SOURCE, journalProtectionVerified=True, missionExecutionAuthorized=False)
+        receipt = dict(status="MISSION_001_JOURNAL_READ_VERIFIED", missionId="MB03-MISSION-001",
+                       reservationHttp=404, siblingHttp=403, missionExecutionAuthorized=False)
         with patch.object(r.subprocess, "check_output", return_value=json.dumps([{"jsonPayload": receipt}])) as logs:
-            self.assertTrue(r.read_receipt(execution)["journalProtectionVerified"])
+            self.assertEqual(r.read_receipt(execution), receipt)
             self.assertIn(f'execution_name"="{execution}"', logs.call_args.args[0][3])
-        receipt["missionExecutionAuthorized"] = True
-        with patch.object(r.subprocess, "check_output", return_value=json.dumps([{"textPayload": json.dumps(receipt)}])), \
-             patch.object(r.time, "sleep"), self.assertRaisesRegex(RuntimeError, "receipt unavailable"):
-            r.read_receipt(execution)
+        for change in ({"missionId": "MB03-MISSION-002"}, {"status": "READY_FOR_SEPARATE_SIGNED_APPROVAL"},
+                       {"reservationHttp": 200}, {"siblingHttp": 404}, {"missionExecutionAuthorized": True}):
+            invalid = json.dumps([{"textPayload": json.dumps({**receipt, **change})}])
+            with self.subTest(change=change), patch.object(r.subprocess, "check_output", return_value=invalid), \
+                 patch.object(r.time, "sleep"), self.assertRaisesRegex(RuntimeError, "receipt unavailable"):
+                r.read_receipt(execution)
