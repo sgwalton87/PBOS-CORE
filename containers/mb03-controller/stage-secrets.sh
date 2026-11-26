@@ -9,7 +9,8 @@ fi
 # Isolated storage probes run as node without staging mission secrets.
 if [ "$#" -eq 3 ] && [ "$1" = "./node_modules/.bin/tsx" ] &&
    [ "$2" = "pbos/tools/mb03-protected-playbook-codex.ts" ] &&
-   { [ "$3" = "--verify-evidence-mount" ] || [ "$3" = "--verify-state-writer" ]; }; then
+   { [ "$3" = "--verify-evidence-mount" ] || [ "$3" = "--verify-state-writer" ] ||
+     [ "$3" = "--verify-mission-001-journal-read" ]; }; then
   exec gosu node "$@"
 fi
 readiness=0
