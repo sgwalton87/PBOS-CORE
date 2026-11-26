@@ -16,7 +16,7 @@ readiness=0
 if [ "$#" -eq 3 ] &&
    [ "$1" = "./node_modules/.bin/tsx" ] &&
    [ "$2" = "pbos/tools/mb03-protected-playbook-codex.ts" ] &&
-   [ "$3" = "--verify-bindings" ]; then
+   { [ "$3" = "--verify-bindings" ] || [ "$3" = "--inspect-plan-ready" ]; }; then
   readiness=1
 fi
 root=/var/lib/pbos-private

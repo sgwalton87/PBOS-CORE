@@ -15,6 +15,8 @@ import {
     executeHostedPlaybookCodexMission, prepareHostedPlaybookCodexMission
 } from "../hosted-playbook-codex-composition";
 import { orphan } from "../../tools/tests/fixtures/disposable-gcs-object";
+import { inspectHostedPlanReady, prepareHostedPlanReadyHandoff } from "../hosted-plan-ready-inspection";
+import type { NeonLeaseSql } from "../neon-fenced-lease-provider";
 import { preparePlanReadyLeaseHandoff } from "../plan-ready-lease-handoff";
 import { inspectMb03Recovery } from "../../master-builder/mb03-disposable-mission";
 import { hostedMissionScopeDigest } from "../hosted-signed-mission-approval";
@@ -274,8 +276,38 @@ describe("MB-03 composed hosted Playbook Codex execution", () => {
             { oldLeaseId: randomUUID() }, { commit: "b".repeat(40) }]) {
             expect(() => preparePlanReadyLeaseHandoff(before.toString(), { ...pin, ...changed }, owner, observations)).toThrow(/RECOVERY_/);
         }
-        const prepared = preparePlanReadyLeaseHandoff(before.toString(), pin, owner, observations);
         const scratch = orphan(before.toString());
+        const execution = { name: "projects/pbos-genesis-staging/locations/us-west1/jobs/pbos-mb03-playbook-codex/executions/pbos-mb03-playbook-codex-fixture", uid: randomUUID() };
+        const review = { pin, execution };
+        const terminal = { ...execution, job: "pbos-mb03-playbook-codex", taskCount: 1, failedCount: 1,
+            completionTime: owner.now.toISOString(), conditions: [{ type: "Completed", state: "CONDITION_FAILED" }] };
+        const http = vi.fn(async () => Response.json(terminal));
+        const dbResult = { consumed: true, checkpoint_absent: true, fence_matches: true };
+        const query = vi.fn(async () => ({ rows: [dbResult] }));
+        const reads = { accessToken: async () => "fixture", http, journal: { assertUnreserved: vi.fn(async () => {}) },
+            db: { query } as unknown as NeonLeaseSql, readPinnedPair: () => scratch.inspect() };
+        await expect(inspectHostedPlanReady(reads, review)).resolves.toMatchObject({
+            status: "PLAN_READY_CHECKPOINT_OBSERVED", runId: run.runId, leaseAcquired: false, missionExecutionAuthorized: false
+        });
+        expect(query.mock.lastCall).toEqual([expect.stringContaining("NOT EXISTS(SELECT 1 FROM pbos_runner.execution_lease"),
+            [pin.nonce, pin.missionId, owner.fence.resource]]);
+        for (const changed of [{ uid: randomUUID() }, { reconciling: true }, { runningCount: 1 },
+            { completionTime: null }, { conditions: [{ type: "Completed", state: "CONDITION_PENDING" }] }]) {
+            http.mockResolvedValueOnce(Response.json({ ...terminal, ...changed }));
+            await expect(prepareHostedPlanReadyHandoff(reads, owner.fence, review)).rejects.toThrow("RECOVERY_EXECUTION_NOT_TERMINAL");
+        }
+        http.mockResolvedValueOnce(new Response(null, { status: 403 }));
+        await expect(inspectHostedPlanReady(reads, review)).rejects.toThrow("RECOVERY_EXECUTION_HTTP_403");
+        for (const changed of [{ consumed: false }, { checkpoint_absent: false }, { fence_matches: false }]) {
+            query.mockResolvedValueOnce({ rows: [{ ...dbResult, ...changed }] });
+            await expect(prepareHostedPlanReadyHandoff(reads, owner.fence, review)).rejects.toThrow("RECOVERY_NEON_LINEAGE");
+        }
+        reads.journal.assertUnreserved.mockRejectedValueOnce(Error("RECOVERY_DISPATCH_RESERVED"));
+        await expect(prepareHostedPlanReadyHandoff(reads, owner.fence, review)).rejects.toThrow("RECOVERY_DISPATCH_RESERVED");
+        expect(scratch.http.mock.calls.every(([, options]) => options.method === "GET")).toBe(true);
+        const prepared = await prepareHostedPlanReadyHandoff(reads, owner.fence, review);
+        expect(query.mock.lastCall).toEqual([expect.stringContaining("owner_id=$4::uuid AND fencing_token=$5::bigint"),
+            [pin.nonce, pin.missionId, owner.fence.resource, owner.fence.ownerId, owner.fence.fencingToken.toString()]]);
         const receipt = await scratch.transfer(prepared.bytes);
         const readback = await scratch.call("read");
         expect(readback).toEqual({ generation: receipt.generation, bytes: prepared.bytes });
