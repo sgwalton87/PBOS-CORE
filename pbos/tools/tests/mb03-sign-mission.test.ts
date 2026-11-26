@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { makeUnsignedMissionPayload, signMissionPayload } from "../mb03-sign-mission";
-import { verifyHostedMissionApproval } from "../../production-runtime/hosted-signed-mission-approval";
+import { makeUnsignedMissionPayload, signMissionPayload, makeRecoveryPayload, signRecoveryPayload, recoveryPreview, recoveryLineage } from "../mb03-sign-mission";
+import { verifyHostedMissionApproval, verifyPlanReadyRecoveryApproval } from "../../production-runtime/hosted-signed-mission-approval";
 
 describe("MB-03 custodian signer", () => {
   const keys = generateKeyPairSync("ed25519");
@@ -22,5 +22,34 @@ describe("MB-03 custodian signer", () => {
     expect(verifyHostedMissionApproval(envelope, { ...expected, commit: "0".repeat(40) }, publicPem, new Date("2026-11-24T20:01:00.000Z"))).toBe(false);
     expect(verifyHostedMissionApproval(envelope, { ...expected, operatorId: "other" }, publicPem, new Date("2026-11-24T20:01:00.000Z"))).toBe(false);
     expect(verifyHostedMissionApproval(envelope, expected, publicPem, new Date("2026-11-24T20:16:00.000Z"))).toBe(false);
+  });
+});
+
+describe("interrupted Mission 001 custodian approval", () => {
+  const now = new Date("2026-11-26T00:00:00.000Z");
+  const keys = generateKeyPairSync("ed25519");
+  const publicPem = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
+  const privatePem = Buffer.from(keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString());
+  const payload = makeRecoveryPayload(now, "22222222-2222-4222-8222-222222222222");
+  const signed = signRecoveryPayload(payload, privatePem, "", publicPem, now);
+  it("previews the same scope without issuing a new nonce or starting the approval clock", () => {
+    expect(recoveryPreview()).toEqual(recoveryPreview());
+    expect(recoveryPreview().scopeDigest).toBe(payload.scopeDigest);
+    expect(recoveryPreview()).not.toHaveProperty("issuedAt");
+    expect(recoveryPreview()).not.toHaveProperty("signatureBase64");
+  });
+  it("permits recovery of only the pinned interrupted run during its own window", () => {
+    expect(verifyPlanReadyRecoveryApproval(signed, recoveryLineage, publicPem, now)).toBe(true);
+    expect(verifyPlanReadyRecoveryApproval(signed, recoveryLineage, publicPem, new Date(payload.expiresAt))).toBe(false);
+    expect(verifyHostedMissionApproval(signed.approval as never, recoveryLineage, publicPem, now)).toBe(false);
+    expect(verifyPlanReadyRecoveryApproval({ ...signed, publicationBase: signed.pin.commit }, recoveryLineage, publicPem, now)).toBe(false);
+    expect(verifyPlanReadyRecoveryApproval({ ...signed, pin: { ...signed.pin, lockGeneration: "1" } }, recoveryLineage, publicPem, now)).toBe(false);
+  });
+  it("rejects a reused attempt nonce, other operator, and mismatched public key", () => {
+    for (const invalid of [{ ...payload, nonce: signed.pin.nonce }, { ...payload, operatorId: "other" }]) {
+      expect(() => signRecoveryPayload(invalid, privatePem, "", publicPem, now)).toThrow("RECOVERY_SIGNATURE_INVALID");
+    }
+    const wrong = generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString();
+    expect(() => signRecoveryPayload(payload, privatePem, "", wrong, now)).toThrow("RECOVERY_SIGNATURE_INVALID");
   });
 });

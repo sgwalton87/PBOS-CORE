@@ -84,6 +84,11 @@ export function verifyPlanReadyRecoveryApproval(recovery: PlanReadyRecoveryAutho
     verifyEnvelope(approval, expected, key, now, "pbos.hosted-plan-ready-recovery.v1", planReadyRecoveryDigest(pin, publicationBase));
 }
 
+export function hostedApprovalSigningBytes(p: (SignedHostedMissionApproval | SignedPlanReadyApproval)["payload"]): Buffer {
+  return Buffer.from(JSON.stringify([p.schema, p.missionId, p.repository, p.commit,
+    p.operatorId, p.scopeDigest, p.issuedAt, p.expiresAt, p.nonce]), "utf8");
+}
+
 function verifyEnvelope(approval: SignedHostedMissionApproval | SignedPlanReadyApproval, expected: HostedMissionLineage,
   trustedEd25519PublicKeyPem: string, now: Date, schema: typeof approval.payload.schema, digest: string): boolean {
   try {
@@ -106,11 +111,7 @@ function verifyEnvelope(approval: SignedHostedMissionApproval | SignedPlanReadyA
     if (!/^[A-Za-z0-9+/]{86}==?$/.test(approval.signatureBase64)) return false;
     const key = createPublicKey(trustedEd25519PublicKeyPem);
     if (key.asymmetricKeyType !== "ed25519") return false;
-    const canonical = JSON.stringify([
-      p.schema, p.missionId, p.repository, p.commit, p.operatorId,
-      p.scopeDigest, p.issuedAt, p.expiresAt, p.nonce
-    ]);
-    return verify(null, Buffer.from(canonical, "utf8"), key,
+    return verify(null, hostedApprovalSigningBytes(p), key,
       Buffer.from(approval.signatureBase64, "base64"));
   } catch {
     return false;

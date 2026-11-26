@@ -30,7 +30,9 @@ import { VercelPlaybookProvider } from "../master-builder/vercel-remote-provider
 import { GcsRemoteDispatchJournal } from "../master-builder/remote-dispatch-journal";
 import { HttpsModelLeaseIssuer } from "../master-builder/remote-model-credential";
 import { GcsHostedEvidence } from "../master-builder/gcs-hosted-evidence";
-import type { ProtectedPlaybookMissionFile } from "./mb03-mission-package";
+import { GitHubAppPlaybookPrApi } from "../production-runtime/github-app-playbook-pr-api";
+import { recoveryPreview } from "./mb03-sign-mission";
+import { inspectOriginalRecoveryPackage, type ProtectedPlaybookMissionFile } from "./mb03-mission-package";
 
 const REQUIRED = [
     "PBOS_DATABASE_URL", "PBOS_EXPECTED_NEON_HOST", "PBOS_EXPECTED_NEON_ROLE",
@@ -251,7 +253,7 @@ export async function verifyEvidenceMount(env: NodeJS.ProcessEnv) {
 
 export async function runProtectedMb03PlaybookCodex(
     env: NodeJS.ProcessEnv = process.env,
-    mode: boolean | "inspect-plan-ready" = false
+    mode: boolean | "inspect-plan-ready" | "verify-recovery-package" = false
 ): Promise<Readonly<Record<string, unknown>>> {
     const verifyOnly = mode !== false;
     const config = requireProtectedMb03Environment(env, verifyOnly);
@@ -317,13 +319,29 @@ export async function runProtectedMb03PlaybookCodex(
     if (!(await verifyHostedNeonReadiness(readOnlyDb, "pbos_runner", config.PBOS_EXPECTED_NEON_ROLE))) {
         throw new Error("Protected Neon worker catalog or role is unavailable.");
     }
-    if (mode === "inspect-plan-ready") {
+    if (mode === "inspect-plan-ready" || mode === "verify-recovery-package") {
         if (config.PBOS_PLAYBOOK_SOURCE_SHA !== interruptedPlan.commit ||
             config.PBOS_MISSION_EXECUTION_APPROVED !== "false") throw Error("RECOVERY_INSPECTION_BINDING");
         const { stateRequest } = require("../genesis-state/gcs-state-request.cjs");
-        return inspectHostedPlanReady({ accessToken: googleAccessToken, db: readOnlyDb, journal: dispatchJournal,
+        const observed = await inspectHostedPlanReady({ accessToken: googleAccessToken, db: readOnlyDb, journal: dispatchJournal,
             readPinnedPair: async pin => stateRequest({ object: "synthetic/genesis-state.json", op: "inspect-recovery",
-                generation: pin.stateGeneration, recovery: pin, token: await googleAccessToken(AbortSignal.timeout(4000)) }) });
+                generation: pin.stateGeneration, recovery: pin, token: await googleAccessToken(AbortSignal.timeout(4000)) }) },
+            undefined, mode === "verify-recovery-package" ? async run => {
+                if (config.PBOS_APPROVAL_PUBLIC_KEY_SHA256 !== recoveryPreview().operatorPublicKeySha256)
+                    throw Error("RECOVERY_OPERATOR_KEY_PIN");
+                if (env.PBOS_MISSION_INPUT_FILE !== "/var/lib/pbos-missions/mission.json")
+                    throw Error("RECOVERY_ORIGINAL_PACKAGE_BINDING");
+                if (!env.PBOS_GITHUB_APP_INSTALLATION_TOKEN?.trim()) throw Error("RECOVERY_GITHUB_INSTALLATION_BINDING");
+                const raw = readProtectedMb03File(env.PBOS_MISSION_INPUT_FILE, 1024 * 1024, "mission-input");
+                let original: ProtectedPlaybookMissionFile;
+                try { original = JSON.parse(raw.toString("utf8")); }
+                catch { throw Error("RECOVERY_ORIGINAL_PACKAGE_JSON"); }
+                await inspectOriginalRecoveryPackage(original, run, operatorPublicKey,
+                    new GitHubAppPlaybookPrApi(env.PBOS_GITHUB_APP_INSTALLATION_TOKEN));
+            } : undefined);
+        if (mode === "inspect-plan-ready") return observed;
+        return { ...observed, status: "RECOVERY_PACKAGE_OBSERVED", publicationBase: recoveryPreview().publicationBase,
+            scopeDigest: recoveryPreview().scopeDigest, currentApprovalVerified: false };
     }
     if (verifyOnly) {
         return {
@@ -424,12 +442,13 @@ export async function runProtectedMb03PlaybookCodex(
 if (require.main === module) {
     const verifyOnly = process.argv[2] === "--verify-bindings" && process.argv.length === 3;
     const inspect = process.argv[2] === "--inspect-plan-ready" && process.argv.length === 3;
+    const recoveryPackage = process.argv[2] === "--verify-recovery-package" && process.argv.length === 3;
     const probe = process.argv[2] === "--verify-evidence-mount" && process.argv.length === 3;
     const stateProbe = process.argv[2] === "--verify-state-writer" && process.argv.length === 3;
     const journalProbe = process.argv[2] === "--verify-mission-001-journal-read" && process.argv.length === 3;
-    if (process.argv.length > 2 && !verifyOnly && !inspect && !probe && !stateProbe && !journalProbe) throw new Error("Unsupported protected controller argument.");
+    if (process.argv.length > 2 && !verifyOnly && !inspect && !recoveryPackage && !probe && !stateProbe && !journalProbe) throw new Error("Unsupported protected controller argument.");
     const checkStorage = journalProbe ? verifyMission001JournalRead : stateProbe ? verifyStateWriter : probe ? verifyEvidenceMount : undefined;
-    (checkStorage ? checkStorage(process.env) : runProtectedMb03PlaybookCodex(process.env, inspect ? "inspect-plan-ready" : verifyOnly)).then(result => {
+    (checkStorage ? checkStorage(process.env) : runProtectedMb03PlaybookCodex(process.env, recoveryPackage ? "verify-recovery-package" : inspect ? "inspect-plan-ready" : verifyOnly)).then(result => {
         process.stdout.write(JSON.stringify(result) + "\n");
     }).catch(error => {
         process.stderr.write(JSON.stringify({

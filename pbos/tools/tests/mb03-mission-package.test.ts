@@ -1,8 +1,10 @@
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createRemotePlaybookMission } from "../../master-builder/playbook-remote-mission";
 import { hostedMissionScopeDigest, type SignedHostedMissionApproval } from "../../production-runtime/hosted-signed-mission-approval";
-import { MB03_PROTECTED_PACKAGE_BINDINGS, validateProtectedPlaybookMissionFile, type ProtectedPlaybookMissionFile } from "../mb03-mission-package";
+import { recoveryPreview } from "../mb03-sign-mission";
+import type { ProductionRun } from "../../production-runtime/contracts";
+import { inspectOriginalRecoveryPackage, MB03_PROTECTED_PACKAGE_BINDINGS, validateProtectedPlaybookMissionFile, type ProtectedPlaybookMissionFile } from "../mb03-mission-package";
 
 function fixture() {
     const keys = generateKeyPairSync("ed25519");
@@ -84,5 +86,39 @@ describe("MB-03 complete mission package", () => {
             ...packageFile,
             approval: { ...packageFile.approval, payload: { ...packageFile.approval.payload, missionId: "MB03-MISSION-002" } }
         })).toThrow("signed scope");
+    });
+});
+
+describe("read-only recovery package inspection", () => {
+    function inspection() {
+        const { keys, packageFile } = fixture();
+        const { approval, scope, target } = packageFile;
+        const preview = recoveryPreview();
+        const review = { ...preview, lineage: { ...preview.lineage, scope, commit: approval.payload.commit }, pin: { ...preview.pin, nonce: approval.payload.nonce,
+            scopeDigest: approval.payload.scopeDigest, commit: approval.payload.commit } };
+        const run = { runId: review.pin.runId, actorId: review.lineage.operatorId, startingBranch: scope.branch,
+            disposableAttempt: { approvalDigest: createHash("sha256").update(approval.signatureBase64).digest("hex") } } as ProductionRun;
+        const before = Buffer.from(target.before);
+        const blob = createHash("sha1").update("blob " + before.length + "\0").update(before).digest("hex");
+        const github = { assertRecoveryPublicationBase: vi.fn(async () => {}), getTrackedFileBlob: vi.fn(async () => blob) };
+        const check = (file = packageFile) => inspectOriginalRecoveryPackage(file, run,
+            keys.publicKey.export({ type: "spki", format: "pem" }).toString(), github, review);
+        return { check, github, packageFile };
+    }
+    it("checks package signature, interrupted attempt, current publication base and Git blob", async () => {
+        const { check, github } = inspection();
+        await expect(check()).resolves.toBeUndefined();
+        expect(github.getTrackedFileBlob).toHaveBeenCalledOnce();
+    });
+    it("rejects a different original signature before contacting GitHub", async () => {
+        const { check, github, packageFile } = inspection();
+        await expect(check({ ...packageFile, approval: { ...packageFile.approval, signatureBase64: "" } })).rejects.toThrow("RECOVERY_ORIGINAL_APPROVAL_LINEAGE");
+        expect(github.assertRecoveryPublicationBase).not.toHaveBeenCalled();
+    });
+    it("rejects valid lineage with substituted before bytes and rejects a moved base", async () => {
+        const { check, github, packageFile } = inspection();
+        await expect(check({ ...packageFile, target: { ...packageFile.target, before: "substituted" } })).rejects.toThrow("RECOVERY_TARGET_PREIMAGE");
+        github.assertRecoveryPublicationBase.mockRejectedValueOnce(Error("RECOVERY_PUBLICATION_BASE"));
+        await expect(check()).rejects.toThrow("RECOVERY_PUBLICATION_BASE");
     });
 });
