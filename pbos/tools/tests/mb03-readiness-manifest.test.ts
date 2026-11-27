@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 const job = readFileSync(resolve("job.mb03-readiness.yaml"), "utf8");
@@ -68,6 +70,58 @@ describe("MB-03 readiness is a non-executing, secret-staged Cloud Run job", () =
         expect(workflow).toContain('echo "PINNED=$PINNED" >> "$GITHUB_ENV"');
         expect(workflow).toContain('grep -Fq "image: $PINNED" "$manifest"');
         expect(workflow).toContain("readiness=pbos-mb03-playbook-readiness");
+    });
+
+    it("limits the image publisher to registry and artifact operations", () => {
+        const publisher = workflow.split("\n  publish-staging-image:\n")[1];
+        expect(publisher).toBeDefined();
+        expect(publisher).toContain("docker push");
+        expect(publisher).toContain("actions/upload-artifact@");
+        expect(publisher).not.toMatch(/gcloud\s+(run|logging)\s|verify-existing-readiness\.py/);
+        expect(publisher.indexOf('grep -Fq "image: $PINNED"')).toBeLessThan(publisher.indexOf("actions/upload-artifact@"));
+    });
+
+    it("exercises every publisher shell step with registry-only fakes and no cloud credentials", () => {
+        const dir = mkdtempSync(resolve(tmpdir(), "mb03-publisher-"));
+        try {
+            const stub = (name: string, script: string) =>
+                writeFileSync(resolve(dir, name), "#!/bin/sh\nset -eu\n" + script, { mode: 0o700 });
+            stub("docker", 'case "$1" in build|push) ;; *) exit 91;; esac');
+            stub("gcloud", [
+                'case "$1 $2 $3" in',
+                '  "artifacts repositories describe" | "auth configure-docker us-west1-docker.pkg.dev") ;;',
+                '  "artifacts docker images") test "$4" = describe; printf "sha256:%064d\\n" 1 ;;',
+                '  *) echo "Unexpected cloud call: $1 $2" >&2; exit 92 ;;',
+                "esac"
+            ].join("\n"));
+            const env = {
+                PATH: dir + ":/usr/bin:/bin", HOME: dir, RUNNER_TEMP: dir, GITHUB_REF: "refs/heads/main",
+                GITHUB_SHA: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+                GITHUB_ENV: resolve(dir, "env"), GITHUB_STEP_SUMMARY: resolve(dir, "summary"), PINNED: ""
+            };
+            writeFileSync(env.GITHUB_ENV, "");
+            const publisher = workflow.split("\n  publish-staging-image:\n")[1];
+            const blocks = [...publisher.matchAll(/^        run: \|\n((?:          [^\n]*\n|\n)+)/gm)];
+            expect(blocks.length).toBeGreaterThan(0);
+            for (const [, script] of blocks) {
+                execFileSync("bash", ["-euo", "pipefail", "-c", script.replace(/^          /gm, "")], { env });
+                env.PINNED = readFileSync(env.GITHUB_ENV, "utf8").match(/^PINNED=(.+)$/m)?.[1] ?? "";
+            }
+            expect(env.PINNED).toMatch(/@sha256:[0-9a-f]{64}$/);
+            expect(readFileSync(resolve(dir, "mb03-readiness-pinned.yaml"), "utf8")).toContain("image: " + env.PINNED);
+        } finally { rmSync(dir, { recursive: true, force: true }); }
+    });
+
+    it("rejects a manual image request for the wrong SHA, branch, attempt or a simultaneous live check", () => {
+        const script = workflow.split("      - name: Validate manual image publication scope")[1]
+            .split("        run: |\n")[1].split("      - uses:")[0].replace(/^          /gm, "");
+        const sha = "a".repeat(40);
+        const env = { REQUESTED_SHA: sha, GITHUB_SHA: sha, GITHUB_REF: "refs/heads/main", GITHUB_RUN_ATTEMPT: "1", READINESS_MANIFEST: "" };
+        expect(spawnSync("bash", ["-c", script], { env }).status).toBe(0);
+        for (const change of [{ REQUESTED_SHA: "main" }, { READINESS_MANIFEST: "another-action" },
+            { GITHUB_REF: "refs/heads/other" }, { GITHUB_RUN_ATTEMPT: "2" }]) {
+            expect(spawnSync("bash", ["-c", script], { env: { ...env, ...change } }).status).not.toBe(0);
+        }
     });
 
     it("does not auto-publish or rerun readiness on audit-only changes", () => {
